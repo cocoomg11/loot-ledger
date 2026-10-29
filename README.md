@@ -52,7 +52,11 @@ Ledger sets:
 > **dnd5e price = 2 × vendor sell price**
 
 so selling an item at half price yields exactly its classic sell price. The price is stored in the
-largest whole denomination (for example 1g 2s 3c sells → 20406 cp listed; 50s sells → 1 gp listed).
+largest denomination it reaches, with decimals, so mixed amounts stay readable: 1g 2s 3c sells → listed
+2g 4s 6c → stored as 2.0406 gp; 23s 50c sells → 47 sp; 7c sells → 14 cp. Multiplying the stored value by
+the denomination's conversion (rounded to the nearest coin) gives back the exact copper amount. The item
+sheet and chat cards show the exact value; the actor inventory column and item header round to three
+decimals, so they can hide the last copper.
 
 **Coin ratio** setting:
 
@@ -170,7 +174,33 @@ await ll.findTable({ band: 4, type: "jewelry" });   // the RollTable document
 `humanoid` `undead` `elemental` `dragonkin` `demon` `giant` `mechanical`). With none of them it rolls
 the band's mixed drop. A `loot-ledger.ready` hook fires on ready with the API as its argument.
 
+## 5e conversion (preview)
+
+`scripts/convert.mjs` is a first-pass converter that turns each source item into a dnd5e (2024 rules) item:
+a real base weapon or armour with SRD damage, properties, mastery and AC; a magic tier from quality; small
+bonuses from the item's stats, resistances and Equip / Use / Chance-on-hit lines; and a short **5e:** rules
+block under the original tooltip. Lines it has no rule for are kept as flavour and the item gets
+`flags["loot-ledger"].converted.needsReview = true` plus a "GM review" note. Items the source module
+already converted by hand are kept as they are (only re-priced, and non-chest armour turned into clothing so
+that only chest armour and shields give AC).
+
+It is off by default. Every rule is a table at the top of the file (`WEAPON_RULES`, `CHEST_RULES`,
+`CLOTH_CHEST`, `SLOT_EQUIPMENT`, `GEAR_TIERS`, `ACCESSORY_TIERS`, `EFFECT_PATTERNS`, potion and food tables),
+and the rules are expected to change.
+
+```js
+const ll = game.modules.get("loot-ledger").api;
+ll.convert(sourceItem);                                    // → { data, result } without saving anything
+await ll.convertToPack({ names: ["Some Item"], pack: { name: "my-test", label: "My Test" } });
+await ll.build({ convert: true });                         // full build with converted items
+```
+
 ## Licence
 
 Code is released under the [MIT licence](LICENSE). Loot Ledger contains no item data, artwork or audio;
 all item content comes from the separately installed source module.
+
+This work includes material from the System Reference Document 5.2 ("SRD 5.2") by Wizards of the Coast LLC,
+available at https://www.dndbeyond.com/srd. The SRD 5.2 is licensed under the Creative Commons Attribution 4.0
+International License, available at https://creativecommons.org/licenses/by/4.0/legalcode. (Used: weapon and
+armour statistics in `scripts/convert.mjs`.)
