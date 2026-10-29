@@ -2,7 +2,8 @@
  * Public API, exposed as game.modules.get("loot-ledger").api
  */
 import { MODULE_ID, BANDS, QUALITIES, CATEGORIES, CREATURES, bandForLevel, formatCoins, vendorCopperOf } from "./data.mjs";
-import { build, TABLES_PACK } from "./build.mjs";
+import { build, convertToPack, TABLES_PACK } from "./build.mjs";
+import { convertItem } from "./convert.mjs";
 
 /** Find the generated table matching a query. */
 export async function findTable({ band = null, level = null, quality = null, type = null, creature = null, pack = TABLES_PACK.name } = {}) {
@@ -69,6 +70,8 @@ export function sellPrice(item) {
 export function createApi() {
   return {
     build: (options) => build(options),
+    convert: (item, options) => convertItem(item, options),
+    convertToPack: (options) => convertToPack(options),
     roll,
     findTable,
     sellPrice,
