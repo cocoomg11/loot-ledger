@@ -1,0 +1,24 @@
+{
+  "LOOTLEDGER": {
+    "Settings": {
+      "Ratio": {
+        "Name": "Coin ratio",
+        "Hint": "How classic gold/silver/copper is converted into item prices. Applied the next time you build the loot pools.",
+        "Hundred": "100:1 (classic MMO, matches three-coin economies)",
+        "Ten": "Standard 5e (10:1, converted by value; small amounts lose precision)"
+      }
+    },
+    "Menu": {
+      "Name": "Loot pools",
+      "Title": "Loot Ledger",
+      "Hint": "Copy every classic MMO item into a world compendium with sell-accurate prices and generate rollable loot tables.",
+      "Build": "Build loot pools",
+      "Intro": "Builds two world compendiums from the source item module: a priced copy of every item, and roll tables by quality, item type, mixed drop and creature type. Re-running replaces their contents; nothing else in the world is touched.",
+      "Source": "Source items",
+      "Ratio": "Coin ratio",
+      "Missing": "not found (enable wow-classic-items)",
+      "NotBuilt": "not built yet",
+      "Bands": "Level bands"
+    }
+  }
+}

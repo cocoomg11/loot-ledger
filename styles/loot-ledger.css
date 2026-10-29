@@ -1,0 +1,5 @@
+.loot-ledger-menu { display: flex; flex-direction: column; gap: 0.5rem; }
+.loot-ledger-menu .loot-ledger-status { margin: 0; padding-left: 1.2rem; }
+.loot-ledger-menu details ul { margin: 0.25rem 0 0; padding-left: 1.2rem; }
+.loot-ledger-menu .form-footer { display: flex; justify-content: flex-end; }
+.loot-ledger-sell { margin-top: 0.4em; opacity: 0.85; }

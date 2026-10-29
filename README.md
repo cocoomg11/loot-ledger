@@ -1,0 +1,176 @@
+# Loot Ledger
+
+A Foundry VTT module for **dnd5e** that turns a classic MMO item compendium into **priced, rollable loot pools**.
+
+Loot Ledger ships no item data of its own. It reads the item compendium from the
+[`wow-classic-items`](#requirements) module at runtime and generates, inside your world:
+
+- **Loot Ledger · Items**: a world compendium with a copy of every source item, re-priced so that
+  selling it gives exactly the original vendor sell price, with dnd5e rarity set from item quality.
+- **Loot Ledger · Tables**: a world compendium of roll tables by level band, quality, item type,
+  mixed drop and creature type. Every result links to an item in the items compendium.
+
+The source module and its compendium are never modified.
+
+## Requirements
+
+| | |
+|---|---|
+| Foundry VTT | v13 or later (verified on v14) |
+| System | dnd5e 5.x or 6.x |
+| Module | `wow-classic-items` (provides the source item compendium), enabled in the world |
+
+## Installation
+
+Install with this manifest URL (Setup → Add-on Modules → Install Module):
+
+```
+https://github.com/cocoomg11/loot-ledger/releases/latest/download/module.json
+```
+
+Enable **Loot Ledger** and `wow-classic-items` in your world.
+
+## Building the loot pools
+
+1. As GM, open **Game Settings → Configure Settings → Loot Ledger**.
+2. Choose a **Coin ratio** (see below).
+3. Click **Build loot pools** and confirm.
+
+A progress bar shows the copy (about 12,000 items in batches of 500) and table generation. It takes a
+few minutes. Re-running the build **replaces** the contents of the two Loot Ledger compendiums (it asks
+first) and touches nothing else in the world. Item ids are kept from the source compendium and table
+ids are derived from table names, so UUID links stay valid across rebuilds.
+
+Change the coin ratio or update the source module? Just build again.
+
+## Prices
+
+The source data records each item's vendor sell price (gold / silver / copper, 100 copper = 1 silver,
+100 silver = 1 gold). In dnd5e, characters usually sell items for **half** their listed price, so Loot
+Ledger sets:
+
+> **dnd5e price = 2 × vendor sell price**
+
+so selling an item at half price yields exactly its classic sell price. The price is stored in the
+largest whole denomination (for example 1g 2s 3c sells → 20406 cp listed; 50s sells → 1 gp listed).
+
+**Coin ratio** setting:
+
+- **100:1 (default)**: classic MMO coinage, for worlds whose currency is configured as three coins at
+  100:1 (copper / silver / gold). Copper, silver and gold carry over one-to-one.
+- **Standard 5e (10:1)**: converted by value, 1 classic gold = 1 gp, so 1 classic silver = 1 cp. Prices
+  are rounded to the nearest copper piece with a minimum of 1 cp, so very cheap items lose precision.
+
+Items with no vendor price get price 0 and the flag `noSell: true`. Each copied item also gets a small
+"Sells for 1g 2s 3c" line at the end of its description.
+
+## Rarity
+
+| Item quality | dnd5e rarity |
+|---|---|
+| Poor (grey), Common (white) | common |
+| Uncommon (green) | uncommon |
+| Rare (blue) | rare |
+| Epic (purple) | very rare |
+| Legendary (orange) | legendary |
+| Artifact / heirloom | artifact |
+
+Quality is read from the tooltip title colour in the source data. The original quality is kept in the
+item flags.
+
+## Level bands
+
+Items are banded by item level (or required level when the item level is missing). Bands are mapped to
+character levels for a 1–20 game:
+
+| Band | Item level | Character levels | `bandForLevel()` returns this band for |
+|---|---|---|---|
+| 1 | 1–10 | L1–3 | 1–2 |
+| 2 | 11–20 | L3–5 | 3–4 |
+| 3 | 21–30 | L5–7 | 5–6 |
+| 4 | 31–40 | L7–9 | 7–8 |
+| 5 | 41–50 | L9–11 | 9–10 |
+| 6 | 51–60 | L11–14 | 11–14 |
+| 7 | 61+ | L15+ | 15–20 |
+
+## Roll tables
+
+Tables are named so they sort cleanly, e.g. `Loot · Band 2 (L3–5) · Uncommon`. Empty tables are skipped.
+
+- **By quality** (`· Poor`, `· Common`, `· Uncommon`, `· Rare`, `· Epic`): one table per quality per band,
+  plus one `Loot · Legendary & Artifact` table across all bands.
+- **By item type**: per band, `Weapons`, `Armour · Head & Shoulders`, `Armour · Chest & Legs`,
+  `Armour · Hands, Wrists, Waist & Feet`, `Armour · Cloaks`, `Shields`, `Jewellery & Trinkets`
+  (neck, finger, trinket, held in off-hand, relic), `Consumables`, `Trade Goods & Bags` and `Junk`
+  (grey non-gear items). Grey weapons and armour appear under their gear type.
+- **Mixed drops** (`· Drop (mixed)`): one per band. Rolls one of that band's quality tables with weights
+  poor 60, common 25, uncommon 12, rare 2.5, epic 0.5 (stored as 120 / 50 / 24 / 5 / 1). Missing
+  qualities are left out and the rest re-weighted. Foundry rolls the inner table automatically.
+- **By creature type** (`· Creature · Beast` …): per band, grey junk that fits the creature (about half the
+  time) or the band's mixed drop (the other half). Junk comes from the same band ±1 when at least three
+  items match, otherwise from any band.
+
+Creature keyword lists (matched at the start of a word in the item name, case-insensitive):
+
+| Creature | Keywords |
+|---|---|
+| Beast | fang, claw, talon, pelt, hide, fur, hair, tooth, teeth, tusk, horn, scale, feather, beak, bill, paw, tail, flank, mane, wing, eye, heart, gland, bladder, carcass, whisker, palp, limb, web, shell, venom, spine, meat, egg, skin, sinew, antler, hoof, snout, stinger, mandible, chitin, carapace, ear |
+| Humanoid | watch, bauble, doll, diary, page, letter, boot, glove, belt, candle, barrel, mug, flask, bottle, cup, pipe, dice, comb, spoon, fork, coin, locket, button, buckle, trinket, map, book, note, toy, collar, rag, tooth, gold, silver, copper, pouch; **plus the band's grey weapons and armour** |
+| Undead | bone, skull, rib, femur, jawbone, dust, ash, ectoplasm, shroud, rot, decay, grave, coffin, tomb, flesh, maggot, ichor, embalm, skeletal, ghost, spectral, lifeless, ancient |
+| Elemental | elemental, ember, ash, stone, pebble, rock, crystal, shard, earth, water, flame, fire, frost, ice, cinder, sand, slime, ooze, essence, mote, core, chip, salt, charged, smooth, molten, storm |
+| Dragonkin | dragon, drake, whelp, molting, wyrm, brood |
+| Demon | demon, fel, imp, infernal, satyr, horn, hoof, sulfur, brimstone, shadow, void, familiar |
+| Giant | giant, ogre, boulder, stone, rock, toe, knuckle, club, huge, massive, large, thick |
+| Mechanical | gear, cog, bolt, spring, sprocket, scrap, metal, iron, gizmo, gadget, widget, mechanical, rust, wire, watch, bracket, flywheel, barrel, copper |
+
+Not rolled: unsellable non-gear items (mostly quest items) and internal placeholder entries. They are still
+copied into the items compendium.
+
+## Item flags
+
+Each copied item carries `flags["loot-ledger"]`:
+
+```js
+{
+  sourceUuid,        // UUID of the original item in the source compendium
+  quality,           // poor | common | uncommon | rare | epic | legendary | artifact
+  itemLevel,         // number or null
+  requiredLevel,     // only when the item has one
+  vendorSellCopper,  // classic sell price in copper
+  vendorSell,        // e.g. "1g 2s 3c"
+  noSell,            // true when it cannot be sold
+  slot,              // e.g. "Chest", "Two-Hand", null
+  category,          // item-type table key
+  band,              // 1–7
+  coinRatio          // "100" or "10", the setting used for this build
+}
+```
+
+## API
+
+```js
+const ll = game.modules.get("loot-ledger").api;
+
+await ll.build();                                   // same as the settings button (asks to confirm)
+await ll.build({ confirm: false });                 // scripted rebuild
+
+await ll.roll({ level: 6 });                        // mixed drop for a level 6 party → Item[]
+await ll.roll({ band: 3, quality: "rare" });        // rare items, band 3
+await ll.roll({ band: 2, type: "weapon", count: 3 });
+await ll.roll({ level: 12, creature: "undead", chat: true });  // also posts the draw to chat
+
+ll.sellPrice(item);     // { copper: 10203, text: "1g 2s 3c", noSell: false }
+ll.bandForLevel(9);     // 5
+await ll.findTable({ band: 4, type: "jewelry" });   // the RollTable document
+```
+
+`roll()` query keys: `band` (1–7) or `level` (1–20), and at most one of `quality`
+(`poor` `common` `uncommon` `rare` `epic` `legendary`), `type` (`weapon` `armor-head` `armor-body`
+`armor-limbs` `armor-back` `shield` `jewelry` `consumable` `goods` `junk`) or `creature` (`beast`
+`humanoid` `undead` `elemental` `dragonkin` `demon` `giant` `mechanical`). With none of them it rolls
+the band's mixed drop. A `loot-ledger.ready` hook fires on ready with the API as its argument.
+
+## Licence
+
+Code is released under the [MIT licence](LICENSE). Loot Ledger contains no item data, artwork or audio;
+all item content comes from the separately installed source module.
