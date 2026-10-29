@@ -91,7 +91,7 @@ export const WEAPON_RULES = [
   { wow: "Polearm",     name: /spear|pike|lance|harpoon|trident/i, base: "pike" },
   { wow: "Polearm",     name: /halberd|axe|poleaxe|cleaver/i,      base: "halberd" },
   { wow: "Polearm",                                       base: "glaive" },
-  { wow: "Staff",                                         base: "quarterstaff" },
+  { wow: "Staff",                                         base: "quarterstaff", focus: true },
   { wow: "Bow",         maxSpeed: 2.59,                   base: "shortbow" },
   { wow: "Bow",                                           base: "longbow" },
   { wow: "Crossbow",    maxSpeed: 2.99,                   base: "lightcrossbow" },
@@ -100,6 +100,7 @@ export const WEAPON_RULES = [
   { wow: "Gun",                                           base: "musket" },
   { wow: "Thrown",      name: /axe|tomahawk|hatchet/i,    base: "handaxe" },
   { wow: "Thrown",      name: /spear|javelin/i,           base: "javelin" },
+  { wow: "Thrown",      name: /dagger|knife|blade/i,      base: "dagger" },
   { wow: "Thrown",                                        base: "dart" },
   { wow: "Fishing Pole",                                  base: "club" }
 ];
@@ -337,6 +338,12 @@ export function convertItem(src, options = {}) {
     itemType = base.type;
     system = foundry_clone(base.system);
     ctx.handSummary = summariseExisting(base, p);
+    // Still enforce the slot rule: only chest armour and shields give AC.
+    if (shape === "gear" && SLOT_EQUIPMENT[p.slot] === "clothing" && ["light", "medium", "heavy"].includes(system.type?.value)) {
+      system.type = { value: "clothing", baseItem: "" };
+      system.armor = { ...(system.armor ?? {}), value: null, dex: null };
+      ctx.handSummary = `clothing (was ${base.system.type.value} armour)` + ctx.handSummary.replace(/^[^,]*/, "");
+    }
   }
 
   // Description: keep everything from the source, append the 5e block.
@@ -561,7 +568,7 @@ function buildSystem(shape, ctx) {
         versatile: b.ver ? { number: b.ver[0], denomination: b.ver[1], bonus: "", types: [b.dmg[2]], custom: { enabled: false }, scaling: { number: 1 } } : {}
       },
       range: { value: b.range?.[0] ?? null, long: b.range?.[1] ?? null, reach: b.props.includes("rch") ? 10 : null, units: "ft" },
-      properties: [...b.props],
+      properties: rule.focus ? [...b.props, "foc"] : [...b.props],
       mastery: b.mastery,
       weight: { value: b.weight, units: "lb" },
       activities: { [ID("Attack")]: attackActivity(isRanged) }
