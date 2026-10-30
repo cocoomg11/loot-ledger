@@ -52,7 +52,11 @@ Ledger sets:
 > **dnd5e price = 2 × vendor sell price**
 
 so selling an item at half price yields exactly its classic sell price. The price is stored in the
-largest whole denomination (for example 1g 2s 3c sells → 20406 cp listed; 50s sells → 1 gp listed).
+largest denomination it reaches, with decimals, so mixed amounts stay readable: 1g 2s 3c sells → listed
+2g 4s 6c → stored as 2.0406 gp; 23s 50c sells → 47 sp; 7c sells → 14 cp. Multiplying the stored value by
+the denomination's conversion (rounded to the nearest coin) gives back the exact copper amount. The item
+sheet and chat cards show the exact value; the actor inventory column and item header round to three
+decimals, so they can hide the last copper.
 
 **Coin ratio** setting:
 
@@ -170,7 +174,44 @@ await ll.findTable({ band: 4, type: "jewelry" });   // the RollTable document
 `humanoid` `undead` `elemental` `dragonkin` `demon` `giant` `mechanical`). With none of them it rolls
 the band's mixed drop. A `loot-ledger.ready` hook fires on ready with the API as its argument.
 
+## 5e conversion (preview)
+
+`scripts/convert.mjs` turns each source item into a dnd5e (2024 rules) item. It is off by default and its
+rules are still being tuned. The ground rules:
+
+- **Traceable.** Every feature comes from one specific tooltip line (a stat line, an Equip / Use /
+  Chance-on-hit line, a resistance, the weapon damage line, or the item type and slot). Quality on its own
+  only sets the plain enhancement bonus of weapons, armour and shields, and attunement.
+- **Explained.** Each feature is written out in full under the tooltip, with a *Source:* note naming the
+  line it came from. Every other line is listed under **Not converted** with the reason.
+- **Proportionate.** The line decides what a feature is; rarity (and for weapons the level band) decides how
+  big it is, in line with SRD magic items of the same rarity.
+- **Flag, don't guess.** A line with no rule stays as flavour, and the item gets
+  `flags["loot-ledger"].converted.needsReview = true` and a **GM review** note.
+- **No automation yet.** Riders (extra damage, check or save bonuses, resistances and so on) are text only
+  and are recorded in `flags["loot-ledger"].riders` for a later automation pass. Only the enhancement bonus
+  uses dnd5e's own `magicalBonus` field.
+
+Items the source module converted by hand are kept only when every mechanic in their rules traces to the
+tooltip (`auditHandAuthored`); otherwise Loot Ledger's own conversion replaces them. Every rule is a table at
+the top of the file (`WEAPON_RULES`, `CHEST_RULES`, `CLOTH_CHEST`, `SLOT_EQUIPMENT`,
+`GEAR_BONUS`, `STAT_RULE`, `TRINKET_RULE`, `HIT_RULE`, `DEFENSE_RULE`, `SPELL_RULE`, `RESIST_RULE`, `PROC_RULE`, `NOT_CONVERTED`, potion and
+food tables).
+
+```js
+const ll = game.modules.get("loot-ledger").api;
+ll.convert(sourceItem);                                    // → { data, result } without saving anything
+ll.auditHandAuthored(sourceItem);                          // → { pass, problems } for a hand-written source item
+await ll.convertToPack({ names: ["Some Item"], pack: { name: "my-test", label: "My Test" } });
+await ll.build({ convert: true });                         // full build with converted items
+```
+
 ## Licence
 
 Code is released under the [MIT licence](LICENSE). Loot Ledger contains no item data, artwork or audio;
 all item content comes from the separately installed source module.
+
+This work includes material from the System Reference Document 5.2 ("SRD 5.2") by Wizards of the Coast LLC,
+available at https://www.dndbeyond.com/srd. The SRD 5.2 is licensed under the Creative Commons Attribution 4.0
+International License, available at https://creativecommons.org/licenses/by/4.0/legalcode. (Used: weapon and
+armour statistics in `scripts/convert.mjs`.)

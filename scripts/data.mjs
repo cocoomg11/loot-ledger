@@ -122,22 +122,27 @@ export function formatCoins(copper) {
 
 /**
  * dnd5e price for an item so that selling it at half price yields the vendor sell price.
+ *
+ * The value is stored in the largest denomination it reaches, with decimals, so mixed amounts read
+ * naturally instead of as one large copper number: 1g 46s 72c listed (2 x 73s 36c sell) is stored as
+ * 1.4672 gp, 46s 72c as 46.72 sp, 72c as 72 cp. dnd5e accepts decimal prices; the item sheet and chat
+ * show the exact value, the actor inventory column rounds to 3 decimals. Multiplying the value by the
+ * denomination's conversion gives back the exact copper amount (round to the nearest integer to absorb
+ * floating-point noise).
  * @param {number} copper   vendor sell price in classic copper
  * @param {"100"|"10"} ratio coin ratio setting
  * @returns {{value:number, denomination:string}}
  */
 export function priceFor(copper, ratio = "100") {
   if (!copper) return { value: 0, denomination: "gp" };
-  if (ratio === "10") {
+  // c = listed price in the smallest coin; step = coins per next denomination (100:1 or 10:1).
+  const [c, step] = ratio === "10"
     // Convert by value: 1 classic gold = 1 gp, so 1 classic silver = 1 cp. Round to the nearest cp (min 1).
-    const cp = 2 * Math.max(1, Math.round(copper / 100));
-    if (cp % 100 === 0) return { value: cp / 100, denomination: "gp" };
-    if (cp % 10 === 0) return { value: cp / 10, denomination: "sp" };
-    return { value: cp, denomination: "cp" };
-  }
-  const c = 2 * copper;
-  if (c % 10000 === 0) return { value: c / 10000, denomination: "gp" };
-  if (c % 100 === 0) return { value: c / 100, denomination: "sp" };
+    ? [2 * Math.max(1, Math.round(copper / 100)), 10]
+    : [2 * copper, 100];
+  const digits = String(step).length - 1; // decimals per denomination step
+  if (c >= step * step) return { value: Number((c / (step * step)).toFixed(digits * 2)), denomination: "gp" };
+  if (c >= step) return { value: Number((c / step).toFixed(digits)), denomination: "sp" };
   return { value: c, denomination: "cp" };
 }
 
