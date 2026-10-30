@@ -803,7 +803,7 @@ function applyLinesCommon(ctx) {
   applyResistances(ctx);
   applyEffects(ctx);
   const { p } = ctx;
-  for (const s of p.sets) notConverted(ctx, s, "set bonuses are not converted yet (no set rules)", "set bonus");
+  for (const s of p.sets) notConverted(ctx, s, "set bonuses are not converted yet, as there are no set rules", "set bonus");
   if (p.randomEnchant) notConverted(ctx, "<Random enchantment>", "random enchantments are not rolled", "random enchantment");
 }
 
@@ -1049,7 +1049,7 @@ function rulesBlock(ctx, hand, shape) {
   const parts = [`<p><strong>5e:</strong> ${esc(ctx.summary)} — ${rarityName}${att}.</p>`];
   if (ctx.basis) parts.push(`<p><em>Based on: ${esc(ctx.basis)}</em></p>`);
   if (hand && !hand.kept) parts.push(`<p><em>The source module's hand-written rule was replaced: it names mechanics the tooltip doesn't support (${esc(hand.audit.problems.map(x => x.text).join("; "))}).</em></p>`);
-  for (const f of ctx.features) parts.push(`<p><strong>${esc(f.name)}.</strong> ${esc(f.text)} <em>Source: ${esc(f.source)}.</em></p>`);
+  for (const f of ctx.features) parts.push(`<p><strong>${esc(f.name)}.</strong> ${esc(f.text)} <em>Source: ${esc(f.source)}${/[.…]$/.test(f.source) ? "" : "."}</em></p>`);
   if (!ctx.features.length && shape !== "loot" && shape !== "container") parts.push(`<p>No 5e rules: none of this item's lines convert (see below).</p>`);
   if (ctx.notConverted.length) parts.push(`<p class="loot-ledger-unconverted"><strong>Not converted:</strong> ${ctx.notConverted.map(r => `${esc(r.line)} (${esc(r.why)})`).join("; ")}.</p>`);
   if (ctx.review.length) parts.push(`<p class="loot-ledger-review"><strong>GM review:</strong> ${ctx.review.map(r => `<em>${esc(r.line)}</em> — ${esc(r.why)}`).join("; ")}.</p>`);
