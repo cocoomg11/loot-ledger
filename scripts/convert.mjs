@@ -293,7 +293,7 @@ export const SCHOOL_MAP = { Fire: "Fire", Frost: "Cold", Nature: "Poison", Shado
  * (ratio = average proc damage / average weapon damage):
  *   ratio < critBelow                -> extra damage on a Critical Hit (small, occasional),
  *   critBelow <= ratio < burstFrom   -> extra damage once per turn on a hit (steady, like SRD elemental weapons),
- *   ratio >= burstFrom               -> one big blast per Short or Long Rest (a signature burst).
+ *   ratio >= burstFrom               -> a big blast with DAILY_USES uses, regained at dawn (Long Rest).
  * Dice grow with the item's tier.
  */
 export const PROC_RULE = {
@@ -304,8 +304,18 @@ export const PROC_RULE = {
 };
 /** A weapon's own "+ X - Y <School> Damage" line (every hit in the classic game): once-per-turn extra dice. */
 export const WEAPON_EXTRA_DICE = { 0: "1d4", 1: "1d4", 2: "1d4", 3: "1d6", 4: "1d8" };
-/** "Extra attack" procs: extra attacks per use (capped by tier); one use per Short or Long Rest. */
-export const EXTRA_ATTACK_RULE = { max: { 0: 1, 1: 1, 2: 1, 3: 2, 4: 2 }, uses: { 0: 1, 1: 1, 2: 1, 3: 2, 4: 3 } };
+/**
+ * Limited-use features (Flurry, Blast and any other per-rest feature) recharge daily, as official items do:
+ * all expended uses return when the wielder finishes a Long Rest (dnd5e system.uses, recovery period "lr").
+ * Uses per Long Rest by quality:  common 1 | uncommon (green) 2 | rare (blue) 3 | epic (purple) 4 | legendary (orange) 6.
+ * "Once per turn" limits are separate and unchanged.
+ */
+export const DAILY_USES = { 0: 1, 1: 2, 2: 3, 3: 4, 4: 6 };
+const usesText = n => n === 1
+  ? "This property can't be used again until you finish a Long Rest."
+  : `This property has ${n} uses. You regain all expended uses when you finish a Long Rest.`;
+/** "Extra attack" procs: extra attacks per use (capped by tier); uses per Long Rest from DAILY_USES. */
+export const EXTRA_ATTACK_RULE = { max: { 0: 1, 1: 1, 2: 1, 3: 2, 4: 2 }, uses: DAILY_USES };
 
 /**
  * Reflavoured official items (first mapping, to be revisited). An Uncommon-or-better worn item whose lines give
@@ -664,6 +674,9 @@ export function convertItem(src, options = {}) {
   system.quantity ??= 1;
 
   const kept = hand?.kept;
+  // Daily-recharge features carry their uses on the item itself (dnd5e system.uses, recovered on a Long Rest).
+  const daily = kept ? null : ctx.riders.find(r => r.recovery === "lr" && r.uses >= 1);
+  if (daily) system.uses = { spent: 0, max: String(daily.uses), recovery: [{ period: "lr", type: "recoverAll" }] };
   const needsReview = !kept && ctx.review.length > 0;
   const flags = clone(base.flags ?? {});
   flags[MODULE_ID] = {
@@ -952,8 +965,8 @@ function procFeature(ctx, school, lo, hi, line, kindLabel) {
     const d = PROC_RULE.burstDice[tier];
     addFeature(ctx, {
       name: `${type} Blast`, sourceLine: line, source: src,
-      text: `When you hit a creature with an attack using this weapon, you can release a blast: the target takes an extra ${d} ${type} damage. Once you use this property, you can't use it again until you finish a Short or Long Rest.`,
-      rider: { type: "burstDamage", formula: d, damageType: type.toLowerCase(), trigger: "hit", uses: 1, recovery: "sr" }
+      text: `When you hit a creature with an attack using this weapon, you can release a blast: the target takes an extra ${d} ${type} damage. ${usesText(DAILY_USES[tier])}`,
+      rider: { type: "burstDamage", formula: d, damageType: type.toLowerCase(), trigger: "hit", uses: DAILY_USES[tier], recovery: "lr" }
     });
   }
 }
@@ -982,12 +995,11 @@ function applyEffects(ctx) {
       const melee = /melee/i.test(t) || (isWeapon && !ctx.extras.ranged);
       const weaponText = isWeapon ? "this weapon" : melee ? "a melee weapon" : "a weapon";
       const uses = EXTRA_ATTACK_RULE.uses[tier];
-      const often = uses === 1 ? "Once you use this property, you can't use it again until you finish a Short or Long Rest."
-        : `You can use this property ${uses === 2 ? "twice" : `${uses} times`}, and you regain all expended uses when you finish a Short or Long Rest.`;
+      const often = usesText(uses);
       addFeature(ctx, {
-        name: "Flurry", sourceLine: line, source: `${label} — ${short(t, 60)}; ${uses}/Short Rest by quality`,
+        name: "Flurry", sourceLine: line, source: `${label} — ${short(t, 60)}; ${uses}/Long Rest by quality`,
         text: `When you hit a creature with ${weaponText} as part of the Attack action, you can immediately make ${n === 1 ? "one additional attack" : `${n} additional attacks`} with that weapon as part of the same action. ${often}`,
-        rider: { type: "extraAttack", value: n, trigger: melee ? "meleeHit" : "hit", uses, recovery: "sr" }
+        rider: { type: "extraAttack", value: n, trigger: melee ? "meleeHit" : "hit", uses, recovery: "lr" }
       });
       continue;
     }
