@@ -238,20 +238,23 @@ const ABILITY_STAT = { str: "Strength", dex: "Agility", con: "Stamina", int: "In
  * item: at least max(minValue, item level / perItemLevel). It gives a bonus to checks with the matching
  * ability (Stamina gives Constitution saving throws instead, since Stamina is about toughness).
  * The other stat lines are listed as "Not converted".
+ * Sizes +1 / +1 / +2 / +2 sit at or below the official curve (survey: +1 to all checks and saves at Uncommon,
+ * +2 to all saves only at Very Rare). Never an ability SCORE increase.
  */
 export const STAT_RULE = { minTier: 1, minValue: 4, perItemLevel: 7, checkBonus: { 1: 1, 2: 1, 3: 2, 4: 2 }, saveBonus: { 1: 1, 2: 1, 3: 2, 4: 2 } };
 
 /**
  * Trinket slot only (decided by the user). The trinket's main stat (highest primary stat, no size threshold)
- * gives +1 / +2 / +3 / +3 (Uncommon / Rare / Epic / Legendary; Legendary stays at +3 because 5e item bonuses
- * top out there) to ability checks OR saving throws with the matching ability:
+ * gives +1 / +2 / +2 / +2 (Uncommon / Rare / Epic / Legendary) to ability checks OR saving throws with the
+ * matching ability. Capped at +2 from the official-item survey: no official 2024 item gives more than +2 to checks
+ * or saves (the largest is +2 to all saves at Very Rare), and none gives a flat bonus tied to a single ability:
  *   saving throws when the trinket reads as defensive: its main stat is Stamina, or it has a resistance line,
  *   or an Equip line about armour, defence, dodge, parry or block;
  *   ability checks otherwise (offensive or utility trinkets).
  * Trinkets with convertible effect lines use the normal effect rules; at Uncommon the effect replaces the
  * stat bonus (+1 OR an effect), from Rare up they get both. No stat and no convertible line -> GM review.
  */
-export const TRINKET_RULE = { minTier: 1, bonus: { 1: 1, 2: 2, 3: 3, 4: 3 }, defensive: /Armor|Defense|dodge|parry|block/i };
+export const TRINKET_RULE = { minTier: 1, bonus: { 1: 1, 2: 2, 3: 2, 4: 2 }, defensive: /Armor|Defense|dodge|parry|block/i };
 
 /** "Improves your chance to hit by N%" on a non-weapon item (Uncommon or better): +1 to weapon attack rolls,
  * or +1 to spell attack rolls on caster gear. */
