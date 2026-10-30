@@ -7,6 +7,9 @@
  *     line, an Equip: / Use: / Chance on hit: line, a resistance line, the weapon damage line, or the item
  *     type and slot. Quality on its own only sets the plain enhancement bonus of weapons, armour and shields,
  *     and attunement. Nothing else is ever added because of quality.
+ *     Common (white) and Poor (grey) items are baseline gear (decided by the user): the base 5e item only (its
+ *     weapon or armour statistics and its price). Their stat, resistance and effect lines are all listed as
+ *     "Not converted" (common item, baseline gear). Consumables keep their consumable function.
  *  2. Explained. Each feature is written out as a complete 5e rule (what it does, when, how often, any save
  *     or recharge) followed by a "Source:" note naming the line it came from.
  *  3. Proportionate. The line decides WHAT a feature is; the rarity (and for weapons the level band) decides
@@ -172,13 +175,14 @@ const TIER_NAME = { 0: "Common", 1: "Uncommon", 2: "Rare", 3: "Very Rare", 4: "L
 const QUALITY_NAME = { poor: "Poor", common: "Common", uncommon: "Uncommon", rare: "Rare", epic: "Epic", legendary: "Legendary", artifact: "Artifact" };
 
 /**
- * Plain enhancement bonus for weapons, chest armour and shields (decided by the user):
+ * Plain enhancement bonus for weapons and shields (decided by the user; ARMOR_BONUS for chest armour):
+ *   Common / Poor      none (baseline gear).
  *   Uncommon (green)   +1 OR one effect (see GREEN_RULE below for which one).
  *   Rare (blue)        +1 AND its effects (its effects use the Rare row of each table, bigger than green's).
  *   Epic (purple)      +2 and its effects.
  *   Legendary (orange) +3 and its effects.
  * "Effect" means a feature from one of the item's own Equip / Use / Chance-on-hit / resistance / bonus-damage
- * lines, or the main-stat ability check / saving throw bonus (see EFFECT_RIDERS; decided by the user).
+ * lines, or the main-stat passive (STAT_PASSIVE; on trinkets the check / save bonus) (see EFFECT_RIDERS).
  * Effects are never invented to fill a tier: an item with no convertible line just gets its plain bonus.
  * Ability SCORE increases are never given by the converter (only check / save bonuses); an official item used as
  * a reflavour (REFLAVOUR) that raises a score keeps its own rules.
@@ -187,23 +191,33 @@ export const GEAR_BONUS = {
   0: { plain: 0, withEffect: 0 }, 1: { plain: 1, withEffect: 0 }, 2: { plain: 1, withEffect: 1 },
   3: { plain: 2, withEffect: 2 }, 4: { plain: 3, withEffect: 3 }
 };
+/**
+ * Chest armour (leather / mail / plate) follows the official armour curve (decided by the user): +1 Armor is
+ * Rare, +2 Very Rare, +3 Legendary. So green chest armour gets NO +1: its one benefit is its stat passive or a
+ * traceable effect line, and with neither it is just the base armour. Blue +1, purple +2, orange +3, always
+ * alongside their effects. Shields use GEAR_BONUS (the official +1 / +2 / +3 shield is Uncommon / Rare / Very Rare).
+ */
+export const ARMOR_BONUS = {
+  0: { plain: 0, withEffect: 0 }, 1: { plain: 0, withEffect: 0 }, 2: { plain: 1, withEffect: 1 },
+  3: { plain: 2, withEffect: 2 }, 4: { plain: 3, withEffect: 3 }
+};
 /** Rider types that count as an "effect" for GEAR_BONUS. */
-export const EFFECT_RIDERS = new Set(["extraDamage", "burstDamage", "extraAttack", "heal", "attackBonus", "spellBonus", "healBonus", "resistance", "acBonus", "cantrip", "checkBonus", "saveBonus"]);
-/** Rider types that come from the main stat line. */
-const STAT_RIDERS = new Set(["checkBonus", "saveBonus"]);
+export const EFFECT_RIDERS = new Set(["extraDamage", "burstDamage", "extraAttack", "heal", "attackBonus", "spellBonus", "healBonus", "resistance", "acBonus", "cantrip", "statPassive", "checkBonus", "saveBonus"]);
+/** Rider types that come from the main stat line (statPassive; checkBonus / saveBonus on trinkets). */
+const STAT_RIDERS = new Set(["statPassive", "checkBonus", "saveBonus"]);
 
 /**
- * Uncommon (green) items get ONE benefit (decided by the user: "+1 OR an effect"; the stat bonus is an effect).
- *   Weapons, chest armour, shields: a convertible effect line (proc, bonus damage, resistance, ...) replaces the +1.
- *     Otherwise the +1 enhancement is the default and the main-stat bonus is listed as not converted, EXCEPT when
+ * Uncommon (green) items get ONE benefit (decided by the user: "+1 OR an effect"; the stat passive is an effect).
+ *   Weapons and shields: a convertible effect line (proc, bonus damage, resistance, ...) replaces the +1.
+ *     Otherwise the +1 enhancement is the default and the main-stat passive is listed as not converted, EXCEPT when
  *     the stat is clearly the better fit, which then replaces the +1:
  *       - a caster weapon (a Staff, or any weapon whose lines are about spells) whose main stat is Intellect or
  *         Spirit, or
  *       - the stat is the item's whole identity: its name carries the stat suffix (e.g. "of the Owl", "of Strength").
- *   Accessories (rings, amulets, cloaks, trinkets, clothing slots, cloth robes, wands): the main-stat bonus is the
- *     one effect; when the item also has a convertible effect line, that line wins and the stat is not converted
- *     (same as the trinket rule).
- * Rare and up are unchanged: bonus plus every effect, the stat bonus included.
+ *   Chest armour (no green +1, see ARMOR_BONUS) and accessories (rings, amulets, cloaks, trinkets, clothing slots,
+ *     cloth robes, wands): the main-stat passive is the one effect; when the item also has a convertible effect
+ *     line, that line wins and the stat is not converted (same as the trinket rule).
+ * Rare and up are unchanged: bonus plus every effect, the stat passive included.
  */
 export const GREEN_RULE = {
   casterStats: new Set(["int", "wis"]),
@@ -234,14 +248,40 @@ const STAT_ORDER = ["str", "dex", "con", "int", "wis"];
 const ABILITY_STAT = { str: "Strength", dex: "Agility", con: "Stamina", int: "Intellect", wis: "Spirit" };
 
 /**
- * Primary stat lines. Only the item's highest primary stat counts, and only when it is a real part of the
- * item: at least max(minValue, item level / perItemLevel). It gives a bonus to checks with the matching
- * ability (Stamina gives Constitution saving throws instead, since Stamina is about toughness).
- * The other stat lines are listed as "Not converted".
- * Sizes +1 / +1 / +2 / +2 sit at or below the official curve (survey: +1 to all checks and saves at Uncommon,
- * +2 to all saves only at Very Rare). Never an ability SCORE increase.
+ * Primary stat lines (decided by the user: "WoW-style passive", option C). Only the item's highest primary stat
+ * counts, and only when it is a real part of the item: at least max(minValue, item level / perItemLevel). It
+ * gives ONE passive in the spirit of what that stat does in the classic game, sized by quality. On a green item
+ * the passive is the item's one benefit (GREEN_RULE); from blue up it comes on top of the enhancement bonus.
+ * The other stat lines are listed as "Not converted". Never an ability SCORE increase.
+ * All of these are provisional (rider flag `provisional: true`, rules text "WoW stat passive (provisional)"),
+ * to be revised against the official book.
+ *
+ *               Uncommon (green)       Rare (blue)            Very Rare (purple)     Legendary (orange)
+ *   Strength    carry x2               carry x2 + Adv. Athl.  carry x2 + Adv. Athl.  carry x2 + Adv. Athl.
+ *   Agility     +1 Initiative          +1 Initiative          +2 Initiative          +3 Initiative
+ *   Stamina     +1 max HP / 2 levels   +1 max HP / 2 levels   +1 max HP / level      +1 max HP / level
+ *   Intellect   +1 spell save DC, 1/LR +1 DC, 2/LR            +2 DC, 1/LR            +2 DC, 2/LR
+ *   Spirit      +1 HP per Hit Die      +1 HP per Hit Die      +2 HP per Hit Die      +PB HP per Hit Die
+ *
+ * Curve notes: Strength's "Advantage on checks to shove or grapple" became Advantage on Strength (Athletics)
+ * checks, because in the 2024 rules Grapple and Shove are saving throws made by the target, not your check. The
+ * proposed +1 damage on Strength weapon attacks at purple / orange is left out: it would stack with the weapon's
+ * own +2 / +3 and no official item of that rarity adds flat weapon damage from a worn item. Stamina sits below
+ * the Tough feat (+2 per level) and an Amulet of Health. Spirit sits below a Periapt of Wound Closure (doubles
+ * Hit Point Dice healing) until Legendary. Agility sits next to a Weapon of Warning (Advantage on Initiative).
+ * Intellect's DC raise uses the item's limited uses (Long Rest).
  */
-export const STAT_RULE = { minTier: 1, minValue: 4, perItemLevel: 7, checkBonus: { 1: 1, 2: 1, 3: 2, 4: 2 }, saveBonus: { 1: 1, 2: 1, 3: 2, 4: 2 } };
+export const STAT_RULE = { minTier: 1, minValue: 4, perItemLevel: 7 };
+export const STAT_PASSIVE = {
+  str: { name: "Might", athleticsFrom: 2 },
+  dex: { name: "Quickness", initiative: { 1: 1, 2: 1, 3: 2, 4: 3 } },
+  con: { name: "Vigor", hpPerLevel: { 1: 0.5, 2: 0.5, 3: 1, 4: 1 } },
+  int: { name: "Arcane Acuity", dc: { 1: 1, 2: 1, 3: 2, 4: 2 }, uses: { 1: 1, 2: 2, 3: 1, 4: 2 } },
+  wis: { name: "Renewal", perDie: { 1: "1", 2: "1", 3: "2", 4: "@prof" } }
+};
+export const STAT_PASSIVE_NOTE = "WoW stat passive (provisional)";
+/** Reason listed for every stat / effect line of a Common or Poor item. */
+const BASELINE_WHY = "common item, baseline gear";
 
 /**
  * Trinket slot only (decided by the user). The trinket's main stat (highest primary stat, no size threshold)
@@ -293,7 +333,7 @@ export const SCHOOL_MAP = { Fire: "Fire", Frost: "Cold", Nature: "Poison", Shado
  * (ratio = average proc damage / average weapon damage):
  *   ratio < critBelow                -> extra damage on a Critical Hit (small, occasional),
  *   critBelow <= ratio < burstFrom   -> extra damage once per turn on a hit (steady, like SRD elemental weapons),
- *   ratio >= burstFrom               -> a big blast with DAILY_USES uses, regained at dawn (Long Rest).
+ *   ratio >= burstFrom               -> a big blast with BLAST_USES uses, regained on a Long Rest.
  * Dice grow with the item's tier.
  */
 export const PROC_RULE = {
@@ -311,6 +351,9 @@ export const WEAPON_EXTRA_DICE = { 0: "1d4", 1: "1d4", 2: "1d4", 3: "1d6", 4: "1
  * "Once per turn" limits are separate and unchanged.
  */
 export const DAILY_USES = { 0: 1, 1: 2, 2: 3, 3: 4, 4: 6 };
+/** Big chance-on-hit blasts (PROC_RULE burst) are capped lower (decided by the user): 1 / 1 / 2 / 3 per Long Rest
+ * (green / blue / purple / orange), so even a Legendary blast is at most 3 a day. Flurry keeps DAILY_USES. */
+export const BLAST_USES = { 0: 1, 1: 1, 2: 1, 3: 2, 4: 3 };
 const usesText = n => n === 1
   ? "This property can't be used again until you finish a Long Rest."
   : `This property has ${n} uses. You regain all expended uses when you finish a Long Rest.`;
@@ -675,7 +718,9 @@ export function convertItem(src, options = {}) {
 
   const kept = hand?.kept;
   // Daily-recharge features carry their uses on the item itself (dnd5e system.uses, recovered on a Long Rest).
-  const daily = kept ? null : ctx.riders.find(r => r.recovery === "lr" && r.uses >= 1);
+  // One system.uses per item: an effect line's uses win over the stat passive's (the other stays in text / riders).
+  const dailies = kept ? [] : ctx.riders.filter(r => r.recovery === "lr" && r.uses >= 1);
+  const daily = dailies.find(r => r.type !== "statPassive") ?? dailies[0];
   if (daily) system.uses = { spent: 0, max: String(daily.uses), recovery: [{ period: "lr", type: "recoverAll" }] };
   const needsReview = !kept && ctx.review.length > 0;
   const flags = clone(base.flags ?? {});
@@ -814,7 +859,8 @@ function damageType(school, text = "") {
 function enhancement(ctx, kind) {
   const { tier, p } = ctx;
   const effect = ctx.features.find(f => f.rider && EFFECT_RIDERS.has(f.rider.type));
-  const row = GEAR_BONUS[tier] ?? GEAR_BONUS[0];
+  const table = kind === "armor" ? ARMOR_BONUS : GEAR_BONUS;
+  const row = table[tier] ?? table[0];
   ctx.bonus = effect ? row.withEffect : row.plain;
   if (!ctx.bonus) return;
   const why = row.plain !== row.withEffect ? " with no effect line" : "";
@@ -827,7 +873,36 @@ function enhancement(ctx, kind) {
   ctx.magic = true;
 }
 
-/** The single highest primary stat, when large enough; the rest are listed as not converted. */
+/** The WoW stat passive (STAT_PASSIVE) for `ability` at `tier`: {name, text, rider}. */
+export function statPassive(ability, tier, ctx) {
+  const P = STAT_PASSIVE[ability];
+  const hold = `While ${verb(ctx)} this ${itemNoun(ctx)}`;
+  const base = { type: "statPassive", stat: ABILITY_STAT[ability], ability, trigger: "equipped", provisional: true, note: STAT_PASSIVE_NOTE };
+  if (ability === "str") {
+    const adv = tier >= P.athleticsFrom;
+    return { name: P.name, rider: { ...base, effect: "carryingCapacity", multiplier: 2, ...(adv ? { advantage: "skill:ath" } : {}) },
+      text: `${hold}, your carrying capacity (the weight you can carry, push, drag, or lift) is doubled${adv ? ", and you have Advantage on Strength (Athletics) checks" : ""}.` };
+  }
+  if (ability === "dex") {
+    const n = P.initiative[tier];
+    return { name: P.name, rider: { ...base, effect: "initiative", value: n }, text: `${hold}, you have a +${n} bonus to Initiative rolls.` };
+  }
+  if (ability === "con") {
+    const half = P.hpPerLevel[tier] < 1;
+    return { name: P.name, rider: { ...base, effect: "hpMax", formula: half ? "floor(@details.level / 2)" : "@details.level" },
+      text: `${hold}, your Hit Point maximum increases by ${half ? "1 for every two levels you have (rounded down)" : "an amount equal to your level"}.` };
+  }
+  if (ability === "int") {
+    const n = P.dc[tier], uses = P.uses[tier];
+    return { name: P.name, rider: { ...base, effect: "spellDC", value: n, uses, recovery: "lr" },
+      text: `${hold}, when you cast a spell that forces a saving throw, you can increase that spell's save DC by ${n} for that casting. ${usesText(uses)}` };
+  }
+  const per = P.perDie[tier];
+  return { name: P.name, rider: { ...base, effect: "hitDiceHealing", formula: per },
+    text: `${hold}, whenever you spend Hit Point Dice during a Short Rest, you regain ${per === "@prof" ? "extra Hit Points equal to your Proficiency Bonus" : `an extra ${per} Hit Point${per === "1" ? "" : "s"}`} for each die you spend.` };
+}
+
+/** The single highest primary stat, when large enough, becomes a WoW stat passive; the rest are not converted. */
 function applyStats(ctx) {
   const { p, tier } = ctx;
   const keys = STAT_ORDER.filter(k => p.stats[k]);
@@ -838,30 +913,23 @@ function applyStats(ctx) {
   const value = p.stats[top];
   if (tier >= STAT_RULE.minTier && value >= min) {
     const line = p.statLines[top];
-    if (top === "con") {
-      const n = STAT_RULE.saveBonus[tier];
-      addFeature(ctx, {
-        name: "Fortitude", sourceLine: line,
-        text: `While ${verb(ctx)} this ${itemNoun(ctx)}, you have a +${n} bonus to Constitution saving throws.`,
-        source: `${line} (the item's main stat)`,
-        rider: { type: "saveBonus", ability: "con", value: n, trigger: "equipped" }
-      });
-    } else {
-      const n = STAT_RULE.checkBonus[tier];
-      addFeature(ctx, {
-        name: { str: "Might", dex: "Deftness", int: "Cunning", wis: "Clarity" }[top], sourceLine: line,
-        text: `While ${verb(ctx)} this ${itemNoun(ctx)}, you have a +${n} bonus to ability checks that use ${ABILITY_LABEL[top]} (including skill checks based on ${ABILITY_LABEL[top]}).`,
-        source: `${line} (the item's main stat)`,
-        rider: { type: "checkBonus", ability: top, value: n, trigger: "equipped" }
-      });
-    }
+    const f = statPassive(top, tier, ctx);
+    addFeature(ctx, { ...f, sourceLine: line, source: `${line} (the item's main stat; ${STAT_PASSIVE_NOTE})` });
     for (const k of keys) if (k !== top) notConverted(ctx, p.statLines[k], "only the item's main stat becomes a 5e rule", "secondary stat");
   } else {
-    const why = tier < STAT_RULE.minTier
-      ? "stats on Common and Poor items have no 5e rule"
-      : `main stat below the conversion threshold (${min} at item level ${p.itemLevel ?? "?"})`;
-    for (const k of keys) notConverted(ctx, p.statLines[k], why, tier < STAT_RULE.minTier ? "common item stat" : `below ${min}`);
+    for (const k of keys) notConverted(ctx, p.statLines[k], `main stat below the conversion threshold (${min} at item level ${p.itemLevel ?? "?"})`, `below ${min}`);
   }
+}
+
+/** Common and Poor items are baseline gear: every stat, resistance and effect line is listed as not converted. */
+function applyBaseline(ctx) {
+  const { p } = ctx;
+  const lines = [
+    ...STAT_ORDER.filter(k => p.stats[k]).map(k => p.statLines[k]),
+    ...Object.entries(p.resist).map(([k, v]) => k === "All" ? `+${v} All Resistances` : `+${v} ${k} Resistance`),
+    ...p.effects.map(e => e.line)
+  ];
+  for (const l of lines) notConverted(ctx, l, BASELINE_WHY, BASELINE_WHY);
 }
 
 /** Trinket main stat -> check or save bonus (TRINKET_RULE). Runs after the effect lines. */
@@ -912,8 +980,8 @@ function applyGreenRule(ctx) {
   if (!stat) return;
   const effect = ctx.features.find(f => f.rider && EFFECT_RIDERS.has(f.rider.type) && !STAT_RIDERS.has(f.rider.type));
   if (effect) { dropFeature(ctx, stat, `an Uncommon item gets one benefit; its effect (${effect.name}) takes it`, "effect instead"); return; }
-  const enhanced = ctx.extras.weapon || ctx.extras.armor;
-  if (!enhanced) return; // accessories: the stat bonus is their one effect
+  const enhanced = ctx.extras.weapon || p.wowType === "Shield";
+  if (!enhanced) return; // chest armour and accessories: the stat passive is their one effect
   const ability = stat.rider.ability;
   const caster = GREEN_RULE.casterStats.has(ability) && (p.wowType === "Staff" || p.effects.some(e => /spell/i.test(e.text)));
   const identity = statIsIdentity(p.name, ability);
@@ -965,8 +1033,8 @@ function procFeature(ctx, school, lo, hi, line, kindLabel) {
     const d = PROC_RULE.burstDice[tier];
     addFeature(ctx, {
       name: `${type} Blast`, sourceLine: line, source: src,
-      text: `When you hit a creature with an attack using this weapon, you can release a blast: the target takes an extra ${d} ${type} damage. ${usesText(DAILY_USES[tier])}`,
-      rider: { type: "burstDamage", formula: d, damageType: type.toLowerCase(), trigger: "hit", uses: DAILY_USES[tier], recovery: "lr" }
+      text: `When you hit a creature with an attack using this weapon, you can release a blast: the target takes an extra ${d} ${type} damage. ${usesText(BLAST_USES[tier])}`,
+      rider: { type: "burstDamage", formula: d, damageType: type.toLowerCase(), trigger: "hit", uses: BLAST_USES[tier], recovery: "lr" }
     });
   }
 }
@@ -1070,7 +1138,8 @@ function applyEffects(ctx) {
 }
 
 function applyLinesCommon(ctx) {
-  if (ctx.p.slot === "Trinket") {
+  if (ctx.tier === 0) applyBaseline(ctx);
+  else if (ctx.p.slot === "Trinket") {
     applyResistances(ctx);
     applyEffects(ctx);
     applyTrinketStat(ctx);
@@ -1155,7 +1224,8 @@ function buildSystem(shape, ctx) {
     ctx.basis = `${handsLabel} ${p.wowType ?? "weapon"}${p.speed ? `, speed ${p.speed.toFixed(2)}` : ""} → ${b.label}${b.custom ? " (Loot Ledger custom weapon)" : ""}: ${b.dmg[0]}d${b.dmg[1]} ${cap(b.dmg[2])}${propText ? `; ${propText}` : ""}; mastery ${cap(b.mastery)}.`;
     if (p.damage) notConverted(ctx, `${p.damage.min} - ${p.damage.max}${p.damage.school ? ` ${p.damage.school}` : ""} Damage`, "the base weapon's damage die replaces it", "base weapon");
     // The weapon's own bonus elemental damage line (every hit in the classic game).
-    if (p.extraDamage && SCHOOL_MAP[p.extraDamage.school]) {
+    if (p.extraDamage && ctx.tier === 0) notConverted(ctx, p.extraDamage.line, BASELINE_WHY, BASELINE_WHY);
+    else if (p.extraDamage && SCHOOL_MAP[p.extraDamage.school]) {
       const type = damageType(p.extraDamage.school, p.name);
       const d = WEAPON_EXTRA_DICE[ctx.tier];
       addFeature(ctx, {
@@ -1204,7 +1274,8 @@ function buildSystem(shape, ctx) {
     const school = p.damage?.school ?? null;
     const cantrip = school ? WAND_CANTRIP[school] : null;
     const line = p.damage ? `${p.damage.min} - ${p.damage.max}${school ? ` ${school}` : ""} Damage` : "Wand";
-    if (cantrip) {
+    if (ctx.tier === 0) notConverted(ctx, line, BASELINE_WHY, BASELINE_WHY);
+    else if (cantrip) {
       addFeature(ctx, {
         name: "Wand Bolt", sourceLine: line, source: `${line} (the wand's ranged ${school} attack)`,
         text: `While holding this wand, you can cast the ${cantrip} cantrip. Use your spellcasting ability for it; if you don't have one, use Intelligence.`,
@@ -1212,7 +1283,7 @@ function buildSystem(shape, ctx) {
       });
     } else review(ctx, line, school ? `no SRD cantrip matches ${school} damage for a wand` : "the wand's damage line has no school");
     applyLinesCommon(ctx);
-    ctx.magic = true;
+    if (ctx.tier > 0) ctx.magic = true;
     ctx.summary = "Wand";
     return { type: "equipment", system: finish(ctx, sys) };
   }
