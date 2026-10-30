@@ -173,18 +173,17 @@ const QUALITY_NAME = { poor: "Poor", common: "Common", uncommon: "Uncommon", rar
 
 /**
  * Plain enhancement bonus for weapons, chest armour and shields (decided by the user):
- *   Uncommon (green)  +1.
- *   Rare (blue)       +1, plus any effect its own lines give.
- *   Epic (purple)     +2 when it has no effect; +1 when it has an effect. The effect tables below are larger
- *                     at Epic than at Rare, so an Epic item always comes out clearly stronger than a Rare one.
- *   Legendary         +3, plus its effects.
+ *   Uncommon (green)   +1 OR an effect: the effect replaces the +1 when the item has a convertible line.
+ *   Rare (blue)        +1 AND its effects (its effects use the Rare row of each table, bigger than green's).
+ *   Epic (purple)      +2 and its effects.
+ *   Legendary (orange) +3 and its effects.
  * "Effect" means a feature from one of the item's own Equip / Use / Chance-on-hit / resistance / bonus-damage
- * lines (see EFFECT_RIDERS); the main-stat check or save bonus does not count. Effects are never invented
- * to fill a tier: an item with no convertible line just gets its plain bonus.
+ * lines (see EFFECT_RIDERS); the main-stat check or save bonus is the stat line itself and does not count.
+ * Effects are never invented to fill a tier: an item with no convertible line just gets its plain bonus.
  */
 export const GEAR_BONUS = {
-  0: { plain: 0, withEffect: 0 }, 1: { plain: 1, withEffect: 1 }, 2: { plain: 1, withEffect: 1 },
-  3: { plain: 2, withEffect: 1 }, 4: { plain: 3, withEffect: 3 }
+  0: { plain: 0, withEffect: 0 }, 1: { plain: 1, withEffect: 0 }, 2: { plain: 1, withEffect: 1 },
+  3: { plain: 2, withEffect: 2 }, 4: { plain: 3, withEffect: 3 }
 };
 /** Rider types that count as an "effect" for GEAR_BONUS. */
 export const EFFECT_RIDERS = new Set(["extraDamage", "burstDamage", "extraAttack", "heal", "attackBonus", "spellBonus", "healBonus", "resistance", "acBonus", "cantrip"]);
@@ -206,6 +205,18 @@ const ABILITY_STAT = { str: "Strength", dex: "Agility", con: "Stamina", int: "In
  * The other stat lines are listed as "Not converted".
  */
 export const STAT_RULE = { minTier: 1, minValue: 4, perItemLevel: 7, checkBonus: { 1: 1, 2: 1, 3: 2, 4: 2 }, saveBonus: { 1: 1, 2: 1, 3: 2, 4: 2 } };
+
+/**
+ * Trinket slot only (decided by the user). The trinket's main stat (highest primary stat, no size threshold)
+ * gives +1 / +2 / +3 / +3 (Uncommon / Rare / Epic / Legendary; Legendary stays at +3 because 5e item bonuses
+ * top out there) to ability checks OR saving throws with the matching ability:
+ *   saving throws when the trinket reads as defensive: its main stat is Stamina, or it has a resistance line,
+ *   or an Equip line about armour, defence, dodge, parry or block;
+ *   ability checks otherwise (offensive or utility trinkets).
+ * Trinkets with convertible effect lines use the normal effect rules; at Uncommon the effect replaces the
+ * stat bonus (+1 OR an effect), from Rare up they get both. No stat and no convertible line -> GM review.
+ */
+export const TRINKET_RULE = { minTier: 1, bonus: { 1: 1, 2: 2, 3: 3, 4: 3 }, defensive: /Armor|Defense|dodge|parry|block/i };
 
 /** "Improves your chance to hit by N%": a bonus to weapon attack rolls on non-weapon items of Rare or higher (Epic beats Rare). */
 export const HIT_RULE = { minTier: 2, bonus: { 2: 1, 3: 2, 4: 2 } };
@@ -643,7 +654,7 @@ function enhancement(ctx, kind) {
   const row = GEAR_BONUS[tier] ?? GEAR_BONUS[0];
   ctx.bonus = effect ? row.withEffect : row.plain;
   if (!ctx.bonus) return;
-  const why = row.plain !== row.withEffect ? (effect ? ` with an effect (${effect.name})` : " with no effect") : "";
+  const why = row.plain !== row.withEffect ? " with no effect line" : "";
   const text = kind === "weapon"
     ? `You have a +${ctx.bonus} bonus to attack rolls and damage rolls made with this magic weapon.`
     : kind === "shield"
@@ -688,6 +699,39 @@ function applyStats(ctx) {
       : `main stat below the conversion threshold (${min} at item level ${p.itemLevel ?? "?"})`;
     for (const k of keys) notConverted(ctx, p.statLines[k], why, tier < STAT_RULE.minTier ? "common item stat" : `below ${min}`);
   }
+}
+
+/** Trinket main stat -> check or save bonus (TRINKET_RULE). Runs after the effect lines. */
+function applyTrinketStat(ctx) {
+  const { p, tier } = ctx;
+  const keys = STAT_ORDER.filter(k => p.stats[k]);
+  const effect = ctx.features.find(f => f.rider && EFFECT_RIDERS.has(f.rider.type));
+  if (!keys.length) {
+    if (!ctx.features.length && !ctx.review.length) review(ctx, "Trinket", "trinket with no stat and no convertible line; decide whether it needs a feature");
+    return;
+  }
+  let top = null;
+  for (const k of keys) if (top === null || p.stats[k] > p.stats[top]) top = k;
+  const rest = keys.filter(k => k !== top);
+  if (tier < TRINKET_RULE.minTier) { for (const k of keys) notConverted(ctx, p.statLines[k], "stats on Common and Poor items have no 5e rule", "common item stat"); return; }
+  if (tier === 1 && effect) {
+    for (const k of keys) notConverted(ctx, p.statLines[k], `an Uncommon trinket gets its effect (${effect.name}) instead of a stat bonus`, "effect instead");
+    return;
+  }
+  const defensive = top === "con" || Object.keys(p.resist).length > 0 || p.effects.some(e => e.kind === "equip" && TRINKET_RULE.defensive.test(e.text));
+  const n = TRINKET_RULE.bonus[tier];
+  const line = p.statLines[top];
+  const why = top === "con" ? "Stamina is its main stat" : defensive ? "its lines are defensive" : "its lines are offensive or utility";
+  addFeature(ctx, defensive ? {
+    name: "Steadfast", sourceLine: line, source: `${line} (main stat; saving throws because ${why})`,
+    text: `While carrying this trinket, you have a +${n} bonus to ${ABILITY_LABEL[top]} saving throws.`,
+    rider: { type: "saveBonus", ability: top, value: n, trigger: "equipped" }
+  } : {
+    name: "Knack", sourceLine: line, source: `${line} (main stat; ability checks because ${why})`,
+    text: `While carrying this trinket, you have a +${n} bonus to ability checks that use ${ABILITY_LABEL[top]} (including skill checks based on ${ABILITY_LABEL[top]}).`,
+    rider: { type: "checkBonus", ability: top, value: n, trigger: "equipped" }
+  });
+  for (const k of rest) notConverted(ctx, p.statLines[k], "only the trinket's main stat becomes a 5e rule", "secondary stat");
 }
 
 function applyResistances(ctx) {
@@ -834,9 +878,15 @@ function applyEffects(ctx) {
 }
 
 function applyLinesCommon(ctx) {
-  applyStats(ctx);
-  applyResistances(ctx);
-  applyEffects(ctx);
+  if (ctx.p.slot === "Trinket") {
+    applyResistances(ctx);
+    applyEffects(ctx);
+    applyTrinketStat(ctx);
+  } else {
+    applyStats(ctx);
+    applyResistances(ctx);
+    applyEffects(ctx);
+  }
   const { p } = ctx;
   for (const s of p.sets) notConverted(ctx, s, "set bonuses are not converted yet, as there are no set rules", "set bonus");
   if (p.randomEnchant) notConverted(ctx, "<Random enchantment>", "random enchantments are not rolled", "random enchantment");
