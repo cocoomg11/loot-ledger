@@ -7,16 +7,19 @@ export const MODULE_ID = "loot-ledger";
 export const SOURCE_MODULE = "wow-classic-items";
 export const SOURCE_PACK = "wow-classic-items.items";
 
+import { RARITY_BY_QUALITY, DROP_WEIGHT, PRICE_RULE } from "./rules.mjs";
+
 /** Item quality, ordered low → high. `color` is the tooltip title colour used by the source data. */
+/** Rarity and mixed-drop weight come from rules.mjs (RARITY_BY_QUALITY, DROP_WEIGHT). */
 export const QUALITIES = [
-  { key: "poor",      label: "Poor",      color: "#9d9d9d", rarity: "common",    weight: 120 },
-  { key: "common",    label: "Common",    color: "#ffffff", rarity: "common",    weight: 50 },
-  { key: "uncommon",  label: "Uncommon",  color: "#1eff00", rarity: "uncommon",  weight: 24 },
-  { key: "rare",      label: "Rare",      color: "#0070dd", rarity: "rare",      weight: 5 },
-  { key: "epic",      label: "Epic",      color: "#a335ee", rarity: "veryRare",  weight: 1 },
-  { key: "legendary", label: "Legendary", color: "#ff8000", rarity: "legendary", weight: 0 },
-  { key: "artifact",  label: "Artifact",  color: "#e6cc80", rarity: "artifact",  weight: 0 }
-];
+  { key: "poor",      label: "Poor",      color: "#9d9d9d" },
+  { key: "common",    label: "Common",    color: "#ffffff" },
+  { key: "uncommon",  label: "Uncommon",  color: "#1eff00" },
+  { key: "rare",      label: "Rare",      color: "#0070dd" },
+  { key: "epic",      label: "Epic",      color: "#a335ee" },
+  { key: "legendary", label: "Legendary", color: "#ff8000" },
+  { key: "artifact",  label: "Artifact",  color: "#e6cc80" }
+].map(q => ({ ...q, rarity: RARITY_BY_QUALITY[q.key], weight: DROP_WEIGHT[q.key] }));
 export const QUALITY_BY_KEY = Object.fromEntries(QUALITIES.map(q => [q.key, q]));
 /** Qualities that get per-band quality tables and feed the mixed "Drop" tables. */
 export const DROP_QUALITIES = ["poor", "common", "uncommon", "rare", "epic"];
@@ -136,10 +139,12 @@ export function formatCoins(copper) {
 export function priceFor(copper, ratio = "100") {
   if (!copper) return { value: 0, denomination: "gp" };
   // c = listed price in the smallest coin; step = coins per next denomination (100:1 or 10:1).
+  // Multiplier and minimum come from rules.mjs (PRICE_RULE).
+  const k = PRICE_RULE.sellMultiplier;
   const [c, step] = ratio === "10"
-    // Convert by value: 1 classic gold = 1 gp, so 1 classic silver = 1 cp. Round to the nearest cp (min 1).
-    ? [2 * Math.max(1, Math.round(copper / 100)), 10]
-    : [2 * copper, 100];
+    // Convert by value: 1 classic gold = 1 gp, so 1 classic silver = 1 cp. Round to the nearest cp (min tenToOneMinCp).
+    ? [k * Math.max(PRICE_RULE.tenToOneMinCp, Math.round(copper / 100)), 10]
+    : [k * copper, 100];
   const digits = String(step).length - 1; // decimals per denomination step
   if (c >= step * step) return { value: Number((c / (step * step)).toFixed(digits * 2)), denomination: "gp" };
   if (c >= step) return { value: Number((c / step).toFixed(digits)), denomination: "sp" };

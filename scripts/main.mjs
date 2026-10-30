@@ -2,7 +2,7 @@
  * Loot Ledger: entry point. Registers settings, the "Build loot pools" menu and the API.
  */
 import { MODULE_ID, SOURCE_MODULE, BANDS } from "./data.mjs";
-import { build, ITEMS_PACK, TABLES_PACK } from "./build.mjs";
+import { build, ITEMS_PACK, CONVERTED_PACK, TABLES_PACK } from "./build.mjs";
 import { createApi } from "./api.mjs";
 
 const { ApplicationV2 } = foundry.applications.api;
@@ -24,6 +24,8 @@ class BuildMenu extends ApplicationV2 {
     const source = game.packs.get(`${SOURCE_MODULE}.items`);
     const items = game.packs.get(`world.${ITEMS_PACK.name}`);
     const tables = game.packs.get(`world.${TABLES_PACK.name}`);
+    const converted = game.packs.get(`world.${CONVERTED_PACK.name}`);
+    const convertOn = game.settings.get(MODULE_ID, "convertOnBuild");
     const bands = BANDS.map(b => `<li>Band ${b.band}: item level ${b.max === Infinity ? `${b.min}+` : `${b.min}–${b.max}`} → ${b.levels}</li>`).join("");
     return `
       <section class="loot-ledger-menu">
@@ -31,7 +33,9 @@ class BuildMenu extends ApplicationV2 {
         <ul class="loot-ledger-status">
           <li><strong>${i18n("LOOTLEDGER.Menu.Source")}:</strong> ${source ? `${source.index.size} items` : i18n("LOOTLEDGER.Menu.Missing")}</li>
           <li><strong>${i18n("LOOTLEDGER.Menu.Ratio")}:</strong> ${ratio === "10" ? i18n("LOOTLEDGER.Settings.Ratio.Ten") : i18n("LOOTLEDGER.Settings.Ratio.Hundred")}</li>
+          <li><strong>${i18n("LOOTLEDGER.Menu.Convert")}:</strong> ${convertOn ? i18n("LOOTLEDGER.Menu.On") : i18n("LOOTLEDGER.Menu.Off")}</li>
           <li><strong>${ITEMS_PACK.label}:</strong> ${items ? `${items.index.size} items` : i18n("LOOTLEDGER.Menu.NotBuilt")}</li>
+          ${convertOn || converted ? `<li><strong>${CONVERTED_PACK.label}:</strong> ${converted ? `${converted.index.size} items` : i18n("LOOTLEDGER.Menu.NotBuilt")}</li>` : ""}
           <li><strong>${TABLES_PACK.label}:</strong> ${tables ? `${tables.index.size} tables` : i18n("LOOTLEDGER.Menu.NotBuilt")}</li>
         </ul>
         <details><summary>${i18n("LOOTLEDGER.Menu.Bands")}</summary><ul>${bands}</ul></details>
@@ -70,6 +74,16 @@ Hooks.once("init", () => {
       "10": "LOOTLEDGER.Settings.Ratio.Ten"
     },
     default: "100"
+  });
+
+  // Off on the v0.3.0 development branch; book day flips the default once the rules are calibrated.
+  game.settings.register(MODULE_ID, "convertOnBuild", {
+    name: "LOOTLEDGER.Settings.Convert.Name",
+    hint: "LOOTLEDGER.Settings.Convert.Hint",
+    scope: "world",
+    config: true,
+    type: Boolean,
+    default: false
   });
 
   game.settings.registerMenu(MODULE_ID, "build", {

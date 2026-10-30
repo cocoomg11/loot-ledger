@@ -7,8 +7,11 @@ Loot Ledger ships no item data of its own. It reads the item compendium from the
 
 - **Loot Ledger · Items**: a world compendium with a copy of every source item, re-priced so that
   selling it gives exactly the original vendor sell price, with dnd5e rarity set from item quality.
+- **Loot Ledger · Converted Items** (only when 5e conversion is on): every item converted to dnd5e rules.
 - **Loot Ledger · Tables**: a world compendium of roll tables by level band, quality, item type,
-  mixed drop and creature type. Every result links to an item in the items compendium.
+  mixed drop and creature type. Every result links to an item in the converted compendium when conversion is
+  on, otherwise in the items compendium.
+- **Loot Ledger · Build Report**: a journal entry with the last build's summary and the GM review list.
 
 The source module and its compendium are never modified.
 
@@ -33,15 +36,42 @@ Enable **Loot Ledger** and `wow-classic-items` in your world.
 ## Building the loot pools
 
 1. As GM, open **Game Settings → Configure Settings → Loot Ledger**.
-2. Choose a **Coin ratio** (see below).
+2. Choose a **Coin ratio** (see below) and whether to **Convert items to 5e when building** (see below).
 3. Click **Build loot pools** and confirm.
 
-A progress bar shows the copy (about 12,000 items in batches of 500) and table generation. It takes a
-few minutes. Re-running the build **replaces** the contents of the two Loot Ledger compendiums (it asks
-first) and touches nothing else in the world. Item ids are kept from the source compendium and table
-ids are derived from table names, so UUID links stay valid across rebuilds.
+A progress bar shows the copy (about 12,000 items in batches of 500), the 5e conversion when it is on, and
+table generation. The first build takes a few minutes.
 
-Change the coin ratio or update the source module? Just build again.
+**Re-running is incremental.** Every item Loot Ledger writes carries a hash of its source item and of every
+setting and rule that shaped it (coin ratio, the values in `scripts/rules.mjs`, converter version, replace
+list, installed official compendiums). A re-run skips items whose hash is unchanged, rewrites the ones that
+changed, and removes items that are no longer in the source. Running it twice never duplicates anything, and a
+build that stops part-way (closed tab, server restart) picks up where it left off the next time. Roll tables
+are regenerated every time. Item ids are kept from the source compendium and table ids are derived from table
+names, so UUID links stay valid across rebuilds. Nothing else in the world is touched apart from the Build
+Report journal entry.
+
+Change the coin ratio, update the source module or edit a rule? Just build again. To rewrite everything
+anyway: `game.modules.get("loot-ledger").api.build({ force: true })`.
+
+After each build the GM gets a chat whisper with the counts (copied, converted, GM review needed, hand-written
+rules replaced, skipped as unchanged) and a link to the **Loot Ledger · Build Report** journal entry.
+
+### Convert items to 5e when building
+
+World setting, **off by default** in this version. When on, Build also runs the 5e converter (see
+[5e conversion](#5e-conversion)) over every copied item and writes the results to **Loot Ledger · Converted
+Items**; the roll tables then point at the converted versions. The plain copies in **Loot Ledger · Items** are
+kept, so turning the setting off and building again points the tables back at them.
+
+### GM review list
+
+The converter never invents a feature. A tooltip line it has no rule for stays as flavour on the item (marked
+**GM review** in the item's description) and the item is listed on the **GM review** page of the Build Report,
+with the exact lines to look at and a link to the item. Very Rare or better items that end up with nothing beyond
+their base item are listed too. An item the converter fails on outright is listed with the error, and the tables
+use its plain copy. The **Hand-written** page lists source items whose own 5e rules were replaced (with the
+reason) or kept.
 
 ## Prices
 
@@ -146,9 +176,13 @@ Each copied item carries `flags["loot-ledger"]`:
   slot,              // e.g. "Chest", "Two-Hand", null
   category,          // item-type table key
   band,              // 1–7
-  coinRatio          // "100" or "10", the setting used for this build
+  coinRatio,         // "100" or "10", the setting used for this build
+  hash               // build fingerprint: source + settings + rules; unchanged hash = skipped on rebuild
 }
 ```
+
+Converted items also carry `riders` and `converted` (`needsReview`, `review`, `notConverted`,
+`handAuthored`, `handAuthoredKept`, `handAuthoredReplaced`, `replaceList`, `summary`, `version`).
 
 ## API
 
@@ -156,7 +190,9 @@ Each copied item carries `flags["loot-ledger"]`:
 const ll = game.modules.get("loot-ledger").api;
 
 await ll.build();                                   // same as the settings button (asks to confirm)
-await ll.build({ confirm: false });                 // scripted rebuild
+await ll.build({ confirm: false });                 // scripted rebuild (incremental)
+await ll.build({ confirm: false, convert: true });  // override the conversion setting for this run
+await ll.build({ confirm: false, force: true });    // ignore stored hashes, rewrite every item
 
 await ll.roll({ level: 6 });                        // mixed drop for a level 6 party → Item[]
 await ll.roll({ band: 3, quality: "rare" });        // rare items, band 3
@@ -174,10 +210,10 @@ await ll.findTable({ band: 4, type: "jewelry" });   // the RollTable document
 `humanoid` `undead` `elemental` `dragonkin` `demon` `giant` `mechanical`). With none of them it rolls
 the band's mixed drop. A `loot-ledger.ready` hook fires on ready with the API as its argument.
 
-## 5e conversion (preview)
+## 5e conversion
 
-`scripts/convert.mjs` turns each source item into a dnd5e (2024 rules) item. It is off by default and its
-rules are still being tuned. The ground rules:
+`scripts/convert.mjs` turns each source item into a dnd5e (2024 rules) item. Build runs it when the **Convert
+items to 5e when building** setting is on (off by default; its rules are still being tuned). The ground rules:
 
 - **Traceable.** Every feature comes from one specific tooltip line (a stat line, an Equip / Use /
   Chance-on-hit line, a resistance, the weapon damage line, or the item type and slot). Quality on its own
@@ -193,10 +229,27 @@ rules are still being tuned. The ground rules:
   uses dnd5e's own `magicalBonus` field.
 
 Items the source module converted by hand are kept only when every mechanic in their rules traces to the
-tooltip (`auditHandAuthored`); otherwise Loot Ledger's own conversion replaces them. Every rule is a table at
-the top of the file (`WEAPON_RULES`, `CHEST_RULES`, `CLOTH_CHEST`, `SLOT_EQUIPMENT`,
-`GEAR_BONUS`, `STAT_RULE`, `TRINKET_RULE`, `HIT_RULE`, `DEFENSE_RULE`, `SPELL_RULE`, `RESIST_RULE`, `PROC_RULE`, `NOT_CONVERTED`, potion and
-food tables).
+tooltip (`auditHandAuthored`) and the item is not on the replace list; otherwise Loot Ledger's own conversion
+replaces them.
+
+### Calibration: `scripts/rules.mjs`
+
+Every tunable number lives in one commented file, `scripts/rules.mjs`, so tuning is editing values, not logic:
+rarity by quality, mixed-drop weights, the price rule, base weapon and chest-armour mapping, the +N curves for
+weapons, shields and chest armour (`GEAR_BONUS`, `ARMOR_BONUS`), the green-item rule, attunement, stat passives
+(`STAT_RULE`, `STAT_PASSIVE`), trinket bonuses (`TRINKET_RULE`), hit / defence / spell power / resistance
+thresholds, proc dice (`PROC_RULE`), limited uses (`DAILY_USES` for Flurry and the like, `BLAST_USES`) and
+consumable tables. `convert.mjs` re-exports them. Changing any value changes every affected item's hash, so the
+next build re-converts exactly those items. `tests/rules.test.mjs` pins the current values; update it alongside
+any deliberate change.
+
+### Replace list: `scripts/replace-list.mjs`
+
+Some hand-written conversions from the source module pass the automatic audit but were found by review not to
+trace to their tooltip. List them in `REPLACE_LIST` (by exact source item name, or by classic `itemId`, which is
+matched first) and Build uses Loot Ledger's conversion for them. The list holds identifiers only. It currently
+names 3 of the 47 known failures; the Build Report shows which entries matched a hand-written item, which matched
+an item with no hand-written rules, and which matched nothing.
 
 ```js
 const ll = game.modules.get("loot-ledger").api;
@@ -205,6 +258,17 @@ ll.auditHandAuthored(sourceItem);                          // → { pass, proble
 await ll.convertToPack({ names: ["Some Item"], pack: { name: "my-test", label: "My Test" } });
 await ll.build({ convert: true });                         // full build with converted items
 ```
+
+## Development
+
+```sh
+npm run check   # node --check every script and test
+npm test        # node --test tests/*.test.mjs (no dependencies)
+```
+
+The tests cover the rules tables, build hashing and the sync plan, the replace list, review routing and the
+report, and run `build()` end to end against a small in-memory Foundry stand-in (`tests/_foundry.mjs`) with
+made-up items (`tests/_fixtures.mjs`). GitHub Actions runs them on every push and pull request.
 
 ## Licence
 

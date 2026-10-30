@@ -30,7 +30,16 @@
  * plain item data, so it can be tested outside Foundry.
  */
 import { MODULE_ID, SOURCE_MODULE, QUALITY_BY_KEY, analyse, tooltipLines, priceFor, formatCoins } from "./data.mjs";
+// Every tunable number lives in rules.mjs (book-day calibration edits values there, not logic here).
+import {
+  WEAPON_RULES, CHEST_RULES, CLOTH_CHEST, SLOT_EQUIPMENT, TIER, GEAR_BONUS, ARMOR_BONUS, GREEN_RULE, ATTUNE_TIER, ATTUNE_RIDERS, STAT_RULE, STAT_PASSIVE, STAT_PASSIVE_NOTE, TRINKET_RULE, HIT_RULE, DEFENSE_RULE, SPELL_RULE, RESIST_RULE, SCHOOL_MAP, PROC_RULE, WEAPON_EXTRA_DICE, DAILY_USES, BLAST_USES, EXTRA_ATTACK_RULE, POTION_HEALING, MANA_POTION_SLOT, FOOD_HEALING, GEAR_HEALING
+} from "./rules.mjs";
+export {
+  WEAPON_RULES, CHEST_RULES, CLOTH_CHEST, SLOT_EQUIPMENT, TIER, GEAR_BONUS, ARMOR_BONUS, GREEN_RULE, ATTUNE_TIER, ATTUNE_RIDERS, STAT_RULE, STAT_PASSIVE, STAT_PASSIVE_NOTE, TRINKET_RULE, HIT_RULE, DEFENSE_RULE, SPELL_RULE, RESIST_RULE, SCHOOL_MAP, PROC_RULE, WEAPON_EXTRA_DICE, DAILY_USES, BLAST_USES, EXTRA_ATTACK_RULE, POTION_HEALING, MANA_POTION_SLOT, FOOD_HEALING, GEAR_HEALING
+};
 
+/** Bump when the rules (rules.mjs) or the conversion logic change: it is part of every item's source hash, so
+ * Build re-converts items converted under an older version. */
 export const CONVERTER_VERSION = 2;
 
 /* -------------------------------------------- */
@@ -91,144 +100,19 @@ const PROP_LABEL = {
   amm: "Ammunition", lod: "Loading", foc: "Spellcasting Focus"
 };
 
-/* -------------------------------------------- */
-/*  Item shape tables (tune these)              */
-/* -------------------------------------------- */
-
-/**
- * Weapon type -> base weapon. First matching row wins.
- * hands: "one" (One-Hand / Main Hand / Off Hand), "two" (Two-Hand), "ranged", "thrown".
- * maxSpeed: classic attack speed in seconds. name: regex on the item name (only picks between bases of the
- * same weapon family, never adds features).
- */
-export const WEAPON_RULES = [
-  { wow: "Sword",       hands: "two",                     base: "greatsword" },
-  { wow: "Sword",       hands: "one", slot: "Off Hand",   base: "shortsword" },
-  { wow: "Sword",       hands: "one", name: /rapier|foil|epee|short ?sword|dirk|gladius/i, base: "shortsword" },
-  { wow: "Sword",       hands: "one", maxSpeed: 1.79,     base: "shortsword" },
-  { wow: "Sword",       hands: "one",                     base: "longsword" },
-  { wow: "Axe",         hands: "two",                     base: "greataxe" },
-  { wow: "Axe",         hands: "one", slot: "Off Hand",   base: "handaxe" },
-  { wow: "Axe",         hands: "one", maxSpeed: 2.29,     base: "handaxe" },
-  { wow: "Axe",         hands: "one",                     base: "battleaxe" },
-  { wow: "Mace",        hands: "two",                     base: "maul" },
-  { wow: "Mace",        hands: "one", name: /hammer|mallet/i, base: "warhammer" },
-  { wow: "Mace",        hands: "one",                     base: "mace" },
-  { wow: "Dagger",                                        base: "dagger" },
-  { wow: "Fist Weapon",                                   base: "fist" },
-  { wow: "Polearm",     name: /spear|pike|lance|harpoon|trident/i, base: "pike" },
-  { wow: "Polearm",     name: /halberd|axe|poleaxe|cleaver/i,      base: "halberd" },
-  { wow: "Polearm",                                       base: "glaive" },
-  { wow: "Staff",                                         base: "quarterstaff", focus: true },
-  { wow: "Bow",         maxSpeed: 2.59,                   base: "shortbow" },
-  { wow: "Bow",                                           base: "longbow" },
-  { wow: "Crossbow",    maxSpeed: 2.99,                   base: "lightcrossbow" },
-  { wow: "Crossbow",                                      base: "heavycrossbow" },
-  // Guns lean musket (decided by the user): pistol only for a pistol name or a very fast gun.
-  { wow: "Gun",         name: /pistol|derringer|handgun/i, base: "pistol" },
-  { wow: "Gun",         maxSpeed: 1.99,                   base: "pistol" },
-  { wow: "Gun",                                           base: "musket" },
-  { wow: "Thrown",      name: /axe|tomahawk|hatchet/i,    base: "handaxe" },
-  { wow: "Thrown",      name: /spear|javelin/i,           base: "javelin" },
-  { wow: "Thrown",      name: /dagger|knife|blade/i,      base: "dagger" },
-  { wow: "Thrown",                                        base: "dart" },
-  { wow: "Fishing Pole",                                  base: "club" }
-];
-
-/** Chest armour by armour class and item level. First matching row wins. Cloth chests use CLOTH_CHEST. */
-export const CHEST_RULES = [
-  { wow: "Leather", maxIlvl: 30,  base: "leather" },
-  { wow: "Leather",               base: "studded" },
-  { wow: "Mail",    maxIlvl: 25,  base: "chainshirt" },
-  { wow: "Mail",    maxIlvl: 45,  base: "scalemail" },
-  { wow: "Mail",                  base: "breastplate" },
-  { wow: "Plate",   maxIlvl: 45,  base: "chainmail" },
-  { wow: "Plate",   maxIlvl: 58,  base: "splint" },
-  { wow: "Plate",                 base: "plate" }
-];
-
-/**
- * Cloth chest handling (decided by the user): "clothing" = no AC, so spellcasters without armour training can
- * wear robes; only an explicit Equip line raising armour or defence gives AC (DEFENSE_RULE). "padded" would
- * make them Padded Armor instead.
- */
-export const CLOTH_CHEST = "clothing";
-
-/**
- * Non-weapon, non-chest slots -> dnd5e equipment type (decided by the user: only chest armour and shields
- * give AC, so helmets, gloves, boots and so on are worn items without an AC value, unless an Equip line
- * raises armour or defence; see DEFENSE_RULE).
- */
-export const SLOT_EQUIPMENT = {
-  Head: "clothing", Shoulder: "clothing", Hands: "clothing", Wrist: "clothing", Waist: "clothing",
-  Legs: "clothing", Feet: "clothing", Back: "clothing", Shirt: "clothing", Tabard: "clothing",
-  Finger: "ring", Neck: "trinket", Trinket: "trinket", "Held In Off-hand": "trinket", Relic: "trinket"
-};
 
 /* -------------------------------------------- */
-/*  Power tables (tune these)                   */
+/*  Fixed labels and rider groups               */
 /* -------------------------------------------- */
 
-/** Quality -> power tier used by every table below (0 = no magic from quality). */
-export const TIER = { poor: 0, common: 0, uncommon: 1, rare: 2, epic: 3, legendary: 4, artifact: 4 };
 const TIER_NAME = { 0: "Common", 1: "Uncommon", 2: "Rare", 3: "Very Rare", 4: "Legendary" };
 const QUALITY_NAME = { poor: "Poor", common: "Common", uncommon: "Uncommon", rare: "Rare", epic: "Epic", legendary: "Legendary", artifact: "Artifact" };
 
-/**
- * Plain enhancement bonus for weapons and shields (decided by the user; ARMOR_BONUS for chest armour):
- *   Common / Poor      none (baseline gear).
- *   Uncommon (green)   +1 OR one effect (see GREEN_RULE below for which one).
- *   Rare (blue)        +1 AND its effects (its effects use the Rare row of each table, bigger than green's).
- *   Epic (purple)      +2 and its effects.
- *   Legendary (orange) +3 and its effects.
- * "Effect" means a feature from one of the item's own Equip / Use / Chance-on-hit / resistance / bonus-damage
- * lines, or the main-stat passive (STAT_PASSIVE; on trinkets the check / save bonus) (see EFFECT_RIDERS).
- * Effects are never invented to fill a tier: an item with no convertible line just gets its plain bonus.
- * Ability SCORE increases are never given by the converter (only check / save bonuses); an official item used as
- * a reflavour (REFLAVOUR) that raises a score keeps its own rules.
- */
-export const GEAR_BONUS = {
-  0: { plain: 0, withEffect: 0 }, 1: { plain: 1, withEffect: 0 }, 2: { plain: 1, withEffect: 1 },
-  3: { plain: 2, withEffect: 2 }, 4: { plain: 3, withEffect: 3 }
-};
-/**
- * Chest armour (leather / mail / plate) follows the official armour curve (decided by the user): +1 Armor is
- * Rare, +2 Very Rare, +3 Legendary. So green chest armour gets NO +1: its one benefit is its stat passive or a
- * traceable effect line, and with neither it is just the base armour. Blue +1, purple +2, orange +3, always
- * alongside their effects. Shields use GEAR_BONUS (the official +1 / +2 / +3 shield is Uncommon / Rare / Very Rare).
- */
-export const ARMOR_BONUS = {
-  0: { plain: 0, withEffect: 0 }, 1: { plain: 0, withEffect: 0 }, 2: { plain: 1, withEffect: 1 },
-  3: { plain: 2, withEffect: 2 }, 4: { plain: 3, withEffect: 3 }
-};
 /** Rider types that count as an "effect" for GEAR_BONUS. */
 export const EFFECT_RIDERS = new Set(["extraDamage", "burstDamage", "extraAttack", "heal", "attackBonus", "spellBonus", "healBonus", "resistance", "acBonus", "cantrip", "statPassive", "checkBonus", "saveBonus"]);
 /** Rider types that come from the main stat line (statPassive; checkBonus / saveBonus on trinkets). */
 const STAT_RIDERS = new Set(["statPassive", "checkBonus", "saveBonus"]);
 
-/**
- * Uncommon (green) items get ONE benefit (decided by the user: "+1 OR an effect"; the stat passive is an effect).
- *   Weapons and shields: a convertible effect line (proc, bonus damage, resistance, ...) replaces the +1.
- *     Otherwise the +1 enhancement is the default and the main-stat passive is listed as not converted, EXCEPT when
- *     the stat is clearly the better fit, which then replaces the +1:
- *       - a caster weapon (a Staff, or any weapon whose lines are about spells) whose main stat is Intellect or
- *         Spirit, or
- *       - the stat is the item's whole identity: its name carries the stat suffix (e.g. "of the Owl", "of Strength").
- *   Chest armour (no green +1, see ARMOR_BONUS) and accessories (rings, amulets, cloaks, trinkets, clothing slots,
- *     cloth robes, wands): the main-stat passive is the one effect; when the item also has a convertible effect
- *     line, that line wins and the stat is not converted (same as the trinket rule).
- * Rare and up are unchanged: bonus plus every effect, the stat passive included.
- */
-export const GREEN_RULE = {
-  casterStats: new Set(["int", "wis"]),
-  /** Classic stat suffixes -> the stats they grant. */
-  identitySuffix: {
-    Strength: ["str"], Agility: ["dex"], Stamina: ["con"], Intellect: ["int"], Spirit: ["wis"],
-    "the Bear": ["str", "con"], "the Owl": ["int", "wis"], "the Monkey": ["dex", "con"], "the Eagle": ["con", "int"],
-    "the Tiger": ["str", "dex"], "the Gorilla": ["str", "int"], "the Boar": ["str", "wis"], "the Falcon": ["dex", "int"],
-    "the Wolf": ["dex", "wis"], "the Whale": ["con", "wis"]
-  }
-};
 /** True when the item's name carries a stat suffix that includes `ability`. */
 function statIsIdentity(name, ability) {
   const m = String(name).match(/\bof (Strength|Agility|Stamina|Intellect|Spirit|the \w+)$/i);
@@ -236,10 +120,6 @@ function statIsIdentity(name, ability) {
   const key = Object.keys(GREEN_RULE.identitySuffix).find(k => k.toLowerCase() === m[1].toLowerCase());
   return !!key && GREEN_RULE.identitySuffix[key].includes(ability);
 }
-/** Quality tier from which every item requires attunement (Very Rare and Legendary). */
-export const ATTUNE_TIER = 3;
-/** Rider types that require attunement on their own, as their SRD counterparts do. */
-export const ATTUNE_RIDERS = new Set(["resistance", "attackBonus", "spellBonus", "healBonus", "extraAttack", "burstDamage", "acBonus"]);
 
 /** Classic stat -> 5e ability. Charisma has no classic counterpart. */
 export const STAT_MAP = { Strength: "str", Agility: "dex", Stamina: "con", Intellect: "int", Spirit: "wis" };
@@ -247,118 +127,15 @@ export const ABILITY_LABEL = { str: "Strength", dex: "Dexterity", con: "Constitu
 const STAT_ORDER = ["str", "dex", "con", "int", "wis"];
 const ABILITY_STAT = { str: "Strength", dex: "Agility", con: "Stamina", int: "Intellect", wis: "Spirit" };
 
-/**
- * Primary stat lines (decided by the user: "WoW-style passive", option C). Only the item's highest primary stat
- * counts, and only when it is a real part of the item: at least max(minValue, item level / perItemLevel). It
- * gives ONE passive in the spirit of what that stat does in the classic game, sized by quality. On a green item
- * the passive is the item's one benefit (GREEN_RULE); from blue up it comes on top of the enhancement bonus.
- * The other stat lines are listed as "Not converted". Never an ability SCORE increase.
- * All of these are provisional (rider flag `provisional: true`, rules text "WoW stat passive (provisional)"),
- * to be revised against the official book.
- *
- *               Uncommon (green)       Rare (blue)            Very Rare (purple)     Legendary (orange)
- *   Strength    carry x2               carry x2 + Adv. Athl.  carry x2 + Adv. Athl.  carry x2 + Adv. Athl.
- *   Agility     +1 Initiative          +1 Initiative          +2 Initiative          +3 Initiative
- *   Stamina     +1 max HP / 2 levels   +1 max HP / 2 levels   +1 max HP / level      +1 max HP / level
- *   Intellect   +1 spell save DC, 1/LR +1 DC, 2/LR            +2 DC, 1/LR            +2 DC, 2/LR
- *   Spirit      +1 HP per Hit Die      +1 HP per Hit Die      +2 HP per Hit Die      +PB HP per Hit Die
- *
- * Curve notes: Strength's "Advantage on checks to shove or grapple" became Advantage on Strength (Athletics)
- * checks, because in the 2024 rules Grapple and Shove are saving throws made by the target, not your check. The
- * proposed +1 damage on Strength weapon attacks at purple / orange is left out: it would stack with the weapon's
- * own +2 / +3 and no official item of that rarity adds flat weapon damage from a worn item. Stamina sits below
- * the Tough feat (+2 per level) and an Amulet of Health. Spirit sits below a Periapt of Wound Closure (doubles
- * Hit Point Dice healing) until Legendary. Agility sits next to a Weapon of Warning (Advantage on Initiative).
- * Intellect's DC raise uses the item's limited uses (Long Rest).
- */
-export const STAT_RULE = { minTier: 1, minValue: 4, perItemLevel: 7 };
-export const STAT_PASSIVE = {
-  str: { name: "Might", athleticsFrom: 2 },
-  dex: { name: "Quickness", initiative: { 1: 1, 2: 1, 3: 2, 4: 3 } },
-  con: { name: "Vigor", hpPerLevel: { 1: 0.5, 2: 0.5, 3: 1, 4: 1 } },
-  int: { name: "Arcane Acuity", dc: { 1: 1, 2: 1, 3: 2, 4: 2 }, uses: { 1: 1, 2: 2, 3: 1, 4: 2 } },
-  wis: { name: "Renewal", perDie: { 1: "1", 2: "1", 3: "2", 4: "@prof" } }
-};
-export const STAT_PASSIVE_NOTE = "WoW stat passive (provisional)";
 /** Reason listed for every stat / effect line of a Common or Poor item. */
 const BASELINE_WHY = "common item, baseline gear";
 
-/**
- * Trinket slot only (decided by the user). The trinket's main stat (highest primary stat, no size threshold)
- * gives +1 / +2 / +2 / +2 (Uncommon / Rare / Epic / Legendary) to ability checks OR saving throws with the
- * matching ability. Capped at +2 from the official-item survey: no official 2024 item gives more than +2 to checks
- * or saves (the largest is +2 to all saves at Very Rare), and none gives a flat bonus tied to a single ability:
- *   saving throws when the trinket reads as defensive: its main stat is Stamina, or it has a resistance line,
- *   or an Equip line about armour, defence, dodge, parry or block;
- *   ability checks otherwise (offensive or utility trinkets).
- * Trinkets with convertible effect lines use the normal effect rules; at Uncommon the effect replaces the
- * stat bonus (+1 OR an effect), from Rare up they get both. No stat and no convertible line -> GM review.
- */
-export const TRINKET_RULE = { minTier: 1, bonus: { 1: 1, 2: 2, 3: 2, 4: 2 }, defensive: /Armor|Defense|dodge|parry|block/i };
-
-/** "Improves your chance to hit by N%" on a non-weapon item (Uncommon or better): +1 to weapon attack rolls,
- * or +1 to spell attack rolls on caster gear. */
-export const HIT_RULE = { minTier: 1, bonus: 1 };
 /** Caster gear (Intellect / Spirit / spell power): its "+hit" line becomes +1 to spell attack rolls instead. */
 const isCasterGear = p => !!(p.stats.int || p.stats.wis) || p.effects.some(e => /spells and effects/i.test(e.text));
 
-/**
- * "Equip: Increased Defense +N" or "Equip: +N Armor." on an item that has no AC of its own (anything but chest
- * armour and shields, including cloth chests): +1 AC at most, like an SRD ring of protection, and it requires
- * attunement. The item's plain armour value never counts (decided by the user). On chest armour and shields
- * these lines are covered by the base AC and listed as not converted.
- */
-export const DEFENSE_RULE = { minTier: 1, ac: 1 };
-
-/**
- * "Increases damage (and healing) done by spells by up to N": a spellcasting bonus, like the SRD's +1 / +2 /
- * +3 spellcasting items, when N >= max(minValue, item level / perItemLevel). School-specific lines only
- * affect spell attack rolls of spells of that damage type. Healing-only lines add a small die to healing
- * spells. All of these require attunement by a spellcaster.
- */
-export const SPELL_RULE = { minValue: 4, perItemLevel: 6, bonus: { 0: 1, 1: 1, 2: 1, 3: 2, 4: 3 }, healDie: { 0: "1d4", 1: "1d4", 2: "1d4", 3: "1d6", 4: "1d8" } };
-
-/**
- * "+N <School> Resistance": full 5e Resistance only when the line is large for the item level
- * (N >= max(minValue, item level x perItemLevel)); smaller lines are listed as "Not converted".
- */
-export const RESIST_RULE = { minValue: 15, perItemLevel: 0.3 };
-
-/** Classic damage school -> 5e damage type. Nature becomes Lightning when the line mentions lightning or storms. */
-export const SCHOOL_MAP = { Fire: "Fire", Frost: "Cold", Nature: "Poison", Shadow: "Necrotic", Arcane: "Force", Holy: "Radiant" };
-
-/**
- * "Chance on hit" damage procs. Classic procs fire now and then (roughly once a minute, i.e. about once per
- * fight), so their 5e frequency is chosen by how big the proc is next to one normal hit of the weapon
- * (ratio = average proc damage / average weapon damage):
- *   ratio < critBelow                -> extra damage on a Critical Hit (small, occasional),
- *   critBelow <= ratio < burstFrom   -> extra damage once per turn on a hit (steady, like SRD elemental weapons),
- *   ratio >= burstFrom               -> a big blast with BLAST_USES uses, regained on a Long Rest.
- * Dice grow with the item's tier.
- */
-export const PROC_RULE = {
-  critBelow: 1, burstFrom: 2.5,
-  critDice:  { 0: "1d6", 1: "1d6", 2: "2d6", 3: "3d6", 4: "4d6" },
-  onHitDice: { 0: "1d4", 1: "1d4", 2: "1d6", 3: "2d6", 4: "3d6" },
-  burstDice: { 0: "2d6", 1: "3d6", 2: "4d6", 3: "6d6", 4: "8d6" }
-};
-/** A weapon's own "+ X - Y <School> Damage" line (every hit in the classic game): once-per-turn extra dice. */
-export const WEAPON_EXTRA_DICE = { 0: "1d4", 1: "1d4", 2: "1d4", 3: "1d6", 4: "1d8" };
-/**
- * Limited-use features (Flurry, Blast and any other per-rest feature) recharge daily, as official items do:
- * all expended uses return when the wielder finishes a Long Rest (dnd5e system.uses, recovery period "lr").
- * Uses per Long Rest by quality:  common 1 | uncommon (green) 2 | rare (blue) 3 | epic (purple) 4 | legendary (orange) 6.
- * "Once per turn" limits are separate and unchanged.
- */
-export const DAILY_USES = { 0: 1, 1: 2, 2: 3, 3: 4, 4: 6 };
-/** Big chance-on-hit blasts (PROC_RULE burst) are capped lower (decided by the user): 1 / 1 / 2 / 3 per Long Rest
- * (green / blue / purple / orange), so even a Legendary blast is at most 3 a day. Flurry keeps DAILY_USES. */
-export const BLAST_USES = { 0: 1, 1: 1, 2: 1, 3: 2, 4: 3 };
 const usesText = n => n === 1
   ? "This property can't be used again until you finish a Long Rest."
   : `This property has ${n} uses. You regain all expended uses when you finish a Long Rest.`;
-/** "Extra attack" procs: extra attacks per use (capped by tier); uses per Long Rest from DAILY_USES. */
-export const EXTRA_ATTACK_RULE = { max: { 0: 1, 1: 1, 2: 1, 3: 2, 4: 2 }, uses: DAILY_USES };
 
 /**
  * Reflavoured official items (first mapping, to be revisited). An Uncommon-or-better worn item whose lines give
@@ -425,25 +202,6 @@ function officialRef(entry) {
 /** Wands: their damage school decides the cantrip they let you cast (SRD 5.2 cantrips). Missing school -> GM review. */
 export const WAND_CANTRIP = { Fire: "Fire Bolt", Frost: "Ray of Frost", Arcane: "Eldritch Blast", Nature: "Poison Spray", Holy: "Sacred Flame" };
 
-/** Healing potions by item level (dice from the SRD 5.2 potions of healing). */
-export const POTION_HEALING = [
-  { maxIlvl: 10, formula: [2, 4, 2] },
-  { maxIlvl: 25, formula: [4, 4, 4] },
-  { maxIlvl: 45, formula: [8, 4, 8] },
-  { maxIlvl: Infinity, formula: [10, 4, 20] }
-];
-/** Mana potions: regain one expended spell slot of this level or lower. */
-export const MANA_POTION_SLOT = [
-  { maxIlvl: 15, level: 1 }, { maxIlvl: 30, level: 2 }, { maxIlvl: 45, level: 3 }, { maxIlvl: Infinity, level: 4 }
-];
-/** Food: extra hit points when eaten during a Short Rest. */
-export const FOOD_HEALING = [
-  { maxIlvl: 15, formula: [1, 4, 0] }, { maxIlvl: 35, formula: [1, 6, 0] }, { maxIlvl: Infinity, formula: [1, 8, 0] }
-];
-/** "Use: Restores N health" on gear: once per Long Rest, dice by item level. */
-export const GEAR_HEALING = [
-  { maxIlvl: 25, formula: [2, 4, 2] }, { maxIlvl: 45, formula: [4, 4, 4] }, { maxIlvl: Infinity, formula: [8, 4, 8] }
-];
 
 /**
  * Equip lines that are deliberately not converted, with the reason shown on the item. These are the classic
@@ -669,11 +427,14 @@ const short = (s, n = 70) => (s.length > n ? `${s.slice(0, n - 1)}…` : s);
  * @param {boolean} [options.keepHandAuthored=true] keep the source module's hand-written 5e rules when they
  *                                                  pass auditHandAuthored()
  * @param {string}  [options.dnd5eMajor]           dnd5e major version (rarity field shape)
+ * @param {boolean} [options.forceReplace=false]   the item is on the replace list (replace-list.mjs): its
+ *                                                  hand-written rules are replaced by Loot Ledger's conversion
+ *                                                  even when they pass the audit
  * @returns {{data: object, result: object, parsed: object}}
  */
 export function convertItem(src, options = {}) {
   const {
-    ratio = "100", keepHandAuthored = true,
+    ratio = "100", keepHandAuthored = true, forceReplace = false,
     dnd5eMajor = Number(String(globalThis.game?.system?.version ?? "6").split(".")[0])
   } = options;
   const p = parseSource(src);
@@ -694,7 +455,7 @@ export function convertItem(src, options = {}) {
   let hand = null;
   if (p.handAuthored) {
     const audit = auditHandAuthored(p);
-    hand = { audit, kept: keepHandAuthored && audit.pass };
+    hand = { audit, kept: keepHandAuthored && audit.pass && !forceReplace, forced: !!forceReplace };
     if (hand.kept) {
       itemType = base.type;
       system = clone(base.system);
@@ -733,7 +494,8 @@ export function convertItem(src, options = {}) {
     converted: {
       version: CONVERTER_VERSION, shape, needsReview,
       handAuthored: !!p.handAuthored, handAuthoredKept: !!kept,
-      ...(hand && !kept ? { handAuthoredReplaced: hand.audit.problems.map(x => `${x.claim}: ${x.text}`) } : {}),
+      ...(hand && !kept ? { handAuthoredReplaced: replacedWhy(hand).map(x => `${x.claim}: ${x.text}`) } : {}),
+      ...(hand?.forced ? { replaceList: true } : {}),
       summary: ctx.summary, review: ctx.review.map(r => `${r.line} — ${r.why}`),
       notConverted: ctx.notConverted.map(r => r.line)
     }
@@ -763,7 +525,7 @@ export function convertItem(src, options = {}) {
     needsReview,
     reviewReason: needsReview ? ctx.review.map(r => `${short(r.line, 60)}: ${r.why}`).join(" | ") : "",
     price: `${price.value} ${price.denomination}`,
-    ...(hand ? { handAuthored: kept ? "kept (passes audit)" : `replaced: ${hand.audit.problems.map(x => x.text).join("; ")}` } : {})
+    ...(hand ? { handAuthored: kept ? "kept (passes audit)" : `replaced: ${replacedWhy(hand).map(x => x.text).join("; ")}` } : {})
   };
   return { data, result, parsed: p, basedOn, sourceHtml };
 }
@@ -811,6 +573,11 @@ export function applyOfficial(conv, official) {
     notConverted: [], basedOn: o.name
   });
   return conv;
+}
+
+/** Why a hand-written rule was replaced: the audit's problems, plus the replace list when it was on it. */
+function replacedWhy(hand) {
+  return [...hand.audit.problems, ...(hand.forced ? [{ claim: "replace-list", text: "on the replace list" }] : [])];
 }
 
 function clone(o) { return o === undefined ? undefined : JSON.parse(JSON.stringify(o)); }
@@ -1397,7 +1164,9 @@ function rulesBlock(ctx, hand, shape) {
   const att = ctx.attune ? `, requires attunement${ctx.attuneBy ? ` ${ctx.attuneBy}` : ""}` : "";
   const parts = [`<p><strong>5e:</strong> ${esc(ctx.summary)} — ${rarityName}${att}.</p>`];
   if (ctx.basis) parts.push(`<p><em>Based on: ${esc(ctx.basis)}</em></p>`);
-  if (hand && !hand.kept) parts.push(`<p><em>The source module's hand-written rule was replaced: it names mechanics the tooltip doesn't support (${esc(hand.audit.problems.map(x => x.text).join("; "))}).</em></p>`);
+  if (hand && !hand.kept) parts.push(hand.audit.problems.length
+    ? `<p><em>The source module's hand-written rule was replaced: it names mechanics the tooltip doesn't support (${esc(replacedWhy(hand).map(x => x.text).join("; "))}).</em></p>`
+    : `<p><em>The source module's hand-written rule was replaced: it is on Loot Ledger's replace list (reviewed by hand and found not traceable to the tooltip).</em></p>`);
   for (const f of ctx.features) parts.push(`<p><strong>${esc(f.name)}.</strong> ${esc(f.text)} <em>Source: ${esc(f.source)}${/[.…]$/.test(f.source) ? "" : "."}</em></p>`);
   if (!ctx.features.length && shape !== "loot" && shape !== "container") parts.push(`<p>No 5e rules: none of this item's lines convert (see below).</p>`);
   if (ctx.notConverted.length) parts.push(`<p class="loot-ledger-unconverted"><strong>Not converted:</strong> ${ctx.notConverted.map(r => `${esc(r.line)} (${esc(r.why)})`).join("; ")}.</p>`);

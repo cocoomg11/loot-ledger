@@ -6,6 +6,10 @@
         "Hint": "How classic gold/silver/copper is converted into item prices. Applied the next time you build the loot pools.",
         "Hundred": "100:1 (classic MMO, matches three-coin economies)",
         "Ten": "Standard 5e (10:1, converted by value; small amounts lose precision)"
+      },
+      "Convert": {
+        "Name": "Convert items to 5e when building",
+        "Hint": "When on, Build also converts every copied item to dnd5e rules into the Loot Ledger · Converted Items compendium and points the roll tables at the converted versions. Lines the converter has no rule for are listed for GM review in the Loot Ledger · Build Report journal instead of being invented. Applied the next time you build."
       }
     },
     "Menu": {
@@ -13,12 +17,15 @@
       "Title": "Loot Ledger",
       "Hint": "Copy every classic MMO item into a world compendium with sell-accurate prices and generate rollable loot tables.",
       "Build": "Build loot pools",
-      "Intro": "Builds two world compendiums from the source item module: a priced copy of every item, and roll tables by quality, item type, mixed drop and creature type. Re-running replaces their contents; nothing else in the world is touched.",
+      "Intro": "Builds world compendiums from the source item module: a priced copy of every item, optionally a 5e conversion of every item, and roll tables by quality, item type, mixed drop and creature type. Re-running updates only what changed; nothing else in the world is touched apart from the Build Report journal.",
       "Source": "Source items",
       "Ratio": "Coin ratio",
       "Missing": "not found (enable wow-classic-items)",
       "NotBuilt": "not built yet",
-      "Bands": "Level bands"
+      "Bands": "Level bands",
+      "Convert": "Convert to 5e",
+      "On": "on",
+      "Off": "off"
     }
   }
 }

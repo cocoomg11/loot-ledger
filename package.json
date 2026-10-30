@@ -1,0 +1,10 @@
+{
+  "name": "loot-ledger",
+  "private": true,
+  "type": "module",
+  "description": "Development scripts only; the module itself has no dependencies.",
+  "scripts": {
+    "check": "for f in scripts/*.mjs tests/*.mjs; do node --check \"$f\" || exit 1; done",
+    "test": "node --test tests/*.test.mjs"
+  }
+}

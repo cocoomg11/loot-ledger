@@ -6,10 +6,17 @@ import {
   MODULE_ID, SOURCE_PACK, QUALITY_BY_KEY, DROP_QUALITIES, BANDS, CATEGORIES, CREATURES,
   analyse, priceFor, formatCoins, bandLabel, creatureRegex
 } from "./data.mjs";
-import { convertItem, reviewRow, applyOfficial, SRD_PACKS } from "./convert.mjs";
+import { convertItem, reviewRow, applyOfficial, SRD_PACKS, OFFICIAL_PACKS, CONVERTER_VERSION } from "./convert.mjs";
+import {
+  sourceHash, rulesFingerprint, planSync, indexReplaceList, replaceEntry, replaceListStatus, reportRow, errorRow,
+  summaryCounts, summaryHtml, reportPages
+} from "./ledger.mjs";
+import { REPLACE_LIST } from "./replace-list.mjs";
 
 export const ITEMS_PACK = { name: "loot-ledger-items", label: "Loot Ledger · Items" };
+export const CONVERTED_PACK = { name: "loot-ledger-converted-items", label: "Loot Ledger · Converted Items" };
 export const TABLES_PACK = { name: "loot-ledger-tables", label: "Loot Ledger · Tables" };
+export const REPORT_NAME = "Loot Ledger · Build Report";
 
 const ITEM_CHUNK = 500;
 const TABLE_CHUNK = 25;
@@ -154,12 +161,14 @@ export async function convertToPack({ names = null, filter = null, pack = { name
   const target = await ensurePack(pack, "Item");
   await clearPack(target);
   const payload = [], rows = [];
+  const replaceIndex = indexReplaceList(REPLACE_LIST);
   for (const doc of docs) {
     const meta = analyse(doc);
     if (filter && !filter(doc, meta)) continue;
-    const pre = convertItem(doc, { ratio, ...options });
+    const opts = { ratio, forceReplace: !!replaceEntry(doc, replaceIndex), ...options };
+    const pre = convertItem(doc, opts);
     const official = pre.basedOn ? await findOfficial(pre.basedOn) : null;
-    const { data, row } = convertedItem(doc, meta, ratio, { ...options, official });
+    const { data, row } = convertedItem(doc, meta, ratio, { ...opts, official });
     if (pre.basedOn && !official) row.result.fallback = `${pre.basedOn.name} not found in any installed compendium; tier rules kept`;
     data._id = doc.id;
     payload.push(data);
@@ -300,109 +309,270 @@ export function planTables(metas, tablePack, folders) {
   return tables;
 }
 
-async function confirmRebuild(itemsLabel, tablesLabel) {
+async function confirmRebuild(labels, convert) {
   const DialogV2 = foundry.applications.api.DialogV2;
   return DialogV2.confirm({
     window: { title: "Loot Ledger: build loot pools" },
-    content: `<p>This will <strong>replace</strong> the contents of the world compendiums
-      <strong>${itemsLabel}</strong> and <strong>${tablesLabel}</strong> with a fresh copy of every item from
-      the source module and newly generated roll tables.</p>
-      <p>Nothing else in your world is changed. It can take a few minutes for large item lists.</p>`,
+    content: `<p>This brings the world compendiums ${labels.map(l => `<strong>${l}</strong>`).join(", ")} up to date
+      with the source module. Items whose source and rules are unchanged since the last build are skipped; changed
+      items are rewritten; the roll tables are regenerated.</p>
+      <p>5e conversion is <strong>${convert ? "on" : "off"}</strong> (setting "Convert items to 5e when building").</p>
+      <p>Nothing else in your world is changed, apart from the <strong>${REPORT_NAME}</strong> journal entry.
+      The first build, or one after a rules change, can take several minutes.</p>`,
     rejectClose: false, modal: true
   });
 }
 
+/** Create the per-category item folders that are missing (stable ids). Returns {category: folderId}. */
+async function ensureItemFolders(pack) {
+  const ids = {};
+  const missing = [];
+  CATEGORIES.forEach((c, i) => {
+    ids[c.key] = stableId(`ifolder:${c.key}`);
+    if (!pack.folders.get(ids[c.key])) missing.push({ _id: ids[c.key], name: c.label, type: "Item", sort: (i + 1) * 100, sorting: "a" });
+  });
+  if (missing.length) await Folder.createDocuments(missing, { pack: pack.collection, keepId: true });
+  return ids;
+}
+
+/** id -> stored hash for every document in one of our item packs, plus the stored Loot Ledger flags. */
+async function packState(pack) {
+  const index = await pack.getIndex({ fields: [`flags.${MODULE_ID}`] });
+  const hashes = new Map(), flags = new Map();
+  for (const e of index) {
+    const f = foundry.utils.getProperty(e, `flags.${MODULE_ID}`) ?? {};
+    hashes.set(e._id, f.hash ?? null);
+    flags.set(e._id, { name: e.name, flags: f });
+  }
+  return { hashes, flags };
+}
+
 /**
- * Build (or rebuild) the loot pools.
- * @param {object}   [options]
- * @param {boolean}  [options.confirm=true]   ask before replacing pack contents
- * @param {object}   [options.itemsPack]      {name, label} of the items compendium
- * @param {object}   [options.tablesPack]     {name, label} of the tables compendium
- * @param {Function} [options.filter]         optional (sourceDoc, meta) => boolean to build a subset
- * @param {string}   [options.ratio]          coin ratio override ("100" or "10")
- * @param {boolean}  [options.convert=false]  convert items to 5e rules (convert.mjs) instead of plain copies
+ * Write a sync plan into a pack in batches. Each batch deletes its stale documents and creates their new data, so
+ * an interrupted build leaves at most one batch missing and the next run (which compares hashes) fills it in.
+ * `dataFor(id)` may return null (item could not be produced): it is then left out of the pack.
  */
-export async function build({ confirm = true, itemsPack = ITEMS_PACK, tablesPack = TABLES_PACK, filter = null, ratio = null, convert = false } = {}) {
+async function applySync(pack, plan, dataFor, { onProgress, label }) {
+  const stale = new Set(plan.replace);
+  const ids = [...plan.create, ...plan.replace];
+  for (let i = 0; i < ids.length; i += ITEM_CHUNK) {
+    const slice = ids.slice(i, i + ITEM_CHUNK);
+    const batch = [];
+    for (const id of slice) {
+      const data = await dataFor(id);
+      if (data) batch.push(data);
+    }
+    const del = slice.filter(id => stale.has(id));
+    if (del.length) await Item.deleteDocuments(del, { pack: pack.collection });
+    if (batch.length) await Item.createDocuments(batch, { pack: pack.collection, keepId: true });
+    onProgress?.((i + slice.length) / ids.length, `${label} ${Math.min(i + ITEM_CHUNK, ids.length)} / ${ids.length}`);
+  }
+  for (let i = 0; i < plan.remove.length; i += 1000) {
+    await Item.deleteDocuments(plan.remove.slice(i, i + 1000), { pack: pack.collection });
+  }
+}
+
+/** Find or create the Build Report journal entry and replace its pages. */
+async function writeReport(pages) {
+  let entry = game.journal.find(j => j.getFlag(MODULE_ID, "buildReport")) ?? game.journal.getName(REPORT_NAME);
+  if (!entry) {
+    entry = await JournalEntry.create({ name: REPORT_NAME, flags: { [MODULE_ID]: { buildReport: true } }, ownership: { default: 0 } });
+  } else {
+    const old = entry.pages.map(p => p.id);
+    if (old.length) await entry.deleteEmbeddedDocuments("JournalEntryPage", old);
+  }
+  await entry.createEmbeddedDocuments("JournalEntryPage", pages.map((p, i) => ({
+    name: p.name, type: "text", sort: (i + 1) * 100, text: { content: p.html, format: 1 }
+  })));
+  return entry;
+}
+
+/**
+ * Build (or update) the loot pools.
+ *
+ * Idempotent and resumable: every written item carries flags["loot-ledger"].hash (see ledger.mjs sourceHash), so
+ * a re-run skips items whose source, coin ratio, rules and converter version are unchanged, rewrites the rest, and
+ * removes items no longer in the source (full builds only). A build that stops part-way picks up where it left
+ * off. Roll tables are always regenerated (stable ids).
+ *
+ * @param {object}   [options]
+ * @param {boolean}  [options.confirm=true]   ask first
+ * @param {object}   [options.itemsPack]      {name, label} of the plain-copy items compendium
+ * @param {object}   [options.convertedPack]  {name, label} of the converted items compendium
+ * @param {object}   [options.tablesPack]     {name, label} of the tables compendium
+ * @param {Function} [options.filter]         optional (sourceDoc, meta) => boolean to build a subset (no pruning)
+ * @param {string}   [options.ratio]          coin ratio override ("100" or "10")
+ * @param {boolean}  [options.convert]        convert to 5e (default: the "Convert items to 5e when building" setting)
+ * @param {boolean}  [options.force=false]    ignore stored hashes and rewrite every item
+ * @param {boolean}  [options.report=true]    whisper the GM summary and write the Build Report journal
+ */
+export async function build({
+  confirm = true, itemsPack = ITEMS_PACK, convertedPack = CONVERTED_PACK, tablesPack = TABLES_PACK,
+  filter = null, ratio = null, convert = null, force = false, report = true
+} = {}) {
   if (!game.user.isGM) throw new Error("Loot Ledger: only a GM can build loot pools.");
   const source = game.packs.get(SOURCE_PACK);
   if (!source) {
     ui.notifications.error("Loot Ledger: the source compendium (wow-classic-items) is not available. Is the module enabled?");
     return null;
   }
-  if (confirm && !(await confirmRebuild(itemsPack.label, tablesPack.label))) return null;
+  convert ??= !!game.settings.get(MODULE_ID, "convertOnBuild");
+  const labels = [itemsPack.label, ...(convert ? [convertedPack.label] : []), tablesPack.label];
+  if (confirm && !(await confirmRebuild(labels, convert))) return null;
   ratio ??= game.settings.get(MODULE_ID, "coinRatio");
+  const dnd5eMajor = Number(String(game.system?.version ?? "0").split(".")[0]);
 
   const bar = progressBar("Loot Ledger: reading source items…");
   const t0 = performance.now();
   try {
     const docs = await source.getDocuments();
-    bar.update(0.05, `Loot Ledger: analysing ${docs.length} items…`);
+    bar.update(0.04, `Loot Ledger: analysing ${docs.length} items…`);
 
     const items = await ensurePack(itemsPack, "Item");
+    const conv = convert ? await ensurePack(convertedPack, "Item") : null;
     const tables = await ensurePack(tablesPack, "RollTable");
-    await clearPack(items);
-    await clearPack(tables);
-    bar.update(0.1, "Loot Ledger: preparing folders…");
+    for (const p of [items, conv, tables]) if (p?.locked) await p.configure({ locked: false });
+    const itemFolders = await ensureItemFolders(items);
+    const convFolders = conv ? await ensureItemFolders(conv) : null;
 
-    // Item folders, one per category
-    const itemFolders = {};
-    const folderData = CATEGORIES.map((c, i) => {
-      itemFolders[c.key] = stableId(`ifolder:${c.key}`);
-      return { _id: itemFolders[c.key], name: c.label, type: "Item", sort: (i + 1) * 100, sorting: "a" };
-    });
-    await Folder.createDocuments(folderData, { pack: items.collection, keepId: true });
-
-    const metas = [];
-    const payload = [];
+    // Analyse and hash every source item.
+    const rules = rulesFingerprint();
+    const officialPacks = [...Object.values(OFFICIAL_PACKS), ...SRD_PACKS].filter(k => game.packs.has(k));
+    const replaceIndex = indexReplaceList(REPLACE_LIST);
+    const byId = new Map(), copyWant = [], convWant = [], replaceHits = [];
     for (const doc of docs) {
       const meta = analyse(doc);
       if (filter && !filter(doc, meta)) continue;
-      const data = convert ? convertedItem(doc, meta, ratio).data : transformItem(doc, meta, ratio);
+      const entry = replaceEntry(doc, replaceIndex);
+      if (entry) replaceHits.push({ entry, handAuthored: !!doc.flags?.["wow-classic-items"]?.handAuthored });
+      const rec = {
+        doc, meta, replace: !!entry,
+        copyHash: sourceHash(doc, { mode: "copy", ratio, dnd5eMajor })
+      };
+      copyWant.push({ id: doc.id, hash: rec.copyHash });
+      if (convert) {
+        rec.convHash = sourceHash(doc, { mode: "convert", ratio, converterVersion: CONVERTER_VERSION, rules, replace: rec.replace, officialPacks, dnd5eMajor });
+        convWant.push({ id: doc.id, hash: rec.convHash });
+      }
+      byId.set(doc.id, rec);
+    }
+    const prune = !filter;
+
+    // 1. Plain copies.
+    const copyState = await packState(items);
+    const copyPlan = planSync(force ? new Map([...copyState.hashes].map(([k]) => [k, null])) : copyState.hashes, copyWant, { prune });
+    bar.update(0.08, `Loot Ledger: copying ${copyPlan.create.length + copyPlan.replace.length} items (${copyPlan.skip.length} unchanged)…`);
+    await applySync(items, copyPlan, id => {
+      const { doc, meta, copyHash } = byId.get(id);
+      const data = transformItem(doc, meta, ratio);
       data._id = doc.id;
       data.folder = itemFolders[meta.category] ?? null;
-      payload.push(data);
+      data.flags[MODULE_ID].hash = copyHash;
+      return data;
+    }, { label: "Loot Ledger: items", onProgress: (f, m) => bar.update(0.08 + (convert ? 0.27 : 0.62) * f, m) });
+
+    // 2. 5e conversions (separate pack; tables point here when conversion is on).
+    let convPlan = null;
+    const failed = new Map();
+    if (convert) {
+      const convState = await packState(conv);
+      convPlan = planSync(force ? new Map([...convState.hashes].map(([k]) => [k, null])) : convState.hashes, convWant, { prune });
+      bar.update(0.36, `Loot Ledger: converting ${convPlan.create.length + convPlan.replace.length} items (${convPlan.skip.length} unchanged)…`);
+      const officialCache = new Map();
+      const official = async ref => {
+        const key = `${ref.pack}|${ref.id ?? ""}|${ref.name}`;
+        if (!officialCache.has(key)) officialCache.set(key, await findOfficial(ref));
+        return officialCache.get(key);
+      };
+      // Items the converter throws on go to GM review; their stale conversion is removed (tables use the plain copy).
+      await applySync(conv, convPlan, async id => {
+        const { doc, meta, replace, convHash } = byId.get(id);
+        try {
+          const opts = { ratio, dnd5eMajor, forceReplace: replace };
+          const pre = convertItem(doc, opts);
+          const off = pre.basedOn ? await official(pre.basedOn) : null;
+          const { data } = convertedItem(doc, meta, ratio, { ...opts, official: off });
+          if (pre.basedOn && !off) data.flags[MODULE_ID].converted.fallback = `${pre.basedOn.name} not found in any installed compendium; tier rules kept`;
+          data._id = doc.id;
+          data.folder = convFolders[meta.category] ?? null;
+          data.flags[MODULE_ID].hash = convHash;
+          return data;
+        } catch (err) {
+          console.error(`${MODULE_ID} | conversion failed for ${doc.name}`, err);
+          failed.set(id, err.message);
+          return null;
+        }
+      }, { label: "Loot Ledger: converted", onProgress: (f, m) => bar.update(0.36 + 0.34 * f, m) });
+    }
+
+    // 3. Roll tables: converted versions when available, plain copies otherwise.
+    const convStored = conv ? (await packState(conv)).flags : new Map();
+    const metas = [];
+    for (const [id, { doc, meta }] of byId) {
+      const inConv = convert && convStored.has(id) && !failed.has(id);
       metas.push({
-        ...meta, id: doc.id, name: doc.name, img: doc.img,
-        uuid: `Compendium.${items.collection}.Item.${doc.id}`
+        ...meta, id, name: doc.name, img: doc.img,
+        uuid: inConv ? `Compendium.${conv.collection}.Item.${id}` : `Compendium.${items.collection}.Item.${id}`
       });
     }
-
-    for (let i = 0; i < payload.length; i += ITEM_CHUNK) {
-      await Item.createDocuments(payload.slice(i, i + ITEM_CHUNK), { pack: items.collection, keepId: true });
-      bar.update(0.1 + 0.7 * ((i + ITEM_CHUNK) / payload.length), `Loot Ledger: items ${Math.min(i + ITEM_CHUNK, payload.length)} / ${payload.length}`);
-    }
-
-    // Table folders
+    bar.update(0.72, "Loot Ledger: generating roll tables…");
+    await clearPack(tables);
     const tf = { quality: "By quality", type: "By item type", drop: "Mixed drops", creature: "By creature type" };
     const tableFolders = {};
     await Folder.createDocuments(Object.entries(tf).map(([k, name], i) => {
       tableFolders[k] = stableId(`tfolder:${k}`);
       return { _id: tableFolders[k], name, type: "RollTable", sort: (i + 1) * 100, sorting: "m" };
     }), { pack: tables.collection, keepId: true });
-
     const plan = planTables(metas, tables.collection, tableFolders);
     for (let i = 0; i < plan.length; i += TABLE_CHUNK) {
       await RollTable.createDocuments(plan.slice(i, i + TABLE_CHUNK), { pack: tables.collection, keepId: true });
-      bar.update(0.8 + 0.2 * ((i + TABLE_CHUNK) / plan.length), `Loot Ledger: tables ${Math.min(i + TABLE_CHUNK, plan.length)} / ${plan.length}`);
+      bar.update(0.75 + 0.2 * ((i + TABLE_CHUNK) / plan.length), `Loot Ledger: tables ${Math.min(i + TABLE_CHUNK, plan.length)} / ${plan.length}`);
     }
 
-    const counts = plan.reduce((acc, t) => {
+    // 4. Report: every converted item in the pack (fresh or unchanged), plus conversion errors.
+    const rows = [];
+    if (convert) {
+      for (const [id, { name, flags }] of convStored) {
+        if (byId.has(id) && !failed.has(id)) rows.push(reportRow(id, name, flags, `Compendium.${conv.collection}.Item.${id}`));
+      }
+      for (const [id, msg] of failed) {
+        const { doc, meta } = byId.get(id);
+        rows.push(errorRow(id, doc.name, meta, `Compendium.${items.collection}.Item.${id}`, msg));
+      }
+    }
+    const rl = convert ? replaceListStatus(REPLACE_LIST, replaceHits) : null;
+    const seconds = Math.round((performance.now() - t0) / 100) / 10;
+    const counts = summaryCounts({ copy: copyPlan, convert: convPlan, rows });
+
+    const kinds = plan.reduce((acc, t) => {
       const k = t.flags[MODULE_ID].kind;
       acc[k] = (acc[k] ?? 0) + 1;
       return acc;
     }, {});
+    let reportUuid = null;
+    if (report) {
+      const pages = reportPages(counts, rows, { convertOn: convert, replaceList: rl, tables: plan.length, seconds });
+      const entry = await writeReport(pages);
+      reportUuid = entry.uuid;
+      await ChatMessage.create({
+        content: summaryHtml(counts, { convertOn: convert, tables: plan.length, seconds, reportUuid }),
+        whisper: game.users.filter(u => u.isGM).map(u => u.id),
+        speaker: { alias: "Loot Ledger" }
+      });
+    }
+
     const summary = {
-      items: payload.length, rollable: metas.filter(m => m.rollable).length, tables: plan.length, counts,
-      seconds: Math.round((performance.now() - t0) / 100) / 10, itemsPack: items.collection, tablesPack: tables.collection
+      items: copyWant.length, rollable: metas.filter(m => m.rollable).length, tables: plan.length, counts: kinds,
+      build: counts, convert, replaceList: rl, reportUuid,
+      seconds, itemsPack: items.collection, convertedPack: conv?.collection ?? null, tablesPack: tables.collection
     };
     bar.done(`Loot Ledger: built ${summary.items} items and ${summary.tables} tables.`);
-    ui.notifications.info(`Loot Ledger: built ${summary.items} items and ${summary.tables} roll tables in ${summary.seconds}s.`);
+    ui.notifications.info(`Loot Ledger: ${counts.copied + counts.converted} items written, ${counts.skipped} unchanged, ${summary.tables} roll tables (${seconds}s).`);
     return summary;
   } catch (err) {
     bar.done("Loot Ledger: build failed.");
-    ui.notifications.error(`Loot Ledger: build failed (${err.message}). See the console for details.`);
+    ui.notifications.error(`Loot Ledger: build failed (${err.message}). Run it again to resume; see the console for details.`);
     console.error(`${MODULE_ID} |`, err);
     throw err;
   }
 }
-

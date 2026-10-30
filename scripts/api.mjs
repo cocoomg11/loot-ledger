@@ -3,6 +3,8 @@
  */
 import { MODULE_ID, BANDS, QUALITIES, CATEGORIES, CREATURES, bandForLevel, formatCoins, vendorCopperOf } from "./data.mjs";
 import { build, convertToPack, TABLES_PACK } from "./build.mjs";
+import { REPLACE_LIST } from "./replace-list.mjs";
+import * as RULES from "./rules.mjs";
 import { convertItem, parseSource, auditHandAuthored } from "./convert.mjs";
 
 /** Find the generated table matching a query. */
@@ -73,6 +75,9 @@ export function createApi() {
     convert: (item, options) => convertItem(item, options),
     auditHandAuthored: (item) => auditHandAuthored(parseSource(item)),
     convertToPack: (options) => convertToPack(options),
+    /** Read-only copies of the calibration tables (edit scripts/rules.mjs to change them). */
+    rules: () => foundry.utils.deepClone(RULES),
+    replaceList: () => REPLACE_LIST.map(e => ({ ...e })),
     roll,
     findTable,
     sellPrice,

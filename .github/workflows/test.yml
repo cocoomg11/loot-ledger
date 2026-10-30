@@ -1,0 +1,31 @@
+name: Tests
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      # No install step: the tests use only Node's built-in test runner and the module's own scripts.
+      - name: Syntax check every script
+        run: npm run check
+
+      - name: Unit tests
+        run: npm test
+
+      - name: module.json is valid and points at its own version
+        run: |
+          V=$(jq -r .version module.json)
+          jq -e --arg v "$V" '.download | endswith("/v\($v)/module.zip")' module.json
