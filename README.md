@@ -208,6 +208,9 @@ await ll.build({ convert: true });                         // full build with co
 
 ## Licence
 
+Loot Ledger is unofficial fan content. It is not affiliated with, endorsed, sponsored or approved by Blizzard Entertainment or Wizards of the Coast. All trademarks belong to their respective owners.
+
+
 Code is released under the [MIT licence](LICENSE). Loot Ledger contains no item data, artwork or audio;
 all item content comes from the separately installed source module.
 
