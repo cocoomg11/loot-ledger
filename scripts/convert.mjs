@@ -218,8 +218,11 @@ export const STAT_RULE = { minTier: 1, minValue: 4, perItemLevel: 7, checkBonus:
  */
 export const TRINKET_RULE = { minTier: 1, bonus: { 1: 1, 2: 2, 3: 3, 4: 3 }, defensive: /Armor|Defense|dodge|parry|block/i };
 
-/** "Improves your chance to hit by N%": a bonus to weapon attack rolls on non-weapon items of Rare or higher (Epic beats Rare). */
-export const HIT_RULE = { minTier: 2, bonus: { 2: 1, 3: 2, 4: 2 } };
+/** "Improves your chance to hit by N%" on a non-weapon item (Uncommon or better): +1 to weapon attack rolls,
+ * or +1 to spell attack rolls on caster gear. */
+export const HIT_RULE = { minTier: 1, bonus: 1 };
+/** Caster gear (Intellect / Spirit / spell power): its "+hit" line becomes +1 to spell attack rolls instead. */
+const isCasterGear = p => !!(p.stats.int || p.stats.wis) || p.effects.some(e => /spells and effects/i.test(e.text));
 
 /**
  * "Equip: Increased Defense +N" or "Equip: +N Armor." on an item that has no AC of its own (anything but chest
@@ -264,7 +267,69 @@ export const PROC_RULE = {
 /** A weapon's own "+ X - Y <School> Damage" line (every hit in the classic game): once-per-turn extra dice. */
 export const WEAPON_EXTRA_DICE = { 0: "1d4", 1: "1d4", 2: "1d4", 3: "1d6", 4: "1d8" };
 /** "Extra attack" procs: extra attacks per use (capped by tier); one use per Short or Long Rest. */
-export const EXTRA_ATTACK_RULE = { max: { 0: 1, 1: 1, 2: 1, 3: 2, 4: 2 } };
+export const EXTRA_ATTACK_RULE = { max: { 0: 1, 1: 1, 2: 1, 3: 2, 4: 2 }, uses: { 0: 1, 1: 1, 2: 1, 3: 2, 4: 3 } };
+
+/**
+ * Reflavoured official items (first mapping, to be revisited). An Uncommon-or-better worn item whose lines give
+ * no 5e feature at all keeps its WoW name, icon and flavour text but takes the system data and rules text of an
+ * official magic item of the same slot and rarity. This table holds NAMES and compendium ids only: the data is
+ * copied at build time from the user's own installed compendium (OFFICIAL_PACKS), falling back to the SRD by
+ * name (SRD_PACKS). Excluded: cursed, artifact, sentient, and theme-breaking items (flight, wishes, summoning).
+ * The pick is deterministic: hash(WoW item id) mod candidates. No candidate -> the normal tier rules.
+ * D = dnd-dungeon-masters-guide.equipment, A = dnd-arcana-unleashed.items.
+ */
+export const OFFICIAL_PACKS = { D: "dnd-dungeon-masters-guide.equipment", A: "dnd-arcana-unleashed.items" };
+export const SRD_PACKS = ["dnd5e.equipment24", "dnd5e.items"];
+export const REFLAVOUR_SLOT = { Feet: "boots", Back: "cloak", Hands: "gloves", Waist: "belt", Wrist: "bracers", Head: "helm", Finger: "ring", Neck: "amulet", Chest: "robe" };
+export const REFLAVOUR = {
+  boots: {
+    uncommon: ["D:Boots of Elvenkind#dmgBootsOfElvenk", "D:Boots of Striding and Springing#dmgBootsOfStridi", "D:Boots of the Winterlands#dmgBootsOfTheWin", "D:Slippers of Spider Climbing#dmgSlippersOfSpi"],
+    rare: ["D:Boots of Levitation#dmgBootsOfLevita"]
+  },
+  cloak: {
+    uncommon: ["D:Cloak of Elvenkind#dmgCloakOfElvenk", "D:Cloak of Protection#dmgCloakOfProtec", "D:Cloak of the Manta Ray#dmgCloakOfTheMan", "D:Nature's Mantle#dmgNaturesMantle"],
+    rare: ["D:Cape of the Mountebank#dmgCapeOfTheMoun", "D:Cloak of Displacement#dmgCloakOfDispla", "D:Cloak of the Bat#dmgCloakOfTheBat", "D:Mantle of Spell Resistance#dmgMantleOfSpell"],
+    veryRare: ["D:Cloak of Arachnida#dmgCloakOfArachn"],
+    legendary: ["D:Cloak of Invisibility#dmgCloakOfInvisi"]
+  },
+  gloves: {
+    uncommon: ["D:Gauntlets of Ogre Power#dmgGauntletsOfOg", "D:Gloves of Missile Snaring#dmgGlovesOfMissi", "D:Gloves of Swimming and Climbing#dmgGlovesOfSwimm", "D:Gloves of Thievery#dmgGlovesOfThiev", "A:Magewright's Gloves#aunMagewrightsJC"]
+  },
+  belt: {
+    rare: ["D:Belt of Dwarvenkind#dmgBeltOfDwarven", "D:Belt of Giant Strength (hill)#dmghilBeltofGian"],
+    veryRare: ["D:Belt of Giant Strength (fire)#dmgfirBeltofGian", "D:Belt of Giant Strength (frost)#dmgfroBeltofGian", "D:Belt of Giant Strength (stone)#dmgstoBeltofGian"],
+    legendary: ["D:Belt of Giant Strength (cloud)#dmgcloBeltofGian", "D:Belt of Giant Strength (storm)#dmgstmBeltofGian"]
+  },
+  bracers: { uncommon: ["D:Bracers of Archery#dmgBracersOfArch"], rare: ["D:Bracers of Defense#dmgBracersOfDefe"] },
+  helm: {
+    uncommon: ["D:Cap of Water Breathing#dmgCapOfWaterBre", "D:Circlet of Blasting#dmgCircletOfBlas", "D:Hat of Disguise#dmgHatOfDisguise", "D:Headband of Intellect#dmgHeadbandOfInt", "D:Helm of Comprehending Languages#dmgHelmOfCompreh", "D:Helm of Telepathy#dmgHelmOfTelepat"],
+    rare: ["D:Helm of Teleportation#dmgHelmOfTelepor", "A:Secret Keeper's Circlet#aunSecretKeepeVE"],
+    veryRare: ["D:Helm of Brilliance#dmgHelmOfBrillia"]
+  },
+  ring: {
+    uncommon: ["D:Ring of Jumping#dmgRingOfJumping", "D:Ring of Mind Shielding#dmgRingOfMindShi", "D:Ring of Swimming#dmgRingOfSwimmin", "D:Ring of Warmth#dmgRingOfWarmth0", "D:Ring of Water Walking#dmgRingOfWaterWa", "A:Ring of Dedicated Focus#aunRingofDediccN"],
+    rare: ["D:Ring of Animal Influence#dmgRingOfAnimalI", "D:Ring of Evasion#dmgRingOfEvasion", "D:Ring of Feather Falling#dmgRingOfFeather", "D:Ring of Free Action#dmgRingOfFreeAct", "D:Ring of Protection#dmgRingOfProtect", "D:Ring of Resistance#dmgRingOfResista", "D:Ring of Spell Storing#dmgRingOfSpellSt", "D:Ring of the Ram#dmgRingOfTheRam0", "D:Ring of X-ray Vision#dmgRingOfXrayVis"],
+    veryRare: ["D:Ring of Regeneration#dmgRingOfRegener", "D:Ring of Shooting Stars#dmgRingOfShootin", "D:Ring of Telekinesis#dmgRingOfTelekin"],
+    legendary: ["D:Ring of Invisibility#dmgRingOfInvisib", "D:Ring of Spell Turning#dmgRingOfSpellTu"]
+  },
+  amulet: {
+    uncommon: ["D:Amulet of Proof against Detection and Location#dmgAmuletOfProof", "D:Medallion of Thoughts#dmgMedallionOfTh", "D:Necklace of Adaptation#dmgNecklaceOfAda", "D:Periapt of Health#dmgPeriaptOfHeal", "D:Periapt of Wound Closure#dmgPeriaptOfWoun", "A:Necklace of the Beastly Familiar (Azurite)#aunNecklaceoftdK"],
+    rare: ["D:Amulet of Health#dmgAmuletOfHealt", "D:Necklace of Fireballs#dmgNecklaceOfFir", "D:Necklace of Prayer Beads#dmgNecklaceOfPra", "D:Periapt of Proof against Poison#dmgPeriaptOfProo", "A:Blood Amulet#aunBloodAmuletFw"],
+    veryRare: ["D:Amulet of the Planes#dmgAmuletOfThePl"]
+  },
+  robe: { uncommon: ["D:Robe of Useful Items#dmgRobeOfUsefulI"], veryRare: ["D:Robe of Scintillating Colors#dmgRobeOfScintil", "D:Robe of Stars#dmgRobeOfStars00"] }
+};
+/** Healing potions -> official Potion of Healing tiers by item level (reflavoured; data from the compendium / SRD). */
+export const POTION_REFLAVOUR = [
+  { maxIlvl: 25, name: "Potion of Healing" }, { maxIlvl: 35, name: "Potion of Greater Healing" },
+  { maxIlvl: 45, name: "Potion of Superior Healing" }, { maxIlvl: Infinity, name: "Potion of Supreme Healing" }
+];
+function hashStr(s) { let h = 2166136261; for (const c of String(s)) h = Math.imul(h ^ c.charCodeAt(0), 16777619); return h >>> 0; }
+/** Official item reference for a mapping entry: {name, pack, id}. */
+function officialRef(entry) {
+  const [, k, name, id] = entry.match(/^(\w):(.+)#(\w+)$/);
+  return { name, pack: OFFICIAL_PACKS[k], id };
+}
 
 /** Wands: their damage school decides the cantrip they let you cast (SRD 5.2 cantrips). Missing school -> GM review. */
 export const WAND_CANTRIP = { Fire: "Fire Bolt", Frost: "Ray of Frost", Arcane: "Eldritch Blast", Nature: "Poison Spray", Holy: "Sacred Flame" };
@@ -532,6 +597,7 @@ export function convertItem(src, options = {}) {
   const auto = buildSystem(shape, ctx);
   let system = auto.system ?? clone(base.system);
   let itemType = auto.type;
+  const basedOn = pickOfficial(p, shape, ctx, src);
 
   // The source module's own hand-written rules: kept only when every mechanic in them traces to a line.
   let hand = null;
@@ -597,12 +663,58 @@ export function convertItem(src, options = {}) {
     properties: (sys.properties ?? []).join(","),
     features,
     notConverted: kept ? [] : ctx.notConverted.map(r => `${short(r.line, 50)} (${r.short ?? r.why})`),
+    basedOn: basedOn?.name ?? "",
     needsReview,
     reviewReason: needsReview ? ctx.review.map(r => `${short(r.line, 60)}: ${r.why}`).join(" | ") : "",
     price: `${price.value} ${price.denomination}`,
     ...(hand ? { handAuthored: kept ? "kept (passes audit)" : `replaced: ${hand.audit.problems.map(x => x.text).join("; ")}` } : {})
   };
-  return { data, result, parsed: p };
+  return { data, result, parsed: p, basedOn, sourceHtml };
+}
+
+/**
+ * Reflavour pick (see REFLAVOUR): returns an official item ref {name, pack, id} or null.
+ * Gear with no feature from any line, Uncommon or better, in a mapped slot; healing potions by item level.
+ */
+export function pickOfficial(p, shape, ctx, src = {}) {
+  if (shape === "consumable") {
+    if (!p.effects.some(e => e.kind === "use" && /^Restores \d+ to \d+ health/i.test(e.text))) return null;
+    return { name: byLevel(POTION_REFLAVOUR, p.itemLevel).name, pack: OFFICIAL_PACKS.D, id: null };
+  }
+  if (ctx.tier < 1 || ctx.features.length || ctx.review.length || p.handAuthored) return null;
+  if (!["gear", "chest"].includes(shape) || ctx.extras.armor) return null;
+  const slot = REFLAVOUR_SLOT[p.slot];
+  const rarity = QUALITY_BY_KEY[p.quality]?.rarity;
+  const list = REFLAVOUR[slot]?.[rarity];
+  if (!list?.length) return null;
+  const key = src.flags?.[SOURCE_MODULE]?.itemId ?? src.flags?.[SOURCE_MODULE]?.id ?? src._id ?? p.name;
+  return officialRef(list[hashStr(key) % list.length]);
+}
+
+/**
+ * Apply an official item's data to a conversion: keep the WoW name, icon, tooltip/flavour and Loot Ledger flags;
+ * take type, system data, effects and rules text from the official document (passed in, read at build time
+ * from the user's compendium). Adds "Based on: <name>".
+ */
+export function applyOfficial(conv, official) {
+  const o = typeof official.toObject === "function" ? official.toObject() : clone(official);
+  const { data } = conv;
+  const sys = clone(o.system);
+  const note = `<section class="loot-ledger-5e"><p><strong>5e:</strong> reflavoured official item. <em>Based on: ${esc(o.name)}.</em> No line of this item converts, so it uses that item's rules (from your installed compendium).</p></section>`;
+  sys.description = { ...(sys.description ?? {}), value: conv.sourceHtml + note + (o.system?.description?.value ?? "") };
+  sys.price = data.system.price;
+  sys.identified = true;
+  data.type = o.type; data.system = sys; data.effects = o.effects ?? [];
+  const c = data.flags[MODULE_ID].converted;
+  c.basedOn = { name: o.name, uuid: official.uuid ?? null }; c.notConverted = []; c.summary = `Reflavoured ${o.name}`;
+  Object.assign(conv.result, {
+    type: o.type + (sys.type?.value ? `:${sys.type.value}` : ""), base: sys.type?.baseItem ?? "",
+    rarity: sys.rarity ?? sys.rarities?.[0] ?? conv.result.rarity, bonus: 0,
+    attunement: sys.attunement === "required" || sys.attunement === true, damage: "", ac: "",
+    properties: [...(sys.properties ?? [])].join(","), features: [{ text: `Based on: ${o.name}. Official rules text and data copied from the compendium.`, source: "reflavour (no convertible lines)" }],
+    notConverted: [], basedOn: o.name
+  });
+  return conv;
 }
 
 function clone(o) { return o === undefined ? undefined : JSON.parse(JSON.stringify(o)); }
@@ -804,10 +916,13 @@ function applyEffects(ctx) {
       const n = Math.min(EXTRA_ATTACK_RULE.max[tier], /^\d+$/.test(m[1]) ? +m[1] : 1);
       const melee = /melee/i.test(t) || (isWeapon && !ctx.extras.ranged);
       const weaponText = isWeapon ? "this weapon" : melee ? "a melee weapon" : "a weapon";
+      const uses = EXTRA_ATTACK_RULE.uses[tier];
+      const often = uses === 1 ? "Once you use this property, you can't use it again until you finish a Short or Long Rest."
+        : `You can use this property ${uses === 2 ? "twice" : `${uses} times`}, and you regain all expended uses when you finish a Short or Long Rest.`;
       addFeature(ctx, {
-        name: "Flurry", sourceLine: line, source: `${label} — ${short(t, 60)}`,
-        text: `When you hit a creature with ${weaponText} as part of the Attack action, you can immediately make ${n === 1 ? "one additional attack" : `${n} additional attacks`} with that weapon as part of the same action. Once you use this property, you can't use it again until you finish a Short or Long Rest.`,
-        rider: { type: "extraAttack", value: n, trigger: melee ? "meleeHit" : "hit", uses: 1, recovery: "sr" }
+        name: "Flurry", sourceLine: line, source: `${label} — ${short(t, 60)}; ${uses}/Short Rest by quality`,
+        text: `When you hit a creature with ${weaponText} as part of the Attack action, you can immediately make ${n === 1 ? "one additional attack" : `${n} additional attacks`} with that weapon as part of the same action. ${often}`,
+        rider: { type: "extraAttack", value: n, trigger: melee ? "meleeHit" : "hit", uses, recovery: "sr" }
       });
       continue;
     }
@@ -822,14 +937,14 @@ function applyEffects(ctx) {
     }
     if (fx.kind === "equip" && (m = t.match(/chance to hit by (\d+)%/i)) && !/spell/i.test(t)) {
       if (isWeapon) { notConverted(ctx, line, "the weapon's enhancement bonus already covers accuracy", "covered by weapon bonus"); continue; }
-      if (tier < HIT_RULE.minTier) { notConverted(ctx, line, "hit chance on Uncommon or lower items has no 5e rule", "below Rare"); continue; }
+      if (tier < HIT_RULE.minTier) { notConverted(ctx, line, "hit chance on Common or Poor items has no 5e rule", "common item"); continue; }
       if (ctx.extras.attackBonus) { notConverted(ctx, line, "only one attack bonus per item", "duplicate"); continue; }
       ctx.extras.attackBonus = true;
-      const hb = HIT_RULE.bonus[tier];
+      const hb = HIT_RULE.bonus, spell = isCasterGear(p);
       addFeature(ctx, {
-        name: "Precision", sourceLine: line, source: `Equip — +${m[1]}% chance to hit`,
-        text: `While ${verb(ctx)} this ${itemNoun(ctx)}, you have a +${hb} bonus to attack rolls made with weapons.`,
-        rider: { type: "attackBonus", value: hb, scope: "weapon", trigger: "equipped" }
+        name: "Precision", sourceLine: line, source: `Equip — +${m[1]}% chance to hit${spell ? " (caster gear: spell attacks)" : ""}`,
+        text: `While ${verb(ctx)} this ${itemNoun(ctx)}, you have a +${hb} bonus to ${spell ? "spell attack rolls" : "attack rolls made with weapons"}.`,
+        rider: { type: "attackBonus", value: hb, scope: spell ? "spell" : "weapon", trigger: "equipped" }
       });
       continue;
     }

@@ -6,7 +6,7 @@ import {
   MODULE_ID, SOURCE_PACK, QUALITY_BY_KEY, DROP_QUALITIES, BANDS, CATEGORIES, CREATURES,
   analyse, priceFor, formatCoins, bandLabel, creatureRegex
 } from "./data.mjs";
-import { convertItem, reviewRow } from "./convert.mjs";
+import { convertItem, reviewRow, applyOfficial, SRD_PACKS } from "./convert.mjs";
 
 export const ITEMS_PACK = { name: "loot-ledger-items", label: "Loot Ledger · Items" };
 export const TABLES_PACK = { name: "loot-ledger-tables", label: "Loot Ledger · Tables" };
@@ -125,6 +125,7 @@ export function transformItem(src, meta, ratio) {
  */
 export function convertedItem(src, meta, ratio, options = {}) {
   const conv = convertItem(src, { ratio, ...options });
+  if (options.official) applyOfficial(conv, options.official);
   const desc = conv.data.system.description ?? {};
   conv.data.system.description = { ...desc, value: (desc.value ?? "") + descriptionSuffix(meta) };
   return { data: conv.data, result: conv.result, row: reviewRow(src, conv) };
@@ -156,7 +157,10 @@ export async function convertToPack({ names = null, filter = null, pack = { name
   for (const doc of docs) {
     const meta = analyse(doc);
     if (filter && !filter(doc, meta)) continue;
-    const { data, row } = convertedItem(doc, meta, ratio, options);
+    const pre = convertItem(doc, { ratio, ...options });
+    const official = pre.basedOn ? await findOfficial(pre.basedOn) : null;
+    const { data, row } = convertedItem(doc, meta, ratio, { ...options, official });
+    if (pre.basedOn && !official) row.result.fallback = `${pre.basedOn.name} not found in any installed compendium; tier rules kept`;
     data._id = doc.id;
     payload.push(data);
     rows.push(row);
@@ -165,6 +169,22 @@ export async function convertToPack({ names = null, filter = null, pack = { name
     await Item.createDocuments(payload.slice(i, i + ITEM_CHUNK), { pack: target.collection, keepId: true });
   }
   return { pack: target.collection, rows };
+}
+
+/** An official item from the user's installed compendium (by id, then name), else the SRD by name; or null. */
+export async function findOfficial(ref) {
+  const own = game.packs.get(ref.pack);
+  if (own) {
+    const id = ref.id ?? (await own.getIndex()).find(e => e.name === ref.name)?._id;
+    const doc = id ? await own.getDocument(id) : null;
+    if (doc) return doc;
+  }
+  for (const key of SRD_PACKS) {
+    const pack = game.packs.get(key);
+    const e = pack && (await pack.getIndex()).find(x => x.name === ref.name);
+    if (e) return pack.getDocument(e._id);
+  }
+  return null;
 }
 
 /** Turn a list of weighted results into RollTable source data with contiguous ranges. */
