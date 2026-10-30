@@ -173,20 +173,55 @@ const QUALITY_NAME = { poor: "Poor", common: "Common", uncommon: "Uncommon", rar
 
 /**
  * Plain enhancement bonus for weapons, chest armour and shields (decided by the user):
- *   Uncommon (green)   +1 OR an effect: the effect replaces the +1 when the item has a convertible line.
+ *   Uncommon (green)   +1 OR one effect (see GREEN_RULE below for which one).
  *   Rare (blue)        +1 AND its effects (its effects use the Rare row of each table, bigger than green's).
  *   Epic (purple)      +2 and its effects.
  *   Legendary (orange) +3 and its effects.
  * "Effect" means a feature from one of the item's own Equip / Use / Chance-on-hit / resistance / bonus-damage
- * lines (see EFFECT_RIDERS); the main-stat check or save bonus is the stat line itself and does not count.
+ * lines, or the main-stat ability check / saving throw bonus (see EFFECT_RIDERS; decided by the user).
  * Effects are never invented to fill a tier: an item with no convertible line just gets its plain bonus.
+ * Ability SCORE increases are never given by the converter (only check / save bonuses); an official item used as
+ * a reflavour (REFLAVOUR) that raises a score keeps its own rules.
  */
 export const GEAR_BONUS = {
   0: { plain: 0, withEffect: 0 }, 1: { plain: 1, withEffect: 0 }, 2: { plain: 1, withEffect: 1 },
   3: { plain: 2, withEffect: 2 }, 4: { plain: 3, withEffect: 3 }
 };
 /** Rider types that count as an "effect" for GEAR_BONUS. */
-export const EFFECT_RIDERS = new Set(["extraDamage", "burstDamage", "extraAttack", "heal", "attackBonus", "spellBonus", "healBonus", "resistance", "acBonus", "cantrip"]);
+export const EFFECT_RIDERS = new Set(["extraDamage", "burstDamage", "extraAttack", "heal", "attackBonus", "spellBonus", "healBonus", "resistance", "acBonus", "cantrip", "checkBonus", "saveBonus"]);
+/** Rider types that come from the main stat line. */
+const STAT_RIDERS = new Set(["checkBonus", "saveBonus"]);
+
+/**
+ * Uncommon (green) items get ONE benefit (decided by the user: "+1 OR an effect"; the stat bonus is an effect).
+ *   Weapons, chest armour, shields: a convertible effect line (proc, bonus damage, resistance, ...) replaces the +1.
+ *     Otherwise the +1 enhancement is the default and the main-stat bonus is listed as not converted, EXCEPT when
+ *     the stat is clearly the better fit, which then replaces the +1:
+ *       - a caster weapon (a Staff, or any weapon whose lines are about spells) whose main stat is Intellect or
+ *         Spirit, or
+ *       - the stat is the item's whole identity: its name carries the stat suffix (e.g. "of the Owl", "of Strength").
+ *   Accessories (rings, amulets, cloaks, trinkets, clothing slots, cloth robes, wands): the main-stat bonus is the
+ *     one effect; when the item also has a convertible effect line, that line wins and the stat is not converted
+ *     (same as the trinket rule).
+ * Rare and up are unchanged: bonus plus every effect, the stat bonus included.
+ */
+export const GREEN_RULE = {
+  casterStats: new Set(["int", "wis"]),
+  /** Classic stat suffixes -> the stats they grant. */
+  identitySuffix: {
+    Strength: ["str"], Agility: ["dex"], Stamina: ["con"], Intellect: ["int"], Spirit: ["wis"],
+    "the Bear": ["str", "con"], "the Owl": ["int", "wis"], "the Monkey": ["dex", "con"], "the Eagle": ["con", "int"],
+    "the Tiger": ["str", "dex"], "the Gorilla": ["str", "int"], "the Boar": ["str", "wis"], "the Falcon": ["dex", "int"],
+    "the Wolf": ["dex", "wis"], "the Whale": ["con", "wis"]
+  }
+};
+/** True when the item's name carries a stat suffix that includes `ability`. */
+function statIsIdentity(name, ability) {
+  const m = String(name).match(/\bof (Strength|Agility|Stamina|Intellect|Spirit|the \w+)$/i);
+  if (!m) return false;
+  const key = Object.keys(GREEN_RULE.identitySuffix).find(k => k.toLowerCase() === m[1].toLowerCase());
+  return !!key && GREEN_RULE.identitySuffix[key].includes(ability);
+}
 /** Quality tier from which every item requires attunement (Very Rare and Legendary). */
 export const ATTUNE_TIER = 3;
 /** Rider types that require attunement on their own, as their SRD counterparts do. */
@@ -846,6 +881,33 @@ function applyTrinketStat(ctx) {
   for (const k of rest) notConverted(ctx, p.statLines[k], "only the trinket's main stat becomes a 5e rule", "secondary stat");
 }
 
+/** Remove a feature (and its rider) that lost out under GREEN_RULE, listing its line as not converted. */
+function dropFeature(ctx, f, why, shortWhy) {
+  ctx.features = ctx.features.filter(x => x !== f);
+  if (f.rider) ctx.riders = ctx.riders.filter(r => !(r.type === f.rider.type && r.source === (f.sourceLine ?? f.source)));
+  notConverted(ctx, f.sourceLine ?? f.source, why, shortWhy);
+}
+
+/** Uncommon items: one benefit (GREEN_RULE). Runs after all lines, before the enhancement bonus. */
+function applyGreenRule(ctx) {
+  const { p, tier } = ctx;
+  if (tier !== 1) return;
+  const stat = ctx.features.find(f => f.rider && STAT_RIDERS.has(f.rider.type));
+  if (!stat) return;
+  const effect = ctx.features.find(f => f.rider && EFFECT_RIDERS.has(f.rider.type) && !STAT_RIDERS.has(f.rider.type));
+  if (effect) { dropFeature(ctx, stat, `an Uncommon item gets one benefit; its effect (${effect.name}) takes it`, "effect instead"); return; }
+  const enhanced = ctx.extras.weapon || ctx.extras.armor;
+  if (!enhanced) return; // accessories: the stat bonus is their one effect
+  const ability = stat.rider.ability;
+  const caster = GREEN_RULE.casterStats.has(ability) && (p.wowType === "Staff" || p.effects.some(e => /spell/i.test(e.text)));
+  const identity = statIsIdentity(p.name, ability);
+  if (caster || identity) {
+    stat.source += caster ? "; replaces the Uncommon +1 (caster weapon with a casting stat)" : "; replaces the Uncommon +1 (the stat is the item's identity)";
+    return;
+  }
+  dropFeature(ctx, stat, "an Uncommon weapon, armour or shield gets the +1 enhancement as its one benefit", "+1 instead");
+}
+
 function applyResistances(ctx) {
   const { p } = ctx;
   for (const [school, value] of Object.entries(p.resist)) {
@@ -1002,6 +1064,7 @@ function applyLinesCommon(ctx) {
     applyResistances(ctx);
     applyEffects(ctx);
   }
+  applyGreenRule(ctx);
   const { p } = ctx;
   for (const s of p.sets) notConverted(ctx, s, "set bonuses are not converted yet, as there are no set rules", "set bonus");
   if (p.randomEnchant) notConverted(ctx, "<Random enchantment>", "random enchantments are not rolled", "random enchantment");
