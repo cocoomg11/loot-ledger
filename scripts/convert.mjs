@@ -1,15 +1,34 @@
 /**
- * First-pass converter: classic MMO item -> dnd5e (2024 rules) item.
+ * Converter: classic MMO item -> dnd5e (2024 rules) item. Second pass.
  *
- * Every rule lives in a plain table near the top of this file so it can be tuned without touching the
- * logic. Weapon and armour numbers (damage dice, properties, mastery, AC, weight) come from the System
- * Reference Document 5.2 (CC-BY-4.0). Everything else is Loot Ledger's own first-pass homebrew and is
- * expected to change once official conversion guidance exists.
+ * Ground rules (every table below follows them):
  *
- * Nothing in here reads or writes Foundry documents: `convertItem()` takes plain source data and
- * returns plain item data, so it can be tested outside Foundry.
+ *  1. Traceability. Every mechanical feature comes from one specific tooltip line of the source item: a stat
+ *     line, an Equip: / Use: / Chance on hit: line, a resistance line, the weapon damage line, or the item
+ *     type and slot. Quality on its own only sets the plain enhancement bonus of weapons, armour and shields,
+ *     and attunement. Nothing else is ever added because of quality.
+ *  2. Explained. Each feature is written out as a complete 5e rule (what it does, when, how often, any save
+ *     or recharge) followed by a "Source:" note naming the line it came from.
+ *  3. Proportionate. The line decides WHAT a feature is; the rarity (and for weapons the level band) decides
+ *     HOW MUCH, using the tables below, kept in line with SRD 5.2 magic items of the same rarity.
+ *  4. Unclear lines are flagged, not guessed: the item gets needsReview and a "GM review" note, and the line
+ *     stays as flavour with no mechanics.
+ *  5. No automation. Riders (extra damage, check / save bonuses, resistances ...) are described in text and
+ *     recorded as structured data in flags["loot-ledger"].riders for a later automation pass. Only the plain
+ *     enhancement bonus uses dnd5e's own data field (magicalBonus), and only consumables get an activity.
+ *
+ * Every line on the tooltip ends up in exactly one of three places in the 5e block: a feature, the
+ * "Not converted" list (with the reason, e.g. it is already covered by the base weapon), or "GM review".
+ *
+ * Weapon and armour statistics (damage, properties, mastery, AC, weight) and the potion of healing dice come
+ * from the System Reference Document 5.2 (CC-BY-4.0). All rules text is Loot Ledger's own wording.
+ *
+ * Nothing in here reads or writes Foundry documents: `convertItem()` takes plain source data and returns
+ * plain item data, so it can be tested outside Foundry.
  */
 import { MODULE_ID, SOURCE_MODULE, QUALITY_BY_KEY, analyse, tooltipLines, priceFor, formatCoins } from "./data.mjs";
+
+export const CONVERTER_VERSION = 2;
 
 /* -------------------------------------------- */
 /*  SRD 5.2 reference data                      */
@@ -64,14 +83,20 @@ export const ARMOR_BASES = {
   shield:      { label: "Shield",           type: "shield", ac: 2,  dex: null,                 weight: 6 }
 };
 
+const PROP_LABEL = {
+  fin: "Finesse", lgt: "Light", thr: "Thrown", ver: "Versatile", hvy: "Heavy", two: "Two-Handed", rch: "Reach",
+  amm: "Ammunition", lod: "Loading", foc: "Spellcasting Focus"
+};
+
 /* -------------------------------------------- */
-/*  Rule tables (tune these)                    */
+/*  Item shape tables (tune these)              */
 /* -------------------------------------------- */
 
 /**
  * Weapon type -> base weapon. First matching row wins.
  * hands: "one" (One-Hand / Main Hand / Off Hand), "two" (Two-Hand), "ranged", "thrown".
- * maxSpeed / minSpeed: classic attack speed in seconds. name: regex on the item name.
+ * maxSpeed: classic attack speed in seconds. name: regex on the item name (only picks between bases of the
+ * same weapon family, never adds features).
  */
 export const WEAPON_RULES = [
   { wow: "Sword",       hands: "two",                     base: "greatsword" },
@@ -105,10 +130,7 @@ export const WEAPON_RULES = [
   { wow: "Fishing Pole",                                  base: "club" }
 ];
 
-/**
- * Chest armour by armour class and item level. First matching row wins.
- * Cloth chests use CLOTH_CHEST instead (see below).
- */
+/** Chest armour by armour class and item level. First matching row wins. Cloth chests use CLOTH_CHEST. */
 export const CHEST_RULES = [
   { wow: "Leather", maxIlvl: 30,  base: "leather" },
   { wow: "Leather",               base: "studded" },
@@ -121,66 +143,98 @@ export const CHEST_RULES = [
 ];
 
 /**
- * Cloth chest handling: "clothing" (no AC, the default, so spellcasters without armour training can wear
- * robes) or "padded" (Padded Armor, light armour with stealth disadvantage).
+ * Cloth chest handling (pending decision): "clothing" (no AC, the default, so spellcasters without armour
+ * training can wear robes) or "padded" (Padded Armor).
  */
 export const CLOTH_CHEST = "clothing";
 
-/** Non-weapon, non-chest slots -> dnd5e equipment type. None of these grant AC (only chest armour does). */
+/**
+ * Non-weapon, non-chest slots -> dnd5e equipment type (pending decision: only chest armour and shields give
+ * AC, so helmets, gloves, boots and so on are worn items without an AC value).
+ */
 export const SLOT_EQUIPMENT = {
   Head: "clothing", Shoulder: "clothing", Hands: "clothing", Wrist: "clothing", Waist: "clothing",
   Legs: "clothing", Feet: "clothing", Back: "clothing", Shirt: "clothing", Tabard: "clothing",
   Finger: "ring", Neck: "trinket", Trinket: "trinket", "Held In Off-hand": "trinket", Relic: "trinket"
 };
-/** Slots treated as accessories for the quality-tier table. */
-export const ACCESSORY_SLOTS = new Set(["Finger", "Neck", "Trinket", "Back", "Held In Off-hand", "Relic"]);
+
+/* -------------------------------------------- */
+/*  Power tables (tune these)                   */
+/* -------------------------------------------- */
+
+/** Quality -> power tier used by every table below (0 = no magic from quality). */
+export const TIER = { poor: 0, common: 0, uncommon: 1, rare: 2, epic: 3, legendary: 4, artifact: 4 };
+const TIER_NAME = { 0: "Common", 1: "Uncommon", 2: "Rare", 3: "Very Rare", 4: "Legendary" };
+const QUALITY_NAME = { poor: "Poor", common: "Common", uncommon: "Uncommon", rare: "Rare", epic: "Epic", legendary: "Legendary", artifact: "Artifact" };
+
+/**
+ * Plain enhancement bonus from quality (the only thing quality grants on its own). Weapons follow SRD
+ * weapon rarities, kept a step modest: Rare is +1 below level band 5 (L9+) and +2 from it. Armour and
+ * shields follow SRD armour rarities (+1 armour is Rare), so Uncommon armour has no bonus.
+ */
+export const WEAPON_BONUS = { 0: 0, 1: 1, 2: { default: 1, fromBand: 5, value: 2 }, 3: 2, 4: 3 };
+export const ARMOR_BONUS = { 0: 0, 1: 0, 2: 1, 3: 2, 4: 3 };
+/** Quality tier from which every item requires attunement (Very Rare and Legendary). */
+export const ATTUNE_TIER = 3;
+/** Rider types that require attunement on their own, as their SRD counterparts do. */
+export const ATTUNE_RIDERS = new Set(["resistance", "attackBonus", "spellBonus", "healBonus", "extraAttack", "burstDamage"]);
 
 /** Classic stat -> 5e ability. Charisma has no classic counterpart. */
 export const STAT_MAP = { Strength: "str", Agility: "dex", Stamina: "con", Intellect: "int", Spirit: "wis" };
-/** Skill used for the "minor perk" of each ability (null = use a saving throw instead). */
-export const SKILL_FOR_ABILITY = { str: "ath", dex: "ste", con: null, int: "arc", wis: "per", cha: "per" };
 export const ABILITY_LABEL = { str: "Strength", dex: "Dexterity", con: "Constitution", int: "Intelligence", wis: "Wisdom", cha: "Charisma" };
-export const SKILL_LABEL = { ath: "Athletics", ste: "Stealth", arc: "Arcana", per: "Perception" };
-
-/** Classic damage school -> 5e damage type. Nature becomes lightning when the text mentions lightning. */
-export const SCHOOL_MAP = { Fire: "fire", Frost: "cold", Nature: "poison", Shadow: "necrotic", Arcane: "force", Holy: "radiant" };
+const STAT_ORDER = ["str", "dex", "con", "int", "wis"];
+const ABILITY_STAT = { str: "Strength", dex: "Agility", con: "Stamina", int: "Intellect", wis: "Spirit" };
 
 /**
- * Quality tier for weapons, armour and shields.
- * bonus = magical +N, perk = add the "minor perk" (skill or save +1 from the top stat), attune = requires attunement.
+ * Primary stat lines. Only the item's highest primary stat counts, and only when it is a real part of the
+ * item: at least max(minValue, item level / perItemLevel). It gives a bonus to checks with the matching
+ * ability (Stamina gives Constitution saving throws instead, since Stamina is about toughness).
+ * The other stat lines are listed as "Not converted".
  */
-export const GEAR_TIERS = {
-  poor:      { tier: 0, bonus: 0, perk: false, attune: false, magic: false },
-  common:    { tier: 0, bonus: 0, perk: false, attune: false, magic: false },
-  uncommon:  { tier: 1, bonus: 0, perk: true,  attune: false, magic: true },
-  rare:      { tier: 2, bonus: 1, perk: false, attune: false, magic: true },
-  epic:      { tier: 3, bonus: 2, perk: false, attune: true,  magic: true },
-  legendary: { tier: 4, bonus: 3, perk: false, attune: true,  magic: true },
-  artifact:  { tier: 4, bonus: 3, perk: false, attune: true,  magic: true }
-};
+export const STAT_RULE = { minTier: 1, minValue: 4, perItemLevel: 7, checkBonus: { 1: 1, 2: 1, 3: 2, 4: 2 }, saveBonus: { 1: 1, 2: 1, 3: 1, 4: 2 } };
+
+/** "Improves your chance to hit by N%": +1 to weapon attack rolls on non-weapon items of this tier or higher. */
+export const HIT_RULE = { minTier: 2, bonus: 1 };
 
 /**
- * Quality tier for accessories (ring, neck, trinket, cloak, held off-hand) and non-chest armour pieces.
- * kind: "perk" (+1 to one skill, or one save for Constitution), "save" (+1 to saves of the top ability),
- * "ability" (+N to the top ability score, max 20 by the rules text), ac: extra +1 AC.
+ * "Increases damage (and healing) done by spells by up to N": a spellcasting bonus, like the SRD's +1 / +2 /
+ * +3 spellcasting items, when N >= max(minValue, item level / perItemLevel). School-specific lines only
+ * affect spell attack rolls of spells of that damage type. Healing-only lines add a small die to healing
+ * spells. All of these require attunement by a spellcaster.
  */
-export const ACCESSORY_TIERS = {
-  poor:      { kind: null },
-  common:    { kind: null },
-  uncommon:  { kind: "perk" },
-  rare:      { kind: "save" },
-  epic:      { kind: "ability", amount: 1, attune: true },
-  legendary: { kind: "ability", amount: 1, ac: 1, attune: true },
-  artifact:  { kind: "ability", amount: 1, ac: 1, attune: true }
+export const SPELL_RULE = { minValue: 4, perItemLevel: 6, bonus: { 0: 1, 1: 1, 2: 1, 3: 2, 4: 3 }, healDie: { 0: "1d4", 1: "1d4", 2: "1d4", 3: "1d6", 4: "1d8" } };
+
+/**
+ * "+N <School> Resistance": full 5e Resistance only when the line is large for the item level
+ * (N >= max(minValue, item level x perItemLevel)); smaller lines are listed as "Not converted".
+ */
+export const RESIST_RULE = { minValue: 15, perItemLevel: 0.3 };
+
+/** Classic damage school -> 5e damage type. Nature becomes Lightning when the line mentions lightning or storms. */
+export const SCHOOL_MAP = { Fire: "Fire", Frost: "Cold", Nature: "Poison", Shadow: "Necrotic", Arcane: "Force", Holy: "Radiant" };
+
+/**
+ * "Chance on hit" damage procs. Classic procs fire now and then (roughly once a minute, i.e. about once per
+ * fight), so their 5e frequency is chosen by how big the proc is next to one normal hit of the weapon
+ * (ratio = average proc damage / average weapon damage):
+ *   ratio < critBelow                -> extra damage on a Critical Hit (small, occasional),
+ *   critBelow <= ratio < burstFrom   -> extra damage once per turn on a hit (steady, like SRD elemental weapons),
+ *   ratio >= burstFrom               -> one big blast per Short or Long Rest (a signature burst).
+ * Dice grow with the item's tier.
+ */
+export const PROC_RULE = {
+  critBelow: 1, burstFrom: 2.5,
+  critDice:  { 0: "1d6", 1: "1d6", 2: "2d6", 3: "3d6", 4: "4d6" },
+  onHitDice: { 0: "1d4", 1: "1d4", 2: "1d6", 3: "2d6", 4: "3d6" },
+  burstDice: { 0: "2d6", 1: "3d6", 2: "4d6", 3: "6d6", 4: "8d6" }
 };
+/** A weapon's own "+ X - Y <School> Damage" line (every hit in the classic game): once-per-turn extra dice. */
+export const WEAPON_EXTRA_DICE = { 0: "1d4", 1: "1d4", 2: "1d4", 3: "1d6", 4: "1d8" };
+/** "Extra attack" procs: extra attacks per use (capped by tier); one use per Short or Long Rest. */
+export const EXTRA_ATTACK_RULE = { max: { 0: 1, 1: 1, 2: 1, 3: 2, 4: 2 } };
 
-/** Elemental resistance lines: tier 2 (rare) gives advantage text only, tier 3+ gives real resistance. */
-export const RESISTANCE_RULE = { adviceTier: 2, resistTier: 3 };
-/** Extra +1 AC from Defense / bonus Armor lines, from this tier up. */
-export const DEFENSE_RULE = { minTier: 3 };
-
-/** On-hit elemental damage: extra dice once per turn by tier (below minTier the line is flavour only). */
-export const ON_HIT_DAMAGE = { minTier: 2, dice: { 2: "1d6", 3: "2d6", 4: "3d6" } };
+/** Wands: their damage school decides the cantrip they let you cast (SRD 5.2 cantrips). Missing school -> GM review. */
+export const WAND_CANTRIP = { Fire: "Fire Bolt", Frost: "Ray of Frost", Arcane: "Eldritch Blast", Nature: "Poison Spray", Holy: "Sacred Flame" };
 
 /** Healing potions by item level (dice from the SRD 5.2 potions of healing). */
 export const POTION_HEALING = [
@@ -197,27 +251,23 @@ export const MANA_POTION_SLOT = [
 export const FOOD_HEALING = [
   { maxIlvl: 15, formula: [1, 4, 0] }, { maxIlvl: 35, formula: [1, 6, 0] }, { maxIlvl: Infinity, formula: [1, 8, 0] }
 ];
-/** "Use: Restores N health" on gear: once per Long Rest heal, dice by item level. */
+/** "Use: Restores N health" on gear: once per Long Rest, dice by item level. */
 export const GEAR_HEALING = [
   { maxIlvl: 25, formula: [2, 4, 2] }, { maxIlvl: 45, formula: [4, 4, 4] }, { maxIlvl: Infinity, formula: [8, 4, 8] }
 ];
 
 /**
- * Equip / Use / Chance-on-hit patterns. First matching row wins for each line.
- * effect: what it becomes; minTier: below this the line is kept as flavour only (still "recognised", so no
- * GM review). Lines matching no row are kept as flavour and the item is flagged for GM review.
+ * Equip lines that are deliberately not converted, with the reason shown on the item. These are the classic
+ * game's small incremental stats; 5e has no proportionate counterpart, or the base item already covers them.
  */
-export const EFFECT_PATTERNS = [
-  { id: "onhit-damage",  kinds: ["hit", "equip"], rx: /(\d+)(?: to (\d+))? (Fire|Frost|Nature|Shadow|Arcane|Holy) damage/i, effect: "onHitDamage", minTier: ON_HIT_DAMAGE.minTier, requireChance: true },
-  { id: "use-heal",      kinds: ["use"],  rx: /^Restores (\d+) to (\d+) health\.?/i,                    effect: "gearHeal",   minTier: 1 },
-  { id: "attack-power",  kinds: ["equip"], rx: /(Attack Power|attack power by)/i,                        effect: "weaponAttack", minTier: 3 },
-  { id: "hit-chance",    kinds: ["equip"], rx: /chance to hit by \d+%/i,                                 effect: "weaponAttack", minTier: 3 },
-  { id: "spell-power",   kinds: ["equip"], rx: /damage (and healing )?done by .*spells|healing done by .*spells/i, effect: "spellAttack", minTier: 3 },
-  { id: "defense",       kinds: ["equip"], rx: /Increased Defense \+\d+|^\+\d+ Armor\.?$/i,              effect: "acBonus",    minTier: DEFENSE_RULE.minTier },
-  { id: "crit",          kinds: ["equip"], rx: /critical strike/i,                                       effect: "flavour" },
-  { id: "avoidance",     kinds: ["equip"], rx: /chance to (dodge|parry|block)|block value/i,             effect: "flavour" },
-  { id: "regen",         kinds: ["equip"], rx: /(mana|health) (per|every) 5 sec/i,                       effect: "flavour" },
-  { id: "all-resist",    kinds: ["equip"], rx: /All Resistances/i,                                       effect: "flavour" }
+export const NOT_CONVERTED = [
+  { rx: /Attack Power/i,                                why: "attack power has no separate 5e rule; weapon damage and the enhancement bonus cover it" },
+  { rx: /critical strike/i,                             why: "a few % crit chance has no proportionate 5e rule (a 19–20 crit range would be far stronger)" },
+  { rx: /chance to (dodge|parry|block)|block value/i,   why: "avoidance stats have no proportionate 5e rule; only chest armour and shields give AC" },
+  { rx: /Increased Defense \+\d+|^\+\d+ Armor\.?$/i,     why: "small defence bonuses have no proportionate 5e rule; only chest armour and shields give AC" },
+  { rx: /(mana|health) (per|every) 5 sec/i,             why: "in-combat regeneration has no 5e counterpart" },
+  { rx: /Increased (Daggers|Swords|Axes|Maces|Bows|Guns|Crossbows|Staves|Polearms|Fist Weapons|Two-handed \w+) \+\d+/i, why: "weapon skill has no 5e counterpart (proficiency covers it)" },
+  { rx: /chance to hit with spells/i,                   why: "a few % spell hit has no proportionate 5e rule" }
 ];
 
 /* -------------------------------------------- */
@@ -226,46 +276,47 @@ export const EFFECT_PATTERNS = [
 
 const TOOLTIP_MARK = '<div style="background:#0b0b10';
 const HAND_OF = { "Two-Hand": "two", "One-Hand": "one", "Main Hand": "one", "Off Hand": "one", Ranged: "ranged", Thrown: "thrown" };
+const ARMOR_SLOT = /^(Head|Shoulder|Chest|Wrist|Hands|Waist|Legs|Feet|Back|Relic)$/;
+const ITEM_TYPE = /^(Sword|Axe|Mace|Dagger|Fist Weapon|Polearm|Staff|Bow|Crossbow|Gun|Thrown|Wand|Shield|Fishing Pole|Cloth|Leather|Mail|Plate|Idol|Libram|Totem)$/;
+const KIND = { Equip: "equip", Use: "use", "Chance on hit": "hit" };
+const KIND_LABEL = { equip: "Equip", use: "Use", hit: "Chance on hit" };
 
 /** Extract the classic item facts from a source item (plain data or document). */
 export function parseSource(src) {
   const html = src.system?.description?.value ?? "";
   const cut = html.indexOf(TOOLTIP_MARK);
   const tooltip = cut >= 0 ? html.slice(cut) : html;
-  const lines = tooltipLines(tooltip).slice(1); // drop the item name
+  const lines = tooltipLines(tooltip).slice(1).map(l => l.replace(/\s+/g, " ")); // drop the item name
   const meta = analyse(src);
   const out = {
     ...meta, name: src.name, sourceType: src.type, wowType: null, hands: null, speed: null,
-    damage: null, extraDamage: null, armor: null, block: null, stats: {}, resist: {}, effects: [], setBonuses: 0,
-    classes: null, quest: false, handAuthored: !!src.flags?.[SOURCE_MODULE]?.handAuthored, consumableType: src.system?.type?.value ?? ""
+    damage: null, extraDamage: null, armor: null, block: null, stats: {}, statLines: {}, resist: {}, effects: [],
+    sets: [], randomEnchant: false, flavour: [], classes: null, quest: false,
+    handAuthored: !!src.flags?.[SOURCE_MODULE]?.handAuthored, consumableType: src.system?.type?.value ?? "",
+    preText: cut > 0 ? html.slice(0, cut) : "", lines
   };
-  const pair = tooltip.match(/<span>([^<]*)<\/span><span>([^<]*)<\/span>/);
-  if (pair && HAND_OF[pair[1]] !== undefined) { out.wowType = pair[2]; out.hands = HAND_OF[pair[1]]; }
-  else if (pair && /^(Head|Shoulder|Chest|Wrist|Hands|Waist|Legs|Feet|Back|Relic)$/.test(pair[1])) out.wowType = pair[2];
-  for (const raw of lines) {
-    const l = raw.replace(/\s+/g, " ");
+  for (let i = 0; i < lines.length; i++) {
+    const l = lines[i], next = lines[i + 1] ?? "";
     let m;
-    if (!out.wowType && /^(Cloth|Leather|Mail|Plate)$/.test(l)) out.wowType = l;
+    if (!out.wowType && HAND_OF[l] !== undefined && ITEM_TYPE.test(next)) { out.wowType = next; out.hands = HAND_OF[l]; i++; continue; }
+    if (!out.wowType && ARMOR_SLOT.test(l) && ITEM_TYPE.test(next)) { out.wowType = next; i++; continue; }
+    if (!out.wowType && /^(Cloth|Leather|Mail|Plate)$/.test(l)) { out.wowType = l; continue; }
     if ((m = l.match(/^(\d+) - (\d+) (?:(\w+) )?Damage$/))) out.damage = { min: +m[1], max: +m[2], school: m[3] ?? null };
-    else if ((m = l.match(/^\+ ?(\d+) - (\d+) (\w+) Damage$/))) out.extraDamage = { min: +m[1], max: +m[2], school: m[3] };
+    else if ((m = l.match(/^\+ ?(\d+) - (\d+) (\w+) Damage$/))) out.extraDamage = { min: +m[1], max: +m[2], school: m[3], line: l };
     else if ((m = l.match(/^Speed ([\d.]+)$/))) out.speed = Number(m[1]);
     else if ((m = l.match(/^(\d+) Armor$/))) out.armor = +m[1];
     else if ((m = l.match(/^(\d+) Block$/))) out.block = +m[1];
-    else if ((m = l.match(/^\+(\d+) (Strength|Agility|Stamina|Intellect|Spirit)$/))) out.stats[STAT_MAP[m[2]]] = +m[1];
+    else if ((m = l.match(/^\+(\d+) (Strength|Agility|Stamina|Intellect|Spirit)$/))) { out.stats[STAT_MAP[m[2]]] = +m[1]; out.statLines[STAT_MAP[m[2]]] = l; }
     else if ((m = l.match(/^\+(\d+) (Fire|Frost|Nature|Shadow|Arcane|Holy) Resistance$/))) out.resist[m[2]] = +m[1];
-    else if ((m = l.match(/^(Equip|Use|Chance on hit): (.+)$/))) out.effects.push({ kind: { Equip: "equip", Use: "use", "Chance on hit": "hit" }[m[1]], text: m[2] });
-    else if (/^\(\d+\) Set ?:/.test(l)) out.setBonuses++;
+    else if ((m = l.match(/^\+(\d+) All Resistances$/))) out.resist.All = +m[1];
+    else if ((m = l.match(/^(Equip|Use|Chance on hit): (.+)$/))) out.effects.push({ kind: KIND[m[1]], text: m[2], line: l });
+    else if ((m = l.match(/^\(\d+\) Set ?: (.+)$/))) out.sets.push(l);
+    else if (l === "<Random enchantment>") out.randomEnchant = true;
+    else if (/^".*"$/.test(l)) out.flavour.push(l);
     else if ((m = l.match(/^Classes: (.+)$/))) out.classes = m[1];
     else if (l === "Quest Item" || l === "This Item Begins a Quest") out.quest = true;
   }
   return out;
-}
-
-/** Highest-valued stat's ability key, or null. Ties keep the order str, dex, con, int, wis. */
-export function topAbility(stats) {
-  let best = null;
-  for (const k of ["str", "dex", "con", "int", "wis"]) if ((stats[k] ?? 0) > (stats[best] ?? 0)) best = k;
-  return best;
 }
 
 function byLevel(table, ilvl) { return table.find(r => (ilvl ?? 1) <= r.maxIlvl) ?? table.at(-1); }
@@ -293,117 +344,470 @@ export function classify(p) {
 }
 
 /* -------------------------------------------- */
+/*  Hand-written items from the source module   */
+/* -------------------------------------------- */
+
+/**
+ * Claims a hand-written 5e rule can make, and the tooltip text that has to back each one up.
+ * `need` is tested against the item's effect text (Equip / Use / Chance-on-hit lines, resistances, set
+ * bonuses and bonus damage lines; primary stat lines and the item's name never count as support).
+ */
+const DMG_SCHOOL = {
+  fire: /Fire/, cold: /Frost|cold|ice/i, lightning: /Nature|lightning|storm|thunder/i, thunder: /Nature|lightning|storm|thunder/i,
+  poison: /Nature|poison|venom/i, acid: /Nature|acid/i, necrotic: /Shadow/, radiant: /Holy/, force: /Arcane/, psychic: /\bmind\b|psychic/i
+};
+export const AUDIT_CLAIMS = [
+  { id: "potion-heal",   rx: /regain [^.]*Hit Points when you drink/i,                     need: /Restores [\d.]+ to [\d.]+ health|health/i },
+  { id: "spell-slot",    rx: /regain [^.]*spell slots?/i,                                   need: /mana/i },
+  { id: "spell-dmg",     rx: /spells? (?:you cast )?that deals? ([A-Za-z, ]+?) damage deal/i, need: /damage (and healing )?done by .*spells|spell damage/i },
+  { id: "spell-bonus",   rx: /bonus to spell attack rolls/i,                                need: /done by .*spells|spell damage/i },
+  { id: "heal-bonus",    rx: /spell that restores Hit Points/i,                             need: /healing/i },
+  { id: "resistance",    rx: /Resistance to (\w+) damage/gi, school: true,                  needResist: true },
+  { id: "ignore-res",    rx: /ignore Resistance/i,                                          need: /ignore/i },
+  { id: "dealt-dmg",     rx: /(?:extra|taking|take|takes|deal|deals) (?:\d+d\d+(?: \+ \d+)? |\d+ )?(\w+) damage/gi, school: true },
+  { id: "crit",          rx: /critical hit|roll of 19 or 20/i,                              need: /critical|Chance on hit|chance to strike/i },
+  { id: "reroll-miss",   rx: /miss with an attack roll|reroll/i,                            need: /chance to hit/i },
+  { id: "attack-bonus",  rx: /bonus to attack rolls/i,                                      need: /chance to hit/i },
+  { id: "ac-bonus",      rx: /bonus to Armor Class/i,                                       need: /Defense|Armor\.|armor by|dodge|parry/i },
+  { id: "save-bonus",    rx: /bonus to [^.]*saving throws/i,                                need: /Resistance/i },
+  { id: "temp-hp",       rx: /temporary Hit Points/i,                                       need: /absorb|shield|armor by|damage by|kill|Chance on hit/i },
+  { id: "heal-other",    rx: /(restore|regains?) (\d+d\d+|an extra \d+d\d+|extra) Hit Points|restore \dd\d+ Hit Points/i, need: /heal|health/i },
+  { id: "drop-to-1",     rx: /drop to 1 Hit Point/i,                                        need: /death|die|fatal/i },
+  { id: "extra-attack",  rx: /(additional|extra) attacks?/i,                                need: /extra attack/i },
+  { id: "speed",         rx: /Speed (is halved|is reduced|increases)|walking speed/i,     need: /slow|snare|speed by|run speed|movement/i },
+  { id: "disadv-attack", rx: /Disadvantage on attack rolls/i,                               need: /attack speed|slow|reduce[sd]? .*(hit|attack)/i },
+  { id: "cast-spell",    rx: /cast (?:the )?[A-Z][\w' ]+ (spell|cantrip)|as the [A-Z][\w ]+ spell|cast [A-Z][\w ]+ from/,  need: /^Use:/m },
+  { id: "summon",        rx: /summon/i,                                                     need: /Summons/i },
+  { id: "condition",     rx: /(Poisoned|Petrified|Frightened|Charmed|Prone|Grappled|Restrained|Paralyzed|Stunned|Invisible|Blinded|Deafened)/, need: /poison|stone|fear|charm|knock|root|stun|invis|blind|grip|paraly/i },
+  { id: "senses",        rx: /Darkvision|see Invisible|Truesight|Blindsight/i,              need: /vision|detect|see /i },
+  { id: "advantage",     rx: /Advantage on [^.]*(checks|Opportunity|saving throws against being|saving throws against the)/i, need: /stealth|detect|resist .*(fear|stun|poison)|^Use:/im },
+  { id: "concentration", rx: /Concentration/i,                                              need: /interrupt|pushback|concentrat|casting time/i },
+  { id: "terrain",       rx: /Difficult Terrain|no tracks|cannot be tracked|need to sleep|Opportunity Attacks|Half Cover|Sneak Attack|push it \d+ feet|Feather Fall|stonework/i, need: /$^/ },
+  { id: "focus",         rx: /used as a Spellcasting Focus|use this \w+ as a Spellcasting Focus/i, needType: /Staff|Wand|Held In Off-hand|Relic/ },
+  { id: "charges",       rx: /\bcharges?\b/i,                                               need: /^Use:|Charges|Chance on hit/im }
+];
+
+/** Effect text a hand-written rule may be traced to (never stat lines or the name). */
+function supportText(p) {
+  return [
+    ...p.effects.map(e => e.line), ...p.sets,
+    ...Object.entries(p.resist).map(([k, v]) => `+${v} ${k} Resistance`),
+    ...(p.extraDamage ? [p.extraDamage.line] : []),
+    ...(p.damage?.school ? [`${p.damage.school} Damage`] : [])
+  ].join("\n");
+}
+
+/** Split the source module's hand-written HTML into {name, text} features. */
+export function handFeatures(preHtml) {
+  const out = [];
+  const parts = String(preHtml ?? "").split(/<p><strong>/i).slice(1);
+  for (const part of parts) {
+    const [nameRaw, rest = ""] = part.split(/<\/strong>/i);
+    const name = nameRaw.replace(/<[^>]*>/g, "").trim().replace(/\.$/, "");
+    const text = rest.replace(/<[^>]*>/g, " ").replace(/&nbsp;/g, " ").replace(/&amp;/g, "&").replace(/\s+/g, " ").trim();
+    out.push({ name, text });
+  }
+  if (!out.length && preHtml) {
+    const text = preHtml.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim();
+    if (text) out.push({ name: "", text });
+  }
+  return out;
+}
+
+/**
+ * Check the source module's hand-written 5e rule for an item against its tooltip: every mechanic it names
+ * has to be backed by a tooltip line. Returns {pass, problems:[{claim, text}], support:[line]}.
+ */
+export function auditHandAuthored(p) {
+  const feats = handFeatures(p.preText);
+  const text = feats.map(f => f.text).join(" ");
+  const support = supportText(p);
+  const problems = [], used = new Set();
+  const school = t => DMG_SCHOOL[String(t).toLowerCase()];
+  for (const c of AUDIT_CLAIMS) {
+    const rx = new RegExp(c.rx.source, c.rx.flags.includes("g") ? c.rx.flags : c.rx.flags + "g");
+    for (const m of text.matchAll(rx)) {
+      let ok;
+      if (c.id === "resistance") {
+        const want = school(m[1]);
+        const lines = Object.entries(p.resist).filter(([k]) => k === "All" || (want && want.test(k)));
+        ok = lines.length > 0;
+        if (ok) used.add(`+${lines[0][1]} ${lines[0][0]} Resistance`);
+      } else if (c.id === "dealt-dmg") {
+        const t = m[1].toLowerCase();
+        if (["slashing", "piercing", "bludgeoning"].includes(t)) ok = !!p.damage && (/damage|wound/i.test(p.effects.map(e => e.text).join(" ")) || /weapon/i.test(m[0]));
+        else if (!school(t)) continue; // "Fire" in "Resistance to Fire damage" etc. is handled elsewhere
+        else {
+          // Damage dealt needs a damage line of that school (a resistance line is not enough).
+          const dmgLines = [...p.effects.map(e => e.line), ...(p.extraDamage ? [p.extraDamage.line] : []), ...(p.damage?.school ? [`${p.damage.school} Damage`] : []), ...p.sets];
+          const hit = dmgLines.find(l => /damage/i.test(l) && school(t).test(l));
+          // "Spells that deal X damage deal extra" is covered by the spell-dmg claim.
+          if (/spells? (?:you cast )?that deals?/i.test(text.slice(Math.max(0, m.index - 40), m.index + m[0].length))) continue;
+          if (/Resistance to/i.test(text.slice(Math.max(0, m.index - 20), m.index))) continue;
+          ok = !!hit;
+          if (hit) used.add(hit);
+        }
+      } else if (c.needType) {
+        ok = c.needType.test(p.wowType ?? "") || c.needType.test(p.slot ?? "");
+      } else {
+        const lm = support.split("\n").find(l => c.need.test(l));
+        ok = !!lm;
+        if (lm) used.add(lm);
+      }
+      if (!ok && !problems.some(x => x.claim === c.id && x.text.toLowerCase() === m[0].toLowerCase())) problems.push({ claim: c.id, text: m[0] });
+    }
+  }
+  if (feats.length && !support.trim() && !problems.length) problems.push({ claim: "no-line", text: "no Equip / Use / Chance on hit / resistance line to trace to" });
+  return { pass: problems.length === 0, problems, support: [...used], features: feats };
+}
+
+/* -------------------------------------------- */
 /*  Conversion                                  */
 /* -------------------------------------------- */
 
 const dice = ([n, d, b]) => `${n}d${d}${b ? ` + ${b}` : ""}`;
 const ID = suffix => `lootledger${suffix}`.padEnd(16, "0").slice(0, 16);
-
-function aeChange(key, value, generation) {
-  return generation >= 14 ? { key, type: "add", value: String(value) } : { key, mode: 2, value: String(value) };
-}
+const avg = d => (d.min + d.max) / 2;
+const cap = s => s.charAt(0).toUpperCase() + s.slice(1);
+const short = (s, n = 70) => (s.length > n ? `${s.slice(0, n - 1)}…` : s);
 
 /**
  * Convert one source item.
  * @param {object} src                 source item (plain data or Item document)
  * @param {object} [options]
  * @param {"100"|"10"} [options.ratio="100"]       coin ratio for the price
- * @param {boolean} [options.keepHandAuthored=true] keep the source module's hand-written 5e mechanics when present
- * @param {number}  [options.generation]           Foundry core generation (active-effect change format)
+ * @param {boolean} [options.keepHandAuthored=true] keep the source module's hand-written 5e rules when they
+ *                                                  pass auditHandAuthored()
  * @param {string}  [options.dnd5eMajor]           dnd5e major version (rarity field shape)
- * @returns {{data: object, result: object}} item data ready for createDocuments, and a short review summary
+ * @returns {{data: object, result: object, parsed: object}}
  */
 export function convertItem(src, options = {}) {
   const {
     ratio = "100", keepHandAuthored = true,
-    generation = Number(globalThis.game?.release?.generation ?? 14),
     dnd5eMajor = Number(String(globalThis.game?.system?.version ?? "6").split(".")[0])
   } = options;
   const p = parseSource(src);
   const base = typeof src.toObject === "function" ? src.toObject() : structuredClone(src);
   const rarity = QUALITY_BY_KEY[p.quality]?.rarity ?? "common";
   const ctx = {
-    p, generation, tier: GEAR_TIERS[p.quality]?.tier ?? 0, effects: [], notes: [], review: [], changes: [],
-    bonus: 0, attune: false, magic: false, summary: "", extras: {}
+    p, tier: TIER[p.quality] ?? 0, features: [], notConverted: [], review: [], riders: [],
+    bonus: 0, attune: false, attuneBy: "", magic: false, summary: "", basis: "", extras: {}
   };
 
   const shape = classify(p);
   const auto = buildSystem(shape, ctx);
-  let system = auto.system ?? foundry_clone(base.system);
+  let system = auto.system ?? clone(base.system);
   let itemType = auto.type;
-  let handAuthored = false;
-  if (keepHandAuthored && p.handAuthored) {
-    // Keep the source module's own conversion; only re-price, re-rarity and annotate it.
-    handAuthored = true;
-    itemType = base.type;
-    system = foundry_clone(base.system);
-    ctx.handSummary = summariseExisting(base, p);
-    // Still enforce the slot rule: only chest armour and shields give AC.
-    if (shape === "gear" && SLOT_EQUIPMENT[p.slot] === "clothing" && ["light", "medium", "heavy"].includes(system.type?.value)) {
-      system.type = { value: "clothing", baseItem: "" };
-      system.armor = { ...(system.armor ?? {}), value: null, dex: null };
-      ctx.handSummary = `clothing (was ${base.system.type.value} armour)` + ctx.handSummary.replace(/^[^,]*/, "");
+
+  // The source module's own hand-written rules: kept only when every mechanic in them traces to a line.
+  let hand = null;
+  if (p.handAuthored) {
+    const audit = auditHandAuthored(p);
+    hand = { audit, kept: keepHandAuthored && audit.pass };
+    if (hand.kept) {
+      itemType = base.type;
+      system = clone(base.system);
+      // Slot rule: only chest armour and shields give AC.
+      if (shape === "gear" && SLOT_EQUIPMENT[p.slot] === "clothing" && ["light", "medium", "heavy"].includes(system.type?.value)) {
+        hand.slotNote = `was ${system.type.value} armour; only chest armour and shields give AC`;
+        system.type = { value: "clothing", baseItem: "" };
+        system.armor = { ...(system.armor ?? {}), value: null, dex: null };
+      }
     }
   }
 
-  // Description: keep everything from the source, append the 5e block.
   const sourceHtml = base.system?.description?.value ?? "";
   const price = priceFor(p.vendorSellCopper, ratio);
-  system.description = { value: sourceHtml + rulesBlock(ctx, handAuthored, auto), chat: "" };
+  system.description = { value: sourceHtml + rulesBlock(ctx, hand, shape), chat: "" };
   system.price = price;
   if (dnd5eMajor >= 6) { system.rarities = [rarity]; delete system.rarity; }
   else { system.rarity = rarity; delete system.rarities; }
   system.identified = true;
   system.quantity ??= 1;
 
-  const effects = handAuthored ? (base.effects ?? []) : ctx.changes.length ? [{
-    _id: ID("Fx"), name: `${src.name} (5e)`, img: src.img ?? "icons/svg/aura.svg", type: "base", transfer: true,
-    disabled: false, description: "",
-    ...(generation >= 14 ? { system: { changes: ctx.changes } } : { changes: ctx.changes })
-  }] : [];
-
-  const needsReview = !handAuthored && ctx.review.length > 0;
-  const flags = foundry_clone(base.flags ?? {});
+  const kept = hand?.kept;
+  const needsReview = !kept && ctx.review.length > 0;
+  const flags = clone(base.flags ?? {});
   flags[MODULE_ID] = {
     sourceUuid: src.uuid ?? null, quality: p.quality, itemLevel: p.itemLevel,
     ...(p.requiredLevel !== null ? { requiredLevel: p.requiredLevel } : {}),
     vendorSellCopper: p.vendorSellCopper, vendorSell: formatCoins(p.vendorSellCopper), noSell: p.noSell,
     slot: p.slot, category: p.category, band: p.band, coinRatio: ratio,
-    converted: { version: 1, shape, handAuthored, needsReview, summary: handAuthored ? ctx.handSummary : ctx.summary, review: ctx.review }
+    riders: kept ? [] : ctx.riders,
+    converted: {
+      version: CONVERTER_VERSION, shape, needsReview,
+      handAuthored: !!p.handAuthored, handAuthoredKept: !!kept,
+      ...(hand && !kept ? { handAuthoredReplaced: hand.audit.problems.map(x => `${x.claim}: ${x.text}`) } : {}),
+      summary: ctx.summary, review: ctx.review.map(r => `${r.line} — ${r.why}`),
+      notConverted: ctx.notConverted.map(r => r.line)
+    }
   };
 
-  const data = { _id: base._id, name: base.name, type: itemType, img: base.img, system, effects, flags, sort: 0 };
+  const data = {
+    _id: base._id, name: base.name, type: itemType, img: base.img, system,
+    effects: kept ? (base.effects ?? []) : [], flags, sort: 0
+  };
+
   const sys = system;
+  const features = kept
+    ? hand.audit.features.map(f => ({ text: `${f.name ? `${f.name}. ` : ""}${f.text}`, source: `hand-written by the source module; traces to: ${hand.audit.support.map(s => short(s, 60)).join("; ") || "—"}` }))
+    : ctx.features.map(f => ({ text: `${f.name}. ${f.text}`, source: f.source }));
   const result = {
     type: itemType + (sys.type?.value ? `:${sys.type.value}` : ""),
     base: sys.type?.baseItem || (shape === "weapon" && ctx.extras.base) || "",
     rarity,
-    bonus: handAuthored ? Number(sys.magicalBonus ?? sys.armor?.magicalBonus ?? 0) || 0 : ctx.bonus,
-    attunement: (sys.attunement === "required"),
+    bonus: kept ? Number(sys.magicalBonus ?? sys.armor?.magicalBonus ?? 0) || 0 : ctx.bonus,
+    attunement: sys.attunement === "required" ? (ctx.attuneBy && !kept ? `required (${ctx.attuneBy})` : true) : false,
     damage: sys.damage?.base?.denomination ? `${sys.damage.base.number}d${sys.damage.base.denomination} ${sys.damage.base.types?.[0] ?? ""}`.trim() : "",
     ac: itemType === "equipment" && sys.armor?.value ? (sys.type?.value === "shield" ? `+${sys.armor.value}` : String(sys.armor.value)) : "",
     properties: (sys.properties ?? []).join(","),
-    effectSummary: handAuthored ? ctx.handSummary : ctx.effects.join("; "),
+    features,
+    notConverted: kept ? [] : ctx.notConverted.map(r => `${short(r.line, 50)} (${r.short ?? r.why})`),
     needsReview,
+    reviewReason: needsReview ? ctx.review.map(r => `${short(r.line, 60)}: ${r.why}`).join(" | ") : "",
     price: `${price.value} ${price.denomination}`,
-    ...(handAuthored ? { handAuthored: true, autoWouldBe: ctx.summary + (ctx.effects.length ? ` — ${ctx.effects.join("; ")}` : "") } : {})
+    ...(hand ? { handAuthored: kept ? "kept (passes audit)" : `replaced: ${hand.audit.problems.map(x => x.text).join("; ")}` } : {})
   };
   return { data, result, parsed: p };
 }
 
-function foundry_clone(o) { return o === undefined ? undefined : JSON.parse(JSON.stringify(o)); }
+function clone(o) { return o === undefined ? undefined : JSON.parse(JSON.stringify(o)); }
 
-/** Short text for a hand-authored source item's existing mechanics. */
-function summariseExisting(base, p) {
-  const s = base.system ?? {};
-  const label = s.type?.baseItem || s.type?.value || base.type;
-  const bonus = Number(s.magicalBonus ?? s.armor?.magicalBonus ?? 0) || 0;
-  const pre = (s.description?.value ?? "").split(TOOLTIP_MARK)[0];
-  const feature = pre.match(/<strong>([^<]+)<\/strong>/)?.[1]?.replace(/\.$/, "");
-  return [`${label}${bonus ? ` +${bonus}` : ""}`, feature ? `feature: ${feature}` : null, s.attunement === "required" ? "attunement" : null]
-    .filter(Boolean).join(", ");
+/* -------------------------------------------- */
+/*  Features                                    */
+/* -------------------------------------------- */
+
+/** "holding" for weapons, shields, wands and held items; "carrying" for trinkets; "wearing" for the rest. */
+function verb(ctx) {
+  const { p } = ctx;
+  if (ctx.extras.weapon || p.wowType === "Shield" || p.wowType === "Wand" || p.slot === "Held In Off-hand" || p.slot === "Relic") return "holding";
+  return p.slot === "Trinket" ? "carrying" : "wearing";
+}
+const SLOT_NOUN = {
+  Head: "headgear", Shoulder: "mantle", Chest: "garment", Hands: "pair of gloves", Wrist: "pair of bracers", Waist: "belt",
+  Legs: "pair of leggings", Feet: "pair of boots", Back: "cloak", Shirt: "shirt", Tabard: "tabard", Finger: "ring",
+  Neck: "amulet", Trinket: "trinket", "Held In Off-hand": "item", Relic: "relic"
+};
+function itemNoun(ctx) {
+  const { p } = ctx;
+  if (ctx.extras.weapon) return "weapon";
+  if (p.wowType === "Shield") return "shield";
+  if (p.wowType === "Wand") return "wand";
+  if (ctx.extras.armor) return "armor";
+  return SLOT_NOUN[p.slot] ?? "item";
 }
 
+function addFeature(ctx, f) {
+  ctx.features.push(f);
+  if (f.rider) {
+    ctx.riders.push({ ...f.rider, source: f.sourceLine ?? f.source });
+    if (ATTUNE_RIDERS.has(f.rider.type)) ctx.attune = true;
+  }
+  ctx.magic = true;
+}
+function notConverted(ctx, line, why, shortWhy) { ctx.notConverted.push({ line, why, short: shortWhy }); }
+function review(ctx, line, why) { ctx.review.push({ line, why }); }
+
+function damageType(school, text = "") {
+  if (school === "Nature" && /lightning|storm|thunder/i.test(text)) return "Lightning";
+  return SCHOOL_MAP[school] ?? null;
+}
+
+/** Enhancement bonus from quality (weapons, chest armour, shields). */
+function enhancement(ctx, kind) {
+  const { tier, p } = ctx;
+  const row = (kind === "weapon" ? WEAPON_BONUS : ARMOR_BONUS)[tier];
+  const value = typeof row === "object" ? (p.band >= row.fromBand ? row.value : row.default) : row;
+  ctx.bonus = value ?? 0;
+  if (!ctx.bonus) return;
+  const q = `${QUALITY_NAME[p.quality]} quality${kind === "weapon" && typeof row === "object" ? `, level band ${p.band}` : ""}`;
+  const text = kind === "weapon"
+    ? `You have a +${ctx.bonus} bonus to attack rolls and damage rolls made with this magic weapon.`
+    : kind === "shield"
+      ? `While holding this shield, you have a +${ctx.bonus} bonus to Armor Class, on top of the shield's normal +2.`
+      : `While wearing this armor, you have a +${ctx.bonus} bonus to Armor Class.`;
+  ctx.features.push({ name: `+${ctx.bonus} ${kind === "weapon" ? "Weapon" : kind === "shield" ? "Shield" : "Armor"}`, text, source: q });
+  ctx.magic = true;
+}
+
+/** The single highest primary stat, when large enough; the rest are listed as not converted. */
+function applyStats(ctx) {
+  const { p, tier } = ctx;
+  const keys = STAT_ORDER.filter(k => p.stats[k]);
+  if (!keys.length) return;
+  let top = null;
+  for (const k of keys) if (top === null || p.stats[k] > p.stats[top]) top = k;
+  const min = Math.max(STAT_RULE.minValue, Math.ceil((p.itemLevel ?? 1) / STAT_RULE.perItemLevel));
+  const value = p.stats[top];
+  if (tier >= STAT_RULE.minTier && value >= min) {
+    const line = p.statLines[top];
+    if (top === "con") {
+      const n = STAT_RULE.saveBonus[tier];
+      addFeature(ctx, {
+        name: "Fortitude", sourceLine: line,
+        text: `While ${verb(ctx)} this ${itemNoun(ctx)}, you have a +${n} bonus to Constitution saving throws.`,
+        source: `${line} (the item's main stat)`,
+        rider: { type: "saveBonus", ability: "con", value: n, trigger: "equipped" }
+      });
+    } else {
+      const n = STAT_RULE.checkBonus[tier];
+      addFeature(ctx, {
+        name: { str: "Might", dex: "Deftness", int: "Cunning", wis: "Clarity" }[top], sourceLine: line,
+        text: `While ${verb(ctx)} this ${itemNoun(ctx)}, you have a +${n} bonus to ability checks that use ${ABILITY_LABEL[top]} (including skill checks based on ${ABILITY_LABEL[top]}).`,
+        source: `${line} (the item's main stat)`,
+        rider: { type: "checkBonus", ability: top, value: n, trigger: "equipped" }
+      });
+    }
+    for (const k of keys) if (k !== top) notConverted(ctx, p.statLines[k], "only the item's main stat becomes a 5e rule", "secondary stat");
+  } else {
+    const why = tier < STAT_RULE.minTier
+      ? "stats on Common and Poor items have no 5e rule"
+      : `main stat below the conversion threshold (${min} at item level ${p.itemLevel ?? "?"})`;
+    for (const k of keys) notConverted(ctx, p.statLines[k], why, tier < STAT_RULE.minTier ? "common item stat" : `below ${min}`);
+  }
+}
+
+function applyResistances(ctx) {
+  const { p } = ctx;
+  for (const [school, value] of Object.entries(p.resist)) {
+    const line = school === "All" ? `+${value} All Resistances` : `+${value} ${school} Resistance`;
+    if (school === "All") { notConverted(ctx, line, "a small bonus to every resistance has no proportionate 5e rule", "small"); continue; }
+    const min = Math.max(RESIST_RULE.minValue, Math.ceil((p.itemLevel ?? 1) * RESIST_RULE.perItemLevel));
+    if (value >= min) {
+      const type = SCHOOL_MAP[school];
+      addFeature(ctx, {
+        name: `${type} Resistance`, sourceLine: line,
+        text: `While ${verb(ctx)} this ${itemNoun(ctx)}, you have Resistance to ${type} damage.`,
+        source: line, rider: { type: "resistance", damageType: type.toLowerCase(), value: 1, trigger: "equipped" }
+      });
+    } else notConverted(ctx, line, `too small for 5e Resistance (needs +${min} at item level ${p.itemLevel ?? "?"})`, `below ${min}`);
+  }
+}
+
+/** A damage proc on a weapon. */
+function procFeature(ctx, school, lo, hi, line, kindLabel) {
+  const { p, tier } = ctx;
+  const type = damageType(school, line);
+  const ratio = ((lo + (hi ?? lo)) / 2) / Math.max(1, avg(p.damage ?? { min: 1, max: 1 }));
+  const src = `${kindLabel} — ${lo}${hi ? `–${hi}` : ""} ${school} damage (${ratio.toFixed(1)}× a normal hit)`;
+  if (ratio < PROC_RULE.critBelow) {
+    const d = PROC_RULE.critDice[tier];
+    addFeature(ctx, {
+      name: `${type} Strike`, sourceLine: line, source: src,
+      text: `When you score a Critical Hit with this weapon, the target takes an extra ${d} ${type} damage. This extra damage isn't doubled by the Critical Hit.`,
+      rider: { type: "extraDamage", formula: d, damageType: type.toLowerCase(), trigger: "critical" }
+    });
+  } else if (ratio < PROC_RULE.burstFrom) {
+    const d = PROC_RULE.onHitDice[tier];
+    addFeature(ctx, {
+      name: `${type} Strike`, sourceLine: line, source: src,
+      text: `When you hit a creature with an attack using this weapon, it takes an extra ${d} ${type} damage. You can deal this extra damage only once per turn.`,
+      rider: { type: "extraDamage", formula: d, damageType: type.toLowerCase(), trigger: "hit", limit: "oncePerTurn" }
+    });
+  } else {
+    const d = PROC_RULE.burstDice[tier];
+    addFeature(ctx, {
+      name: `${type} Blast`, sourceLine: line, source: src,
+      text: `When you hit a creature with an attack using this weapon, you can release a blast: the target takes an extra ${d} ${type} damage. Once you use this property, you can't use it again until you finish a Short or Long Rest.`,
+      rider: { type: "burstDamage", formula: d, damageType: type.toLowerCase(), trigger: "hit", uses: 1, recovery: "sr" }
+    });
+  }
+}
+
+/** Equip / Use / Chance-on-hit lines (gear and weapons; consumables have their own handler). */
+function applyEffects(ctx) {
+  const { p, tier } = ctx;
+  const isWeapon = !!ctx.extras.weapon;
+  for (const fx of p.effects) {
+    const t = fx.text, line = fx.line, label = KIND_LABEL[fx.kind];
+    let m;
+    const absorbed = NOT_CONVERTED.find(r => r.rx.test(t));
+    // Damage procs: "Chance on hit: ... N (to M) School damage" or "Equip: Chance to strike ... for N to M School damage".
+    const dmg = t.match(/(\d+)(?: to (\d+))? (Fire|Frost|Nature|Shadow|Arcane|Holy) damage/i);
+    const isProc = fx.kind === "hit" || (fx.kind === "equip" && /\bchance\b/i.test(t));
+    if (dmg && isProc) {
+      const extra = t.replace(/\(.*?\)/g, "").split(/\.\s+/).filter(x => x.trim()).length > 1;
+      if (!isWeapon) { review(ctx, line, "damage proc on an item that is not a weapon; no weapon to attach it to"); continue; }
+      if (extra) { review(ctx, line, "the proc does more than deal damage (extra targets or effects); write this one by hand"); continue; }
+      const school = cap(dmg[3].toLowerCase());
+      procFeature(ctx, school, +dmg[1], dmg[2] ? +dmg[2] : null, line, label);
+      continue;
+    }
+    if ((m = t.match(/(\d+|an?) extra attacks?/i)) && isProc) {
+      const n = Math.min(EXTRA_ATTACK_RULE.max[tier], /^\d+$/.test(m[1]) ? +m[1] : 1);
+      const melee = /melee/i.test(t) || (isWeapon && !ctx.extras.ranged);
+      const weaponText = isWeapon ? "this weapon" : melee ? "a melee weapon" : "a weapon";
+      addFeature(ctx, {
+        name: "Flurry", sourceLine: line, source: `${label} — ${short(t, 60)}`,
+        text: `When you hit a creature with ${weaponText} as part of the Attack action, you can immediately make ${n === 1 ? "one additional attack" : `${n} additional attacks`} with that weapon as part of the same action. Once you use this property, you can't use it again until you finish a Short or Long Rest.`,
+        rider: { type: "extraAttack", value: n, trigger: melee ? "meleeHit" : "hit", uses: 1, recovery: "sr" }
+      });
+      continue;
+    }
+    if (fx.kind === "use" && (m = t.match(/^Restores (\d+) to (\d+) health\.?/i))) {
+      const f = byLevel(GEAR_HEALING, p.itemLevel).formula;
+      addFeature(ctx, {
+        name: "Restore", sourceLine: line, source: `Use — restores ${m[1]}–${m[2]} health`,
+        text: `As a Magic action, you can use this ${itemNoun(ctx)} to regain ${dice(f)} Hit Points. Once you do so, you can't do so again until you finish a Long Rest.`,
+        rider: { type: "heal", formula: dice(f), trigger: "magicAction", uses: 1, recovery: "lr" }
+      });
+      continue;
+    }
+    if (fx.kind === "equip" && (m = t.match(/chance to hit by (\d+)%/i)) && !/spell/i.test(t)) {
+      if (isWeapon) { notConverted(ctx, line, "the weapon's enhancement bonus already covers accuracy", "covered by weapon bonus"); continue; }
+      if (tier < HIT_RULE.minTier) { notConverted(ctx, line, "hit chance on Uncommon or lower items has no 5e rule", "below Rare"); continue; }
+      if (ctx.extras.attackBonus) { notConverted(ctx, line, "only one attack bonus per item", "duplicate"); continue; }
+      ctx.extras.attackBonus = true;
+      addFeature(ctx, {
+        name: "Precision", sourceLine: line, source: `Equip — +${m[1]}% chance to hit`,
+        text: `While ${verb(ctx)} this ${itemNoun(ctx)}, you have a +${HIT_RULE.bonus} bonus to attack rolls made with weapons.`,
+        rider: { type: "attackBonus", value: HIT_RULE.bonus, scope: "weapon", trigger: "equipped" }
+      });
+      continue;
+    }
+    if (fx.kind === "equip" && (m = t.match(/^Increases (damage and healing|damage|healing) done by (?:(Fire|Frost|Nature|Shadow|Arcane|Holy) |magical )?spells and effects by up to (\d+)/i))) {
+      const what = m[1].toLowerCase(), school = m[2] ? cap(m[2].toLowerCase()) : null, n = +m[3];
+      const min = Math.max(SPELL_RULE.minValue, Math.ceil((p.itemLevel ?? 1) / SPELL_RULE.perItemLevel));
+      if (n < min) { notConverted(ctx, line, `spell power below the conversion threshold (${min} at item level ${p.itemLevel ?? "?"})`, `below ${min}`); continue; }
+      if (ctx.extras.spell) { notConverted(ctx, line, "only one spellcasting bonus per item", "duplicate"); continue; }
+      ctx.extras.spell = true;
+      ctx.attuneBy = "by a spellcaster";
+      if (what === "healing") {
+        const d = SPELL_RULE.healDie[tier];
+        addFeature(ctx, {
+          name: "Mending Light", sourceLine: line, source: `Equip — +${n} healing done by spells`,
+          text: `While ${verb(ctx)} this ${itemNoun(ctx)}, when you cast a spell that restores Hit Points, one creature it heals regains an extra ${d} Hit Points.`,
+          rider: { type: "healBonus", formula: d, trigger: "healingSpell" }
+        });
+      } else {
+        const b = SPELL_RULE.bonus[tier];
+        const type = school ? damageType(school, t) : null;
+        addFeature(ctx, {
+          name: "Spell Focus", sourceLine: line, source: `Equip — +${n} ${school ? `${school} ` : ""}spell ${what}`,
+          text: type
+            ? `While ${verb(ctx)} this ${itemNoun(ctx)}, you have a +${b} bonus to spell attack rolls for spells that deal ${type} damage.`
+            : `While ${verb(ctx)} this ${itemNoun(ctx)}, you have a +${b} bonus to spell attack rolls and to the saving throw DCs of your spells.`,
+          rider: { type: "spellBonus", value: b, damageType: type?.toLowerCase() ?? null, scope: type ? "attack" : "attackAndDC", trigger: "equipped" }
+        });
+      }
+      continue;
+    }
+    if (absorbed) { notConverted(ctx, line, absorbed.why, short(absorbed.why.split(";")[0], 40)); continue; }
+    review(ctx, line, "no conversion rule for this line yet; kept as flavour with no mechanics");
+  }
+}
+
+function applyLinesCommon(ctx) {
+  applyStats(ctx);
+  applyResistances(ctx);
+  applyEffects(ctx);
+  const { p } = ctx;
+  for (const s of p.sets) notConverted(ctx, s, "set bonuses are not converted yet (no set rules)", "set bonus");
+  if (p.randomEnchant) notConverted(ctx, "<Random enchantment>", "random enchantments are not rolled", "random enchantment");
+}
+
+/* -------------------------------------------- */
+/*  Item shapes                                 */
 /* -------------------------------------------- */
 
 function attackActivity(ranged) {
@@ -415,16 +819,15 @@ function attackActivity(ranged) {
   };
 }
 
-function healActivity(formula, { activation = "bonus", consume = true, recovery = null, name = "" } = {}) {
+function healActivity(formula, { activation = "bonus", name = "" } = {}) {
   const [number, denomination, bonus] = formula;
   return {
     _id: ID("Heal"), type: "heal", sort: 0, name,
     activation: { type: activation, value: 1, condition: "", override: false },
-    consumption: { targets: consume ? [{ type: "itemUses", value: "1", target: "", scaling: {} }] : [], scaling: { allowed: false }, spellSlot: true },
+    consumption: { targets: [{ type: "itemUses", value: "1", target: "", scaling: {} }], scaling: { allowed: false }, spellSlot: true },
     healing: { number, denomination, bonus: bonus ? String(bonus) : "", types: ["healing"], custom: { enabled: false }, scaling: { number: 1 } },
     range: { units: "touch", override: false },
-    target: { affects: { type: "creature", count: "1", choice: false }, override: false, prompt: true },
-    ...(recovery ? { uses: { spent: 0, max: "1", recovery: [{ period: recovery, type: "recoverAll" }] } } : {})
+    target: { affects: { type: "creature", count: "1", choice: false }, override: false, prompt: true }
   };
 }
 
@@ -437,145 +840,54 @@ function utilityActivity(text) {
   };
 }
 
-function commonSystem(p) {
+function commonSystem() {
   return {
     source: { rules: "2024", revision: 1, custom: "Loot Ledger (converted)" },
     quantity: 1, identified: true, attunement: "", properties: []
   };
 }
 
-/** Apply the stat-driven perk/save/ability bonus for a tier kind. */
-function applyStatBonus(ctx, kind, amount = 1) {
-  const a = topAbility(ctx.p.stats);
-  if (!a) return false;
-  const { generation } = ctx;
-  if (kind === "perk") {
-    const skill = SKILL_FOR_ABILITY[a];
-    if (skill) {
-      ctx.changes.push(aeChange(`system.skills.${skill}.bonuses.check`, "+1", generation));
-      ctx.effects.push(`+1 ${SKILL_LABEL[skill]} checks`);
-    } else {
-      ctx.changes.push(aeChange(`system.abilities.${a}.bonuses.save`, "+1", generation));
-      ctx.effects.push(`+1 ${ABILITY_LABEL[a]} saves`);
-    }
-  } else if (kind === "save") {
-    ctx.changes.push(aeChange(`system.abilities.${a}.bonuses.save`, "+1", generation));
-    ctx.effects.push(`+1 ${ABILITY_LABEL[a]} saves`);
-  } else if (kind === "ability") {
-    ctx.changes.push(aeChange(`system.abilities.${a}.value`, amount, generation));
-    ctx.effects.push(`+${amount} ${ABILITY_LABEL[a]} (max 20)`);
-  }
-  return true;
-}
-
-function addAc(ctx, why) {
-  if (ctx.extras.ac) return;
-  ctx.extras.ac = true;
-  ctx.changes.push(aeChange("system.attributes.ac.bonus", "+1", ctx.generation));
-  ctx.effects.push(`+1 AC${why ? ` (${why})` : ""}`);
-}
-
-/** Resistances and Equip / Use / Chance-on-hit lines. */
-function applyLines(ctx, { isWeapon = false } = {}) {
-  const { p, tier, generation } = ctx;
-  // Resistances: only the strongest one counts.
-  const res = Object.entries(p.resist).sort((a, b) => b[1] - a[1])[0];
-  if (res) {
-    const type = SCHOOL_MAP[res[0]];
-    if (tier >= RESISTANCE_RULE.resistTier) {
-      ctx.changes.push(aeChange("system.traits.dr.value", type, generation));
-      ctx.effects.push(`resistance to ${type} damage`);
-    } else if (tier >= RESISTANCE_RULE.adviceTier) {
-      ctx.effects.push(`advantage on saves against ${type} effects (not automated)`);
-    }
-  }
-  // Extra elemental weapon damage printed on the weapon itself counts like an on-hit effect.
-  if (isWeapon && p.extraDamage && SCHOOL_MAP[p.extraDamage.school]) {
-    const type = p.extraDamage.school === "Nature" ? "lightning" : SCHOOL_MAP[p.extraDamage.school];
-    if (tier >= ON_HIT_DAMAGE.minTier) addOnHit(ctx, type);
-  }
-  for (const fx of p.effects) {
-    const row = EFFECT_PATTERNS.find(r => r.kinds.includes(fx.kind) && r.rx.test(fx.text)
-      && (!r.requireChance || fx.kind === "hit" || /chance/i.test(fx.text)));
-    if (!row) {
-      ctx.review.push(`${fx.kind}: ${fx.text}`);
-      continue;
-    }
-    const m = fx.text.match(row.rx);
-    // A recognised damage line with more going on after it still needs a look.
-    if (row.id === "onhit-damage" && fx.text.replace(/\(.*?\)/g, "").split(/\.\s+/).filter(x => x.trim()).length > 1) {
-      ctx.review.push(`${fx.kind}: ${fx.text}`);
-    }
-    if (tier < (row.minTier ?? 99) && row.effect !== "flavour") continue; // flavour at this tier
-    switch (row.effect) {
-      case "onHitDamage": {
-        if (!isWeapon) { ctx.review.push(`${fx.kind}: ${fx.text}`); break; }
-        const school = m[3][0].toUpperCase() + m[3].slice(1).toLowerCase();
-        const type = school === "Nature" && /lightning|storm|thunder/i.test(fx.text) ? "lightning" : SCHOOL_MAP[school];
-        addOnHit(ctx, type);
-        break;
-      }
-      case "gearHeal": {
-        const f = byLevel(GEAR_HEALING, p.itemLevel).formula;
-        ctx.extras.activity = healActivity(f, { activation: "action", consume: false, recovery: "lr", name: "Restore" });
-        ctx.effects.push(`once per Long Rest: heal ${dice(f)} (action)`);
-        break;
-      }
-      case "weaponAttack":
-        if (ctx.extras.weaponAttack) break;
-        ctx.extras.weaponAttack = true;
-        ctx.changes.push(aeChange("system.bonuses.mwak.attack", "+1", generation), aeChange("system.bonuses.rwak.attack", "+1", generation));
-        ctx.effects.push("+1 weapon attack rolls");
-        break;
-      case "spellAttack":
-        if (ctx.extras.spellAttack) break;
-        ctx.extras.spellAttack = true;
-        ctx.changes.push(aeChange("system.bonuses.msak.attack", "+1", generation), aeChange("system.bonuses.rsak.attack", "+1", generation));
-        ctx.effects.push("+1 spell attack rolls");
-        break;
-      case "acBonus":
-        addAc(ctx, "defense");
-        break;
-      default: break;
-    }
-  }
-}
-
-function addOnHit(ctx, type) {
-  if (ctx.extras.onHit) return;
-  ctx.extras.onHit = true;
-  const d = ON_HIT_DAMAGE.dice[Math.min(4, ctx.tier)];
-  ctx.effects.push(`once per turn on a hit: +${d} ${type} damage (not automated)`);
-}
-
 /** Build the converted system data for a shape. Returns {type, system}. */
 function buildSystem(shape, ctx) {
   const { p } = ctx;
-  const gear = GEAR_TIERS[p.quality] ?? GEAR_TIERS.common;
-  const acc = ACCESSORY_TIERS[p.quality] ?? ACCESSORY_TIERS.common;
-  const sys = commonSystem(p);
+  const sys = commonSystem();
 
   if (shape === "weapon") {
-    const rule = matchRule(WEAPON_RULES, p) ?? { base: "club" };
-    if (!matchRule(WEAPON_RULES, p)) ctx.review.push(`unknown weapon type ${p.wowType ?? "?"}`);
-    const b = WEAPON_BASES[rule.base];
-    ctx.extras.base = rule.base;
-    const isRanged = b.type.endsWith("R");
+    const rule = matchRule(WEAPON_RULES, p);
+    if (!rule) review(ctx, `${p.wowType ?? "?"} weapon`, "unknown weapon type; used a club as a placeholder");
+    const key = rule?.base ?? "club";
+    const b = WEAPON_BASES[key];
+    ctx.extras.base = key; ctx.extras.weapon = true; ctx.extras.ranged = b.type.endsWith("R");
+    const props = rule?.focus ? [...b.props, "foc"] : [...b.props];
     Object.assign(sys, {
-      type: { value: b.type, baseItem: b.custom ? "" : rule.base },
+      type: { value: b.type, baseItem: b.custom ? "" : key },
       damage: {
         base: { number: b.dmg[0], denomination: b.dmg[1], bonus: "", types: [b.dmg[2]], custom: { enabled: false }, scaling: { number: 1 } },
         versatile: b.ver ? { number: b.ver[0], denomination: b.ver[1], bonus: "", types: [b.dmg[2]], custom: { enabled: false }, scaling: { number: 1 } } : {}
       },
       range: { value: b.range?.[0] ?? null, long: b.range?.[1] ?? null, reach: b.props.includes("rch") ? 10 : null, units: "ft" },
-      properties: rule.focus ? [...b.props, "foc"] : [...b.props],
+      properties: props,
       mastery: b.mastery,
       weight: { value: b.weight, units: "lb" },
-      activities: { [ID("Attack")]: attackActivity(isRanged) }
+      activities: { [ID("Attack")]: attackActivity(ctx.extras.ranged) }
     });
-    applyGearTier(ctx, gear, sys);
+    const handsLabel = { two: "Two-Hand", one: p.slot ?? "One-Hand", ranged: "Ranged", thrown: "Thrown" }[p.hands] ?? "";
+    const propText = props.map(x => x === "ver" ? `Versatile (${b.ver[0]}d${b.ver[1]})` : PROP_LABEL[x]).join(", ");
+    ctx.basis = `${handsLabel} ${p.wowType ?? "weapon"}${p.speed ? `, speed ${p.speed.toFixed(2)}` : ""} → ${b.label}${b.custom ? " (Loot Ledger custom weapon)" : ""}: ${b.dmg[0]}d${b.dmg[1]} ${cap(b.dmg[2])}${propText ? `; ${propText}` : ""}; mastery ${cap(b.mastery)}.`;
+    if (p.damage) notConverted(ctx, `${p.damage.min} - ${p.damage.max}${p.damage.school ? ` ${p.damage.school}` : ""} Damage`, "the base weapon's damage die replaces it", "base weapon");
+    enhancement(ctx, "weapon");
     if (ctx.bonus) sys.magicalBonus = ctx.bonus;
-    applyLines(ctx, { isWeapon: true });
+    // The weapon's own bonus elemental damage line (every hit in the classic game).
+    if (p.extraDamage && SCHOOL_MAP[p.extraDamage.school]) {
+      const type = damageType(p.extraDamage.school, p.name);
+      const d = WEAPON_EXTRA_DICE[ctx.tier];
+      addFeature(ctx, {
+        name: `${type} Edge`, sourceLine: p.extraDamage.line, source: `${p.extraDamage.line} (bonus damage on every hit)`,
+        text: `When you hit a creature with an attack using this weapon, it takes an extra ${d} ${type} damage. You can deal this extra damage only once per turn.`,
+        rider: { type: "extraDamage", formula: d, damageType: type.toLowerCase(), trigger: "hit", limit: "oncePerTurn" }
+      });
+    }
+    applyLinesCommon(ctx);
     ctx.summary = `${b.label}${ctx.bonus ? ` +${ctx.bonus}` : ""}`;
     return { type: "weapon", system: finish(ctx, sys) };
   }
@@ -585,8 +897,11 @@ function buildSystem(shape, ctx) {
     if (shape === "shield") key = "shield";
     else if (p.wowType === "Cloth" || !p.wowType) key = CLOTH_CHEST === "padded" ? "padded" : null;
     else key = matchRule(CHEST_RULES, p)?.base ?? null;
-    if (!key) return clothing(ctx, sys, "Clothing (robe, no AC)");
+    if (p.armor) notConverted(ctx, `${p.armor} Armor`, key ? "the base armour's AC replaces it" : "cloth chests are clothing with no AC, per the cloth chest rule", key ? "base armour" : "cloth rule");
+    if (p.block) notConverted(ctx, `${p.block} Block`, "shield block value has no 5e counterpart beyond the shield's +2", "base shield");
+    if (!key) return clothing(ctx, sys, "Clothing (robe, no AC)", `Cloth chest → clothing, no AC (pending decision: cloth chests are clothing so unarmoured casters can wear them).`);
     const a = ARMOR_BASES[key];
+    ctx.extras.armor = true;
     Object.assign(sys, {
       type: { value: a.type, baseItem: key },
       armor: { value: a.ac, dex: a.dex, magicalBonus: null },
@@ -594,28 +909,44 @@ function buildSystem(shape, ctx) {
       properties: a.stealth ? ["stealthDisadvantage"] : [],
       weight: { value: a.weight, units: "lb" }
     });
-    applyGearTier(ctx, gear, sys);
+    ctx.basis = shape === "shield"
+      ? `Shield → Shield: +2 AC.`
+      : `${p.wowType} chest, item level ${p.itemLevel ?? "?"} → ${a.label}: AC ${a.ac}${a.dex === null ? " + Dex modifier" : a.dex ? ` + Dex modifier (max ${a.dex})` : ""}${a.strength ? `; Strength ${a.strength}` : ""}${a.stealth ? "; Disadvantage on Stealth" : ""}.`;
+    enhancement(ctx, shape === "shield" ? "shield" : "armor");
     if (ctx.bonus) sys.armor.magicalBonus = ctx.bonus;
-    applyLines(ctx);
+    applyLinesCommon(ctx);
     ctx.summary = `${a.label}${ctx.bonus ? ` +${ctx.bonus}` : ""}`;
     return { type: "equipment", system: finish(ctx, sys) };
   }
 
   if (shape === "wand") {
     Object.assign(sys, { type: { value: "wand", baseItem: "" }, properties: ["foc"], weight: { value: 1, units: "lb" } });
-    applyAccessory(ctx, acc, sys);
-    applyLines(ctx);
-    ctx.summary = "Wand (arcane focus)";
+    ctx.basis = `Wand → wand usable as a Spellcasting Focus (Arcane).`;
+    const school = p.damage?.school ?? null;
+    const cantrip = school ? WAND_CANTRIP[school] : null;
+    const line = p.damage ? `${p.damage.min} - ${p.damage.max}${school ? ` ${school}` : ""} Damage` : "Wand";
+    if (cantrip) {
+      addFeature(ctx, {
+        name: "Wand Bolt", sourceLine: line, source: `${line} (the wand's ranged ${school} attack)`,
+        text: `While holding this wand, you can cast the ${cantrip} cantrip. Use your spellcasting ability for it; if you don't have one, use Intelligence.`,
+        rider: { type: "cantrip", spell: cantrip, trigger: "held" }
+      });
+    } else review(ctx, line, school ? `no SRD cantrip matches ${school} damage for a wand` : "the wand's damage line has no school");
+    applyLinesCommon(ctx);
+    ctx.magic = true;
+    ctx.summary = "Wand";
     return { type: "equipment", system: finish(ctx, sys) };
   }
 
   if (shape === "gear") {
     const t = SLOT_EQUIPMENT[p.slot];
-    if (t === "clothing") return clothing(ctx, sys, `Clothing (${p.slot.toLowerCase()}${p.wowType ? `, ${p.wowType.toLowerCase()}` : ""}, no AC)`);
+    if (p.armor) notConverted(ctx, `${p.armor} Armor`, "only chest armour and shields give AC, per the slot rule", "slot rule");
+    if (t === "clothing") return clothing(ctx, sys, `Worn item (${p.slot.toLowerCase()}${p.wowType ? `, ${p.wowType.toLowerCase()}` : ""}, no AC)`,
+      `${p.slot}${p.wowType ? ` (${p.wowType})` : ""} → worn item with no AC (pending decision: only chest armour and shields give AC).`);
     Object.assign(sys, { type: { value: t, baseItem: "" }, weight: { value: t === "ring" ? 0 : 1, units: "lb" } });
     if (p.slot === "Relic") sys.properties.push("foc");
-    applyAccessory(ctx, acc, sys);
-    applyLines(ctx);
+    ctx.basis = `${p.slot} → ${{ ring: "ring", trinket: p.slot === "Neck" ? "amulet" : "trinket" }[t] ?? "wondrous item"}.`;
+    applyLinesCommon(ctx);
     ctx.summary = { ring: "Ring", trinket: p.slot === "Neck" ? "Amulet" : p.slot === "Trinket" ? "Trinket" : "Held item" }[t] ?? "Wondrous item";
     return { type: "equipment", system: finish(ctx, sys) };
   }
@@ -623,98 +954,104 @@ function buildSystem(shape, ctx) {
   if (shape === "consumable") return consumable(ctx, sys);
   if (shape === "container") {
     ctx.summary = "Container";
-    return { type: "container", system: null }; // keeps the source container data
+    ctx.basis = "Bag → container (unchanged).";
+    return { type: "container", system: null };
   }
-  // Loot: trade goods, junk, quest items.
   const lootType = p.quest ? "" : p.quality === "poor" ? "junk" : "trade";
   Object.assign(sys, { type: { value: lootType, subtype: "" }, weight: { value: 0, units: "lb" } });
-  ctx.summary = p.quest ? "Quest item (no mechanics)" : p.quality === "poor" ? "Junk" : "Trade good";
+  ctx.summary = p.quest ? "Quest item" : p.quality === "poor" ? "Junk" : "Trade good";
+  ctx.basis = p.quest ? "Quest item → loot with no rules." : "Trade good → loot (sold for its value).";
+  for (const e of p.effects) review(ctx, e.line, "loot item with an effect line; no rule");
   return { type: "loot", system: sys };
 }
 
-/** Clothing-type gear: no AC, accessory tier rules for the bonus. */
-function clothing(ctx, sys, label) {
-  const acc = ACCESSORY_TIERS[ctx.p.quality] ?? ACCESSORY_TIERS.common;
+/** Clothing-type gear: no AC. */
+function clothing(ctx, sys, label, basis) {
   Object.assign(sys, { type: { value: "clothing", baseItem: "" }, armor: { value: null }, weight: { value: 1, units: "lb" } });
-  applyAccessory(ctx, acc, sys);
-  applyLines(ctx);
+  ctx.basis = basis;
+  applyLinesCommon(ctx);
   ctx.summary = label;
   return { type: "equipment", system: finish(ctx, sys) };
 }
 
-function applyGearTier(ctx, gear, sys) {
-  ctx.bonus = gear.bonus;
-  ctx.attune = gear.attune;
-  ctx.magic = gear.magic;
-  if (gear.perk && !applyStatBonus(ctx, "perk")) ctx.notes.push("no stats, so no minor perk");
-}
-
-function applyAccessory(ctx, acc, sys) {
-  ctx.magic = !!acc.kind;
-  ctx.attune = !!acc.attune;
-  if (!acc.kind) return;
-  // Purple+ accessories with an armour/defence profile take +1 AC instead of an ability bump.
-  const defensive = ctx.p.effects.some(e => /Defense|^\+\d+ Armor/i.test(e.text));
-  if (acc.kind === "ability" && defensive) addAc(ctx, "defense");
-  else if (!applyStatBonus(ctx, acc.kind, acc.amount)) ctx.notes.push("no stats, so no tier bonus");
-  if (acc.ac) addAc(ctx);
-}
-
 function finish(ctx, sys) {
-  if (ctx.magic) sys.properties = [...new Set([...(sys.properties ?? []), "mgc"])];
+  const { tier, p } = ctx;
+  if (tier >= ATTUNE_TIER) ctx.attune = true;
+  if (ctx.attuneBy) ctx.attune = true;
+  // Very Rare / Legendary gear that ends up with nothing beyond its base: flag it rather than invent.
+  const real = ctx.features.filter(f => !/^\+\d /.test(f.name));
+  if (tier >= 3 && !ctx.bonus && !real.length) review(ctx, `${QUALITY_NAME[p.quality]} quality`, `${TIER_NAME[tier]} item with no line that converts; decide whether it needs a feature`);
+  if (ctx.magic || ctx.bonus) sys.properties = [...new Set([...(sys.properties ?? []), "mgc"])];
   sys.attunement = ctx.attune ? "required" : "";
-  if (ctx.extras.activity) sys.activities = { ...(sys.activities ?? {}), [ctx.extras.activity._id]: ctx.extras.activity };
   return sys;
 }
 
 function consumable(ctx, sys) {
   const { p } = ctx;
-  const use = p.effects.find(e => e.kind === "use")?.text ?? "";
+  const useFx = p.effects.find(e => e.kind === "use");
+  const use = useFx?.text ?? "";
   let m;
   Object.assign(sys, { uses: { spent: 0, max: "1", autoDestroy: true, recovery: [] }, weight: { value: 0.5, units: "lb" } });
   if ((m = use.match(/^Restores (\d+) to (\d+) health/i))) {
     const f = byLevel(POTION_HEALING, p.itemLevel).formula;
     sys.type = { value: "potion", subtype: "" };
     sys.activities = { [ID("Heal")]: healActivity(f, { name: "Drink" }) };
-    ctx.summary = `Healing potion: ${dice(f)}`;
-    ctx.effects.push(`regain ${dice(f)} HP (Bonus Action)`);
+    ctx.summary = "Potion of healing";
+    ctx.basis = `Healing potion, item level ${p.itemLevel ?? "?"} → SRD potion of healing dice for that level.`;
+    ctx.features.push({ name: "Healing", text: `When you drink this potion, you regain ${dice(f)} Hit Points. Drinking it, or giving it to another creature, takes a Bonus Action.`, source: `Use — restores ${m[1]}–${m[2]} health` });
   } else if ((m = use.match(/^Restores (\d+) to (\d+) mana/i))) {
     const lvl = byLevel(MANA_POTION_SLOT, p.itemLevel).level;
     sys.type = { value: "potion", subtype: "" };
-    const text = `Regain one expended spell slot of level ${lvl} or lower.`;
+    const text = `When you drink this potion, you regain one expended spell slot of level ${lvl} or lower. If you have no expended slot of those levels, the potion has no effect. Drinking it takes a Bonus Action.`;
     sys.activities = { [ID("Use")]: utilityActivity(text) };
-    ctx.summary = `Mana potion: slot ≤ ${lvl}`;
-    ctx.effects.push(text);
+    ctx.summary = "Mana potion";
+    ctx.basis = `Mana potion, item level ${p.itemLevel ?? "?"} → regain a spell slot (mana is spell slots in 5e).`;
+    ctx.features.push({ name: "Restore Magic", text, source: `Use — restores ${m[1]}–${m[2]} mana` });
   } else if (/health over/i.test(use) && /eat|seated/i.test(use)) {
     const f = byLevel(FOOD_HEALING, p.itemLevel).formula;
     sys.type = { value: "food", subtype: "" };
     sys.activities = { [ID("Heal")]: healActivity(f, { activation: "special", name: "Eat (Short Rest)" }) };
-    ctx.summary = `Food: +${dice(f)} HP on a Short Rest`;
-    ctx.effects.push(`eaten during a Short Rest: regain an extra ${dice(f)} HP`);
+    ctx.summary = "Food";
+    ctx.basis = "Food (restores health while seated) → extra healing during a Short Rest.";
+    ctx.features.push({ name: "Hearty Meal", text: `If you eat this during a Short Rest, you regain an extra ${dice(f)} Hit Points when the rest ends.`, source: `Use — ${short(use, 60)}` });
   } else if (/mana over/i.test(use) && /drink|seated/i.test(use)) {
     sys.type = { value: "food", subtype: "" };
-    ctx.summary = "Drink (flavour)";
+    ctx.summary = "Drink";
+    ctx.basis = "Drink (restores mana while seated) → ordinary drink.";
+    notConverted(ctx, useFx.line, "mana over time while seated has no 5e counterpart (spell slots come back on rests)", "no counterpart");
   } else {
     sys.type = { value: ["potion", "food", "scroll", "poison", "ammo"].includes(p.consumableType) ? p.consumableType : "wondrous", subtype: "" };
     ctx.summary = `Consumable (${sys.type.value})`;
-    if (use) ctx.review.push(`use: ${use}`);
+    ctx.basis = "Consumable → no rule yet.";
+    if (useFx) review(ctx, useFx.line, "no consumable rule for this effect yet; kept as flavour");
   }
-  // Other lines on a consumable (rare) are kept as flavour and flagged.
-  for (const e of p.effects) if (e.kind !== "use") ctx.review.push(`${e.kind}: ${e.text}`);
-  if ((QUALITY_BY_KEY[p.quality] && GEAR_TIERS[p.quality].magic)) sys.properties = ["mgc"];
+  for (const e of p.effects) if (e.kind !== "use") review(ctx, e.line, "non-Use line on a consumable; no rule");
+  if (TIER[p.quality] >= 1) sys.properties = ["mgc"];
   return { type: "consumable", system: sys };
 }
 
-/** The original rules block appended under the classic tooltip. */
-function rulesBlock(ctx, handAuthored, auto) {
-  const esc = s => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-  if (handAuthored) {
-    return `<section class="loot-ledger-5e"><p><strong>5e:</strong> ${esc(ctx.handSummary)} (hand-written by the source module, kept as is).</p></section>`;
+/* -------------------------------------------- */
+/*  Rules text                                  */
+/* -------------------------------------------- */
+
+const esc = s => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+
+/** The 5e block appended under the classic tooltip. */
+function rulesBlock(ctx, hand, shape) {
+  const { p } = ctx;
+  const rarityName = TIER_NAME[ctx.tier] ?? "Common";
+  if (hand?.kept) {
+    const slot = hand.slotNote ? ` Converted to a worn item with no AC (${esc(hand.slotNote)}).` : "";
+    return `<section class="loot-ledger-5e"><p><strong>5e:</strong> rules above were hand-written by the source module and kept: every mechanic in them traces to the tooltip (${esc(hand.audit.support.join("; ") || "—")}).${slot}</p></section>`;
   }
-  const att = ctx.attune ? "yes" : "no";
-  const parts = [`<p><strong>5e:</strong> ${esc(ctx.summary)}. Requires attunement: ${att}.</p>`];
-  if (ctx.effects.length) parts.push(`<ul>${ctx.effects.map(e => `<li>${esc(e)}</li>`).join("")}</ul>`);
-  if (ctx.review.length) parts.push(`<p class="loot-ledger-review"><strong>GM review:</strong> the following line has no 5e rule yet and is flavour only: ${ctx.review.map(r => `<em>${esc(r)}</em>`).join("; ")}.</p>`);
+  const att = ctx.attune ? `, requires attunement${ctx.attuneBy ? ` ${ctx.attuneBy}` : ""}` : "";
+  const parts = [`<p><strong>5e:</strong> ${esc(ctx.summary)} — ${rarityName}${att}.</p>`];
+  if (ctx.basis) parts.push(`<p><em>Based on: ${esc(ctx.basis)}</em></p>`);
+  if (hand && !hand.kept) parts.push(`<p><em>The source module's hand-written rule was replaced: it names mechanics the tooltip doesn't support (${esc(hand.audit.problems.map(x => x.text).join("; "))}).</em></p>`);
+  for (const f of ctx.features) parts.push(`<p><strong>${esc(f.name)}.</strong> ${esc(f.text)} <em>Source: ${esc(f.source)}.</em></p>`);
+  if (!ctx.features.length && shape !== "loot" && shape !== "container") parts.push(`<p>No 5e rules: none of this item's lines convert (see below).</p>`);
+  if (ctx.notConverted.length) parts.push(`<p class="loot-ledger-unconverted"><strong>Not converted:</strong> ${ctx.notConverted.map(r => `${esc(r.line)} (${esc(r.why)})`).join("; ")}.</p>`);
+  if (ctx.review.length) parts.push(`<p class="loot-ledger-review"><strong>GM review:</strong> ${ctx.review.map(r => `<em>${esc(r.line)}</em> — ${esc(r.why)}`).join("; ")}.</p>`);
   return `<section class="loot-ledger-5e">${parts.join("")}</section>`;
 }
 
@@ -725,12 +1062,14 @@ export function reviewRow(src, conv) {
     ...Object.entries(p.stats).map(([k, v]) => `+${v} ${k.toUpperCase()}`),
     ...Object.entries(p.resist).map(([k, v]) => `+${v} ${k} res`),
     p.armor ? `${p.armor} armor` : null,
-    p.damage ? `${p.damage.min}-${p.damage.max} dmg @${p.speed}` : null
+    p.block ? `${p.block} block` : null,
+    p.damage ? `${p.damage.min}-${p.damage.max}${p.damage.school ? ` ${p.damage.school}` : ""} dmg @${p.speed}` : null,
+    p.extraDamage ? `+${p.extraDamage.min}-${p.extraDamage.max} ${p.extraDamage.school}` : null
   ].filter(Boolean).join(", ");
-  const trim = s => (s.length > 70 ? `${s.slice(0, 67)}...` : s);
+  const fx = [...p.effects.map(e => `${KIND_LABEL[e.kind]}: ${e.text}`), ...(p.sets.length ? [`${p.sets.length} set bonuses`] : [])].join(" | ");
   return {
     name: src.name, quality: p.quality, itemLevel: p.itemLevel, wowType: p.wowType ?? src.type, wowSlot: p.slot ?? "",
-    wowStats: stats, wowEffects: p.effects.map(e => trim(`${e.kind}: ${e.text}`)).join(" | "),
+    wowStats: stats, wowEffects: short(fx, 120),
     result: conv.result
   };
 }

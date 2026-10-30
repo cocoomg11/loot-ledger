@@ -3,7 +3,7 @@
  */
 import { MODULE_ID, BANDS, QUALITIES, CATEGORIES, CREATURES, bandForLevel, formatCoins, vendorCopperOf } from "./data.mjs";
 import { build, convertToPack, TABLES_PACK } from "./build.mjs";
-import { convertItem } from "./convert.mjs";
+import { convertItem, parseSource, auditHandAuthored } from "./convert.mjs";
 
 /** Find the generated table matching a query. */
 export async function findTable({ band = null, level = null, quality = null, type = null, creature = null, pack = TABLES_PACK.name } = {}) {
@@ -71,6 +71,7 @@ export function createApi() {
   return {
     build: (options) => build(options),
     convert: (item, options) => convertItem(item, options),
+    auditHandAuthored: (item) => auditHandAuthored(parseSource(item)),
     convertToPack: (options) => convertToPack(options),
     roll,
     findTable,

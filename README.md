@@ -176,21 +176,32 @@ the band's mixed drop. A `loot-ledger.ready` hook fires on ready with the API as
 
 ## 5e conversion (preview)
 
-`scripts/convert.mjs` is a first-pass converter that turns each source item into a dnd5e (2024 rules) item:
-a real base weapon or armour with SRD damage, properties, mastery and AC; a magic tier from quality; small
-bonuses from the item's stats, resistances and Equip / Use / Chance-on-hit lines; and a short **5e:** rules
-block under the original tooltip. Lines it has no rule for are kept as flavour and the item gets
-`flags["loot-ledger"].converted.needsReview = true` plus a "GM review" note. Items the source module
-already converted by hand are kept as they are (only re-priced, and non-chest armour turned into clothing so
-that only chest armour and shields give AC).
+`scripts/convert.mjs` turns each source item into a dnd5e (2024 rules) item. It is off by default and its
+rules are still being tuned. The ground rules:
 
-It is off by default. Every rule is a table at the top of the file (`WEAPON_RULES`, `CHEST_RULES`,
-`CLOTH_CHEST`, `SLOT_EQUIPMENT`, `GEAR_TIERS`, `ACCESSORY_TIERS`, `EFFECT_PATTERNS`, potion and food tables),
-and the rules are expected to change.
+- **Traceable.** Every feature comes from one specific tooltip line (a stat line, an Equip / Use /
+  Chance-on-hit line, a resistance, the weapon damage line, or the item type and slot). Quality on its own
+  only sets the plain enhancement bonus of weapons, armour and shields, and attunement.
+- **Explained.** Each feature is written out in full under the tooltip, with a *Source:* note naming the
+  line it came from. Every other line is listed under **Not converted** with the reason.
+- **Proportionate.** The line decides what a feature is; rarity (and for weapons the level band) decides how
+  big it is, in line with SRD magic items of the same rarity.
+- **Flag, don't guess.** A line with no rule stays as flavour, and the item gets
+  `flags["loot-ledger"].converted.needsReview = true` and a **GM review** note.
+- **No automation yet.** Riders (extra damage, check or save bonuses, resistances and so on) are text only
+  and are recorded in `flags["loot-ledger"].riders` for a later automation pass. Only the enhancement bonus
+  uses dnd5e's own `magicalBonus` field.
+
+Items the source module converted by hand are kept only when every mechanic in their rules traces to the
+tooltip (`auditHandAuthored`); otherwise Loot Ledger's own conversion replaces them. Every rule is a table at
+the top of the file (`WEAPON_RULES`, `CHEST_RULES`, `CLOTH_CHEST`, `SLOT_EQUIPMENT`, `WEAPON_BONUS`,
+`ARMOR_BONUS`, `STAT_RULE`, `HIT_RULE`, `SPELL_RULE`, `RESIST_RULE`, `PROC_RULE`, `NOT_CONVERTED`, potion and
+food tables).
 
 ```js
 const ll = game.modules.get("loot-ledger").api;
 ll.convert(sourceItem);                                    // → { data, result } without saving anything
+ll.auditHandAuthored(sourceItem);                          // → { pass, problems } for a hand-written source item
 await ll.convertToPack({ names: ["Some Item"], pack: { name: "my-test", label: "My Test" } });
 await ll.build({ convert: true });                         // full build with converted items
 ```
