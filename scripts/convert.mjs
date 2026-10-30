@@ -121,7 +121,9 @@ export const WEAPON_RULES = [
   { wow: "Bow",                                           base: "longbow" },
   { wow: "Crossbow",    maxSpeed: 2.99,                   base: "lightcrossbow" },
   { wow: "Crossbow",                                      base: "heavycrossbow" },
-  { wow: "Gun",         maxSpeed: 2.49,                   base: "pistol" },
+  // Guns lean musket (decided by the user): pistol only for a pistol name or a very fast gun.
+  { wow: "Gun",         name: /pistol|derringer|handgun/i, base: "pistol" },
+  { wow: "Gun",         maxSpeed: 1.99,                   base: "pistol" },
   { wow: "Gun",                                           base: "musket" },
   { wow: "Thrown",      name: /axe|tomahawk|hatchet/i,    base: "handaxe" },
   { wow: "Thrown",      name: /spear|javelin/i,           base: "javelin" },
@@ -143,14 +145,16 @@ export const CHEST_RULES = [
 ];
 
 /**
- * Cloth chest handling (pending decision): "clothing" (no AC, the default, so spellcasters without armour
- * training can wear robes) or "padded" (Padded Armor).
+ * Cloth chest handling (decided by the user): "clothing" = no AC, so spellcasters without armour training can
+ * wear robes; only an explicit Equip line raising armour or defence gives AC (DEFENSE_RULE). "padded" would
+ * make them Padded Armor instead.
  */
 export const CLOTH_CHEST = "clothing";
 
 /**
- * Non-weapon, non-chest slots -> dnd5e equipment type (pending decision: only chest armour and shields give
- * AC, so helmets, gloves, boots and so on are worn items without an AC value).
+ * Non-weapon, non-chest slots -> dnd5e equipment type (decided by the user: only chest armour and shields
+ * give AC, so helmets, gloves, boots and so on are worn items without an AC value, unless an Equip line
+ * raises armour or defence; see DEFENSE_RULE).
  */
 export const SLOT_EQUIPMENT = {
   Head: "clothing", Shoulder: "clothing", Hands: "clothing", Wrist: "clothing", Waist: "clothing",
@@ -168,16 +172,26 @@ const TIER_NAME = { 0: "Common", 1: "Uncommon", 2: "Rare", 3: "Very Rare", 4: "L
 const QUALITY_NAME = { poor: "Poor", common: "Common", uncommon: "Uncommon", rare: "Rare", epic: "Epic", legendary: "Legendary", artifact: "Artifact" };
 
 /**
- * Plain enhancement bonus from quality (the only thing quality grants on its own). Weapons follow SRD
- * weapon rarities, kept a step modest: Rare is +1 below level band 5 (L9+) and +2 from it. Armour and
- * shields follow SRD armour rarities (+1 armour is Rare), so Uncommon armour has no bonus.
+ * Plain enhancement bonus for weapons, chest armour and shields (decided by the user):
+ *   Uncommon (green)  +1.
+ *   Rare (blue)       +1, plus any effect its own lines give.
+ *   Epic (purple)     +2 when it has no effect; +1 when it has an effect. The effect tables below are larger
+ *                     at Epic than at Rare, so an Epic item always comes out clearly stronger than a Rare one.
+ *   Legendary         +3, plus its effects.
+ * "Effect" means a feature from one of the item's own Equip / Use / Chance-on-hit / resistance / bonus-damage
+ * lines (see EFFECT_RIDERS); the main-stat check or save bonus does not count. Effects are never invented
+ * to fill a tier: an item with no convertible line just gets its plain bonus.
  */
-export const WEAPON_BONUS = { 0: 0, 1: 1, 2: { default: 1, fromBand: 5, value: 2 }, 3: 2, 4: 3 };
-export const ARMOR_BONUS = { 0: 0, 1: 0, 2: 1, 3: 2, 4: 3 };
+export const GEAR_BONUS = {
+  0: { plain: 0, withEffect: 0 }, 1: { plain: 1, withEffect: 1 }, 2: { plain: 1, withEffect: 1 },
+  3: { plain: 2, withEffect: 1 }, 4: { plain: 3, withEffect: 3 }
+};
+/** Rider types that count as an "effect" for GEAR_BONUS. */
+export const EFFECT_RIDERS = new Set(["extraDamage", "burstDamage", "extraAttack", "heal", "attackBonus", "spellBonus", "healBonus", "resistance", "acBonus", "cantrip"]);
 /** Quality tier from which every item requires attunement (Very Rare and Legendary). */
 export const ATTUNE_TIER = 3;
 /** Rider types that require attunement on their own, as their SRD counterparts do. */
-export const ATTUNE_RIDERS = new Set(["resistance", "attackBonus", "spellBonus", "healBonus", "extraAttack", "burstDamage"]);
+export const ATTUNE_RIDERS = new Set(["resistance", "attackBonus", "spellBonus", "healBonus", "extraAttack", "burstDamage", "acBonus"]);
 
 /** Classic stat -> 5e ability. Charisma has no classic counterpart. */
 export const STAT_MAP = { Strength: "str", Agility: "dex", Stamina: "con", Intellect: "int", Spirit: "wis" };
@@ -191,10 +205,18 @@ const ABILITY_STAT = { str: "Strength", dex: "Agility", con: "Stamina", int: "In
  * ability (Stamina gives Constitution saving throws instead, since Stamina is about toughness).
  * The other stat lines are listed as "Not converted".
  */
-export const STAT_RULE = { minTier: 1, minValue: 4, perItemLevel: 7, checkBonus: { 1: 1, 2: 1, 3: 2, 4: 2 }, saveBonus: { 1: 1, 2: 1, 3: 1, 4: 2 } };
+export const STAT_RULE = { minTier: 1, minValue: 4, perItemLevel: 7, checkBonus: { 1: 1, 2: 1, 3: 2, 4: 2 }, saveBonus: { 1: 1, 2: 1, 3: 2, 4: 2 } };
 
-/** "Improves your chance to hit by N%": +1 to weapon attack rolls on non-weapon items of this tier or higher. */
-export const HIT_RULE = { minTier: 2, bonus: 1 };
+/** "Improves your chance to hit by N%": a bonus to weapon attack rolls on non-weapon items of Rare or higher (Epic beats Rare). */
+export const HIT_RULE = { minTier: 2, bonus: { 2: 1, 3: 2, 4: 2 } };
+
+/**
+ * "Equip: Increased Defense +N" or "Equip: +N Armor." on an item that has no AC of its own (anything but chest
+ * armour and shields, including cloth chests): +1 AC at most, like an SRD ring of protection, and it requires
+ * attunement. The item's plain armour value never counts (decided by the user). On chest armour and shields
+ * these lines are covered by the base AC and listed as not converted.
+ */
+export const DEFENSE_RULE = { minTier: 1, ac: 1 };
 
 /**
  * "Increases damage (and healing) done by spells by up to N": a spellcasting bonus, like the SRD's +1 / +2 /
@@ -614,20 +636,20 @@ function damageType(school, text = "") {
   return SCHOOL_MAP[school] ?? null;
 }
 
-/** Enhancement bonus from quality (weapons, chest armour, shields). */
+/** Enhancement bonus from quality (weapons, chest armour, shields). Run after the lines, see GEAR_BONUS. */
 function enhancement(ctx, kind) {
   const { tier, p } = ctx;
-  const row = (kind === "weapon" ? WEAPON_BONUS : ARMOR_BONUS)[tier];
-  const value = typeof row === "object" ? (p.band >= row.fromBand ? row.value : row.default) : row;
-  ctx.bonus = value ?? 0;
+  const effect = ctx.features.find(f => f.rider && EFFECT_RIDERS.has(f.rider.type));
+  const row = GEAR_BONUS[tier] ?? GEAR_BONUS[0];
+  ctx.bonus = effect ? row.withEffect : row.plain;
   if (!ctx.bonus) return;
-  const q = `${QUALITY_NAME[p.quality]} quality${kind === "weapon" && typeof row === "object" ? `, level band ${p.band}` : ""}`;
+  const why = row.plain !== row.withEffect ? (effect ? ` with an effect (${effect.name})` : " with no effect") : "";
   const text = kind === "weapon"
     ? `You have a +${ctx.bonus} bonus to attack rolls and damage rolls made with this magic weapon.`
     : kind === "shield"
       ? `While holding this shield, you have a +${ctx.bonus} bonus to Armor Class, on top of the shield's normal +2.`
       : `While wearing this armor, you have a +${ctx.bonus} bonus to Armor Class.`;
-  ctx.features.push({ name: `+${ctx.bonus} ${kind === "weapon" ? "Weapon" : kind === "shield" ? "Shield" : "Armor"}`, text, source: q });
+  ctx.features.unshift({ name: `+${ctx.bonus} ${kind === "weapon" ? "Weapon" : kind === "shield" ? "Shield" : "Armor"}`, text, source: `${QUALITY_NAME[p.quality]} quality${why}` });
   ctx.magic = true;
 }
 
@@ -759,10 +781,11 @@ function applyEffects(ctx) {
       if (tier < HIT_RULE.minTier) { notConverted(ctx, line, "hit chance on Uncommon or lower items has no 5e rule", "below Rare"); continue; }
       if (ctx.extras.attackBonus) { notConverted(ctx, line, "only one attack bonus per item", "duplicate"); continue; }
       ctx.extras.attackBonus = true;
+      const hb = HIT_RULE.bonus[tier];
       addFeature(ctx, {
         name: "Precision", sourceLine: line, source: `Equip — +${m[1]}% chance to hit`,
-        text: `While ${verb(ctx)} this ${itemNoun(ctx)}, you have a +${HIT_RULE.bonus} bonus to attack rolls made with weapons.`,
-        rider: { type: "attackBonus", value: HIT_RULE.bonus, scope: "weapon", trigger: "equipped" }
+        text: `While ${verb(ctx)} this ${itemNoun(ctx)}, you have a +${hb} bonus to attack rolls made with weapons.`,
+        rider: { type: "attackBonus", value: hb, scope: "weapon", trigger: "equipped" }
       });
       continue;
     }
@@ -791,6 +814,18 @@ function applyEffects(ctx) {
           rider: { type: "spellBonus", value: b, damageType: type?.toLowerCase() ?? null, scope: type ? "attack" : "attackAndDC", trigger: "equipped" }
         });
       }
+      continue;
+    }
+    if (fx.kind === "equip" && (m = t.match(/^Increased Defense \+(\d+)|^\+(\d+) Armor\.?$/i))) {
+      if (ctx.extras.armor || p.wowType === "Shield") { notConverted(ctx, line, "the armour's or shield's own AC already covers it", "covered by base AC"); continue; }
+      if (tier < DEFENSE_RULE.minTier) { notConverted(ctx, line, "defence on Common or Poor items has no 5e rule", "common item"); continue; }
+      if (ctx.extras.acBonus) { notConverted(ctx, line, "only one AC bonus per item", "duplicate"); continue; }
+      ctx.extras.acBonus = true;
+      addFeature(ctx, {
+        name: "Warding", sourceLine: line, source: `Equip — ${m[1] ? `+${m[1]} Defense` : `+${m[2]} Armor`}`,
+        text: `While ${verb(ctx)} this ${itemNoun(ctx)}, you have a +${DEFENSE_RULE.ac} bonus to Armor Class.`,
+        rider: { type: "acBonus", value: DEFENSE_RULE.ac, trigger: "equipped" }
+      });
       continue;
     }
     if (absorbed) { notConverted(ctx, line, absorbed.why, short(absorbed.why.split(";")[0], 40)); continue; }
@@ -876,8 +911,6 @@ function buildSystem(shape, ctx) {
     const propText = props.map(x => x === "ver" ? `Versatile (${b.ver[0]}d${b.ver[1]})` : PROP_LABEL[x]).join(", ");
     ctx.basis = `${handsLabel} ${p.wowType ?? "weapon"}${p.speed ? `, speed ${p.speed.toFixed(2)}` : ""} → ${b.label}${b.custom ? " (Loot Ledger custom weapon)" : ""}: ${b.dmg[0]}d${b.dmg[1]} ${cap(b.dmg[2])}${propText ? `; ${propText}` : ""}; mastery ${cap(b.mastery)}.`;
     if (p.damage) notConverted(ctx, `${p.damage.min} - ${p.damage.max}${p.damage.school ? ` ${p.damage.school}` : ""} Damage`, "the base weapon's damage die replaces it", "base weapon");
-    enhancement(ctx, "weapon");
-    if (ctx.bonus) sys.magicalBonus = ctx.bonus;
     // The weapon's own bonus elemental damage line (every hit in the classic game).
     if (p.extraDamage && SCHOOL_MAP[p.extraDamage.school]) {
       const type = damageType(p.extraDamage.school, p.name);
@@ -889,6 +922,8 @@ function buildSystem(shape, ctx) {
       });
     }
     applyLinesCommon(ctx);
+    enhancement(ctx, "weapon");
+    if (ctx.bonus) sys.magicalBonus = ctx.bonus;
     ctx.summary = `${b.label}${ctx.bonus ? ` +${ctx.bonus}` : ""}`;
     return { type: "weapon", system: finish(ctx, sys) };
   }
@@ -898,9 +933,9 @@ function buildSystem(shape, ctx) {
     if (shape === "shield") key = "shield";
     else if (p.wowType === "Cloth" || !p.wowType) key = CLOTH_CHEST === "padded" ? "padded" : null;
     else key = matchRule(CHEST_RULES, p)?.base ?? null;
-    if (p.armor) notConverted(ctx, `${p.armor} Armor`, key ? "the base armour's AC replaces it" : "cloth chests are clothing with no AC, per the cloth chest rule", key ? "base armour" : "cloth rule");
+    if (p.armor) notConverted(ctx, `${p.armor} Armor`, key ? "the base armour's AC replaces it" : "the plain armour value of a cloth chest gives no AC (cloth chest rule)", key ? "base armour" : "cloth rule");
     if (p.block) notConverted(ctx, `${p.block} Block`, "shield block value has no 5e counterpart beyond the shield's +2", "base shield");
-    if (!key) return clothing(ctx, sys, "Clothing (robe, no AC)", `Cloth chest → clothing, no AC (pending decision: cloth chests are clothing so unarmoured casters can wear them).`);
+    if (!key) return clothing(ctx, sys, "Clothing (robe, no AC)", `Cloth chest → clothing with no AC; only an Equip line that raises armour or defence gives AC.`);
     const a = ARMOR_BASES[key];
     ctx.extras.armor = true;
     Object.assign(sys, {
@@ -913,9 +948,9 @@ function buildSystem(shape, ctx) {
     ctx.basis = shape === "shield"
       ? `Shield → Shield: +2 AC.`
       : `${p.wowType} chest, item level ${p.itemLevel ?? "?"} → ${a.label}: AC ${a.ac}${a.dex === null ? " + Dex modifier" : a.dex ? ` + Dex modifier (max ${a.dex})` : ""}${a.strength ? `; Strength ${a.strength}` : ""}${a.stealth ? "; Disadvantage on Stealth" : ""}.`;
+    applyLinesCommon(ctx);
     enhancement(ctx, shape === "shield" ? "shield" : "armor");
     if (ctx.bonus) sys.armor.magicalBonus = ctx.bonus;
-    applyLinesCommon(ctx);
     ctx.summary = `${a.label}${ctx.bonus ? ` +${ctx.bonus}` : ""}`;
     return { type: "equipment", system: finish(ctx, sys) };
   }
@@ -941,9 +976,9 @@ function buildSystem(shape, ctx) {
 
   if (shape === "gear") {
     const t = SLOT_EQUIPMENT[p.slot];
-    if (p.armor) notConverted(ctx, `${p.armor} Armor`, "only chest armour and shields give AC, per the slot rule", "slot rule");
+    if (p.armor) notConverted(ctx, `${p.armor} Armor`, "the plain armour value gives no AC outside chest armour and shields (slot rule)", "slot rule");
     if (t === "clothing") return clothing(ctx, sys, `Worn item (${p.slot.toLowerCase()}${p.wowType ? `, ${p.wowType.toLowerCase()}` : ""}, no AC)`,
-      `${p.slot}${p.wowType ? ` (${p.wowType})` : ""} → worn item with no AC (pending decision: only chest armour and shields give AC).`);
+      `${p.slot}${p.wowType ? ` (${p.wowType})` : ""} → worn item with no AC; only an Equip line that raises armour or defence gives AC.`);
     Object.assign(sys, { type: { value: t, baseItem: "" }, weight: { value: t === "ring" ? 0 : 1, units: "lb" } });
     if (p.slot === "Relic") sys.properties.push("foc");
     ctx.basis = `${p.slot} → ${{ ring: "ring", trinket: p.slot === "Neck" ? "amulet" : "trinket" }[t] ?? "wondrous item"}.`;

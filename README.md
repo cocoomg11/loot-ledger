@@ -194,8 +194,8 @@ rules are still being tuned. The ground rules:
 
 Items the source module converted by hand are kept only when every mechanic in their rules traces to the
 tooltip (`auditHandAuthored`); otherwise Loot Ledger's own conversion replaces them. Every rule is a table at
-the top of the file (`WEAPON_RULES`, `CHEST_RULES`, `CLOTH_CHEST`, `SLOT_EQUIPMENT`, `WEAPON_BONUS`,
-`ARMOR_BONUS`, `STAT_RULE`, `HIT_RULE`, `SPELL_RULE`, `RESIST_RULE`, `PROC_RULE`, `NOT_CONVERTED`, potion and
+the top of the file (`WEAPON_RULES`, `CHEST_RULES`, `CLOTH_CHEST`, `SLOT_EQUIPMENT`,
+`GEAR_BONUS`, `STAT_RULE`, `HIT_RULE`, `DEFENSE_RULE`, `SPELL_RULE`, `RESIST_RULE`, `PROC_RULE`, `NOT_CONVERTED`, potion and
 food tables).
 
 ```js
