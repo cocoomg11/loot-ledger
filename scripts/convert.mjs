@@ -429,6 +429,7 @@ export function auditHandAuthored(p) {
     for (const m of text.matchAll(rx)) {
       let ok;
       if (c.id === "resistance") {
+        if (/ignore\s*$/i.test(text.slice(Math.max(0, m.index - 8), m.index))) continue; // "ignore Resistance to X" is its own claim
         const want = school(m[1]);
         const lines = Object.entries(p.resist).filter(([k]) => k === "All" || (want && want.test(k)));
         ok = lines.length > 0;
