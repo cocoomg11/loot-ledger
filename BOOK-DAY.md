@@ -247,7 +247,19 @@ tooltip; `scripts/replace-list.mjs` names 3 of them. The other 44 are found in t
 
 ## 7. Work the Build Report review pages
 
-Open the **Loot Ledger · Build Report** journal entry.
+Open the **Loot Ledger · Build Report** journal entry. Do the per-item sweep on the **Review board** (button
+at the top of the Build Report, the Loot Ledger settings window, or `game.modules.get("loot-ledger").api.reviewBoard()`):
+
+- Filter by **reason** first: each reason is one missing rule, so a reason with many items is a rule to add in
+  rules.mjs / convert.mjs, not items to fix by hand. Leave those items pending, fix the rule, build, re-check.
+- For the one-offs, per item: **A**ccept (fine as converted), **T**weak (edit the sheet; marked tweaked when you
+  close it), **S**kip (come back later), **R**eject (left off the roll tables from the next build). Arrow keys
+  move between items. Write a short note on anything you tweak or reject.
+- Accepted and tweaked items are **not overwritten** by later builds, even after a rules change. To pick up a
+  rules change on them anyway, run `api.build({ force: true })`: every item is rewritten, accepted / tweaked go
+  back to pending (manual edits lost), notes stay. Rejected and skipped items keep their status.
+- The progress line shows pending / accepted / tweaked / skipped / rejected; the build whisper shows
+  "kept as reviewed" and "rejected" counts.
 
 - **Summary**: counts, and the replace-list status. "No source item found" means a replace-list name has a
   typo or the item was renamed (use its `itemId`). "Not hand-written" means the entry has no effect; remove it.
@@ -285,6 +297,7 @@ When the review count is acceptable, flip the default so new worlds convert:
 - [ ] `node tools/calibration-report.mjs` reads sensibly; no "(provisional)" left on rules the book confirmed.
 - [ ] `CONVERTER_VERSION` bumped once.
 - [ ] Replace list at its review total (or the total corrected).
+- [ ] Review board: no pending items you meant to decide; rejected items absent from the tables after a build.
 - [ ] `CHANGELOG.md` 0.3.0 section: add "Calibrated against the official book" with a short list of what
       changed (numbers only, your own words), the replace-list count, and "conversion on by default". Change
       "(unreleased)" to the release date.

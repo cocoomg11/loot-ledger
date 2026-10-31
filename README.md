@@ -184,6 +184,33 @@ Each copied item carries `flags["loot-ledger"]`:
 Converted items also carry `riders` and `converted` (`needsReview`, `review`, `notConverted`,
 `handAuthored`, `handAuthoredKept`, `handAuthoredReplaced`, `replaceList`, `summary`, `version`).
 
+Review board decisions are stored on the converted item as `review` (`status`: pending, accepted, tweaked,
+skipped or rejected; `note`, `by`, `at`). Accepted and tweaked items are not rewritten by later builds unless
+`build({ force: true })`; rejected items are left out of the roll tables.
+
+## Review board
+
+GM only (setting **Review board**, on by default). Open it from the Loot Ledger settings window, the button on
+the **Loot Ledger · Build Report** journal entry, or `api.reviewBoard()`. It lists every converted item that
+needs review, with filters (status, quality, item type, slot, reason, search) and progress counts. For each item
+it shows the source tooltip with the unconverted lines highlighted, the converted result and a note field.
+Actions: **Accept** (A), **Tweak** (T: opens the item sheet, marked tweaked on close), **Skip** (S), **Reject**
+(R: left out of the roll tables from the next build); arrow keys move between items.
+
+## Quality colours
+
+Setting **Quality colours** (on by default): item names show in their quality colour on actor and item sheets,
+chat item cards, content links, roll tables, the Items sidebar, Item compendiums and Item Piles windows. Items
+with no quality are coloured by dnd5e rarity (setting, on by default). GMs can set a quality on any item, for
+example homebrew or book items: the **Quality** dropdown in the item sheet header, **Set quality** in the Items
+sidebar / compendium context menu, or:
+
+```js
+await ll.setQuality(items, "epic");   // documents or UUIDs; poor | common | uncommon | rare | epic | legendary | artifact | heirloom
+await ll.setQuality(items, null);     // clear (falls back to rarity)
+await ll.qualityOf(item);             // the quality the item shows
+```
+
 ## API
 
 ```js

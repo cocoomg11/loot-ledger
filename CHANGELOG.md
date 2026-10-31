@@ -32,6 +32,34 @@
   summary) and the summary counts, without creating or changing any compendium, folder, Build Report journal or chat
   message, and without the confirm dialog. Existing packs are only read. `BOOK-DAY.md` has a "run a dry run
   first" step with a console snippet.
+- **Review board** (GM only; setting "Review board", on by default, needs a reload; off registers nothing): a window
+  for working through the converted items that need GM review. It shows the queue with filters (to do / status,
+  quality, item type, slot, reason, search) and progress counts (pending / accepted / tweaked / skipped /
+  rejected). For each item it shows the source tooltip with the flagged lines highlighted, the converted result
+  (summary, bonus, activities, riders, not-converted lines, the 5e block) and a GM note, with **Accept**,
+  **Tweak** (opens the item sheet and marks the item tweaked when the sheet closes), **Skip**, **Reject** and
+  back-to-pending. Keys: A / T / S / R, arrow keys for previous / next. It opens from the Loot Ledger settings
+  window, a button on the Build Report journal entry and `api.reviewBoard()`. Decisions are stored on the
+  converted item as `flags["loot-ledger"].review = { status, note, by, at }`.
+- Builds respect the review: converted items the GM **accepted or tweaked are not rewritten** on rebuild, even
+  when their source or the rules changed, so manual edits survive. `build({ force: true })` rewrites them too
+  (their status goes back to pending and `previous` records the old one; the note is kept). Skip, Reject and
+  notes are carried onto rewritten items. **Rejected** items are left out of every roll table from the next
+  build, also when conversion is turned off later. The build summary and Build Report list "kept as reviewed"
+  and "rejected" counts, and the GM review page has a Status column.
+- **Quality colours** (setting, on by default, needs a reload; off registers nothing): item names are shown in
+  their quality colour on actor sheet inventories, item sheet titles, dnd5e chat item cards, content links (chat,
+  journals), roll table results, the Items sidebar and Item compendium windows, and Item Piles pile / merchant /
+  vault windows when Item Piles is active. One CSS class per quality (`ll-q ll-q-<quality>`) with separate light-
+  and dark-theme colours (at least 4.5:1 contrast on both). Qualities: poor, common, uncommon, rare, epic,
+  legendary, artifact, heirloom.
+  - "Colour by 5e rarity when no quality is set" (on by default): common white, uncommon green, rare blue, very
+    rare purple, legendary orange, artifact gold. An explicit quality always wins.
+  - Setting quality by hand (setting "Quality picker for GMs", on by default): a **Quality** dropdown in the item
+    sheet header (GM only), a **Set quality** entry in the Items sidebar and Item compendium context menus (applies
+    to every selected entry when the clicked one is selected, otherwise to the one clicked), and
+    `api.setQuality(items, quality)` (documents or UUIDs; `null` clears). Stored as `flags["loot-ledger"].quality`,
+    the same key Build writes. `api.qualityOf(item)` returns the quality an item shows.
 - Tests (`node --test`, no dependencies) and a GitHub Actions workflow running them on every push and PR.
 
 ### Changed

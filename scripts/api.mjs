@@ -109,7 +109,14 @@ export async function auditHandWritten({ journal = false, add = [], log = true }
 }
 
 export function createApi() {
+  const on = key => { try { return !!game.settings.get(MODULE_ID, key); } catch { return false; } };
   return {
+    /** Open the GM review board (undefined when the "Review board" setting is off). */
+    reviewBoard: on("reviewBoard") ? async () => (await import("./review.mjs")).ReviewBoard.open() : undefined,
+    /** Set (or clear with null) the quality of items or UUIDs (undefined when "Quality colours" is off). */
+    setQuality: on("qualityColours") ? async (items, quality) => (await import("./quality.mjs")).setQuality(items, quality) : undefined,
+    /** The quality an item shows (explicit flag, else rarity when the fallback setting is on). */
+    qualityOf: async (item) => (await import("./quality-model.mjs")).resolveQuality(item, { rarityFallback: on("qualityRarityFallback") }),
     build: (options) => build(options),
     convert: (item, options) => convertItem(item, options),
     auditHandAuthored: (item) => auditHandAuthored(parseSource(item)),

@@ -170,6 +170,7 @@ export function reportRow(id, name, flags, uuid) {
   return {
     id, name, uuid, quality: flags?.quality ?? "", band: flags?.band ?? null,
     reviewLines: c.review ?? [], replacedWhy: c.handAuthoredReplaced ?? [], replaceList: !!c.replaceList,
+    status: flags?.review?.status ?? "pending",
     ...route(flags)
   };
 }
@@ -195,7 +196,9 @@ export function summaryCounts(s) {
     errors: s.rows.filter(r => r.reviewLines?.some(l => l.startsWith("converter error"))).length,
     replaced: s.rows.filter(r => r.replaced).length,
     replaceList: s.rows.filter(r => r.replaceList).length,
-    kept: s.rows.filter(r => r.kept).length
+    kept: s.rows.filter(r => r.kept).length,
+    reviewProtected: s.protected ?? 0,
+    rejected: s.rejected ?? 0
   };
 }
 
@@ -211,6 +214,8 @@ export function summaryHtml(counts, { convertOn, tables, seconds, reportUuid = n
       li("Hand-written rules kept", counts.kept)
     ] : []),
     li("Skipped (unchanged)", counts.skipped),
+    ...(counts.reviewProtected ? [li("Kept as reviewed (accepted / tweaked)", counts.reviewProtected)] : []),
+    ...(counts.rejected ? [li("Rejected on the review board (left off the tables)", counts.rejected)] : []),
     ...(counts.removed ? [li("Removed (no longer in source)", counts.removed)] : []),
     li("Roll tables", tables ?? 0)
   ];
@@ -233,8 +238,9 @@ export function reportPages(counts, rows, { convertOn, replaceList, tables, seco
     name: `GM review (${review.length})`,
     html: review.length
       ? `<p>These items were converted with only the features their tooltip supports. Each line below has no conversion rule yet and stays as flavour; decide by hand or add a rule in rules.mjs / convert.mjs.</p>` +
-        `<table><thead><tr><th>Item</th><th>Quality</th><th>Band</th><th>Needs review</th></tr></thead><tbody>` +
-        review.map(r => `<tr><td>${link(r)}</td><td>${esc(r.quality)}</td><td>${r.band ?? ""}</td><td>${r.reviewLines.map(esc).join("<br>")}</td></tr>`).join("") +
+        `<p>Work through them with the <strong>Review board</strong> (button at the top of this journal entry, the Loot Ledger settings, or <code>api.reviewBoard()</code>).</p>` +
+        `<table><thead><tr><th>Item</th><th>Quality</th><th>Band</th><th>Needs review</th><th>Status</th></tr></thead><tbody>` +
+        review.map(r => `<tr><td>${link(r)}</td><td>${esc(r.quality)}</td><td>${r.band ?? ""}</td><td>${r.reviewLines.map(esc).join("<br>")}</td><td>${esc(r.status ?? "pending")}</td></tr>`).join("") +
         `</tbody></table>`
       : "<p>Nothing to review.</p>"
   });

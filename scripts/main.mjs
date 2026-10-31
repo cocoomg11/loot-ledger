@@ -4,6 +4,8 @@
 import { MODULE_ID, SOURCE_MODULE, BANDS } from "./data.mjs";
 import { build, ITEMS_PACK, CONVERTED_PACK, TABLES_PACK } from "./build.mjs";
 import { createApi } from "./api.mjs";
+import { ReviewBoard, registerReviewBoard } from "./review.mjs";
+import { registerQualityColours } from "./quality.mjs";
 
 const { ApplicationV2 } = foundry.applications.api;
 
@@ -15,7 +17,7 @@ class BuildMenu extends ApplicationV2 {
     tag: "div",
     window: { title: "LOOTLEDGER.Menu.Title", icon: "fa-solid fa-coins" },
     position: { width: 480, height: "auto" },
-    actions: { build: BuildMenu.#onBuild }
+    actions: { build: BuildMenu.#onBuild, reviewBoard: () => ReviewBoard.open() }
   };
 
   async _renderHTML() {
@@ -40,6 +42,9 @@ class BuildMenu extends ApplicationV2 {
         </ul>
         <details><summary>${i18n("LOOTLEDGER.Menu.Bands")}</summary><ul>${bands}</ul></details>
         <footer class="form-footer">
+          ${game.settings.get(MODULE_ID, "reviewBoard") ? `<button type="button" data-action="reviewBoard" ${converted ? "" : "disabled"}>
+            <i class="fa-solid fa-clipboard-check"></i> Review board
+          </button>` : ""}
           <button type="button" data-action="build" ${source ? "" : "disabled"}>
             <i class="fa-solid fa-hammer"></i> ${i18n("LOOTLEDGER.Menu.Build")}
           </button>
@@ -85,6 +90,34 @@ Hooks.once("init", () => {
     type: Boolean,
     default: false
   });
+
+  // Review board (GM window over the converted items that need review). Off: nothing is registered.
+  game.settings.register(MODULE_ID, "reviewBoard", {
+    name: "Review board",
+    hint: "A GM window for working through converted items that need review (Accept / Tweak / Skip / Reject, with notes). Opens from these settings, the Build Report journal and api.reviewBoard(). Needs a reload.",
+    scope: "world", config: true, type: Boolean, default: true, requiresReload: true
+  });
+
+  // Quality colours. Off: no hooks, no picker, no context-menu entry.
+  game.settings.register(MODULE_ID, "qualityColours", {
+    name: "Quality colours",
+    hint: "Show item names in their quality colour (grey, white, green, blue, purple, orange, ...) on actor and item sheets, chat cards, content links, roll tables, the Items sidebar and compendiums, and Item Piles windows. Needs a reload.",
+    scope: "world", config: true, type: Boolean, default: true, requiresReload: true
+  });
+  game.settings.register(MODULE_ID, "qualityRarityFallback", {
+    name: "Colour by 5e rarity when no quality is set",
+    hint: "Items without a quality are coloured by their dnd5e rarity (common white, uncommon green, rare blue, very rare purple, legendary orange, artifact gold). An explicit quality always wins.",
+    scope: "world", config: true, type: Boolean, default: true
+  });
+  game.settings.register(MODULE_ID, "qualityPicker", {
+    name: "Quality picker for GMs",
+    hint: 'Adds a "Quality" dropdown to item sheet headers and a "Set quality" entry to the Items sidebar and compendium context menus (GM only). Needs a reload.',
+    scope: "world", config: true, type: Boolean, default: true, requiresReload: true
+  });
+
+  if (game.settings.get(MODULE_ID, "reviewBoard")) registerReviewBoard();
+  if (game.settings.get(MODULE_ID, "qualityColours")) registerQualityColours();
+  // The picker without the colours would be invisible; it is part of the colours feature.
 
   game.settings.registerMenu(MODULE_ID, "build", {
     name: "LOOTLEDGER.Menu.Name",
