@@ -8,6 +8,8 @@ import { handWrittenAudit, replaceListSnippet, auditPageHtml } from "./ledger.mj
 import * as RULES from "./rules.mjs";
 import { convertItem, parseSource, auditHandAuthored } from "./convert.mjs";
 import { rollSuffix, listSuffixes } from "./suffix-hooks.mjs";
+import { announceDrop } from "./events.mjs";
+import { removeModuleData } from "./cleanup.mjs";
 
 /** Find the generated table matching a query. */
 export async function findTable({ band = null, level = null, quality = null, type = null, creature = null, pack = TABLES_PACK.name } = {}) {
@@ -55,7 +57,7 @@ export async function roll(query = {}) {
     for (const r of res.results) {
       if (r.type !== "document" || !r.documentUuid) continue;
       const doc = await fromUuid(r.documentUuid);
-      if (doc instanceof Item) items.push(doc);
+      if (doc instanceof Item) { items.push(doc); announceDrop({ item: doc, source: "roll", table, query }); }
     }
   }
   return items;
@@ -131,6 +133,8 @@ export function createApi() {
     /** Random suffixes: (re)roll one item (optionally a chosen suffix id), and list the suffix table. GM only. */
     rollSuffix: (item, options) => rollSuffix(item, options),
     suffixes: () => listSuffixes(),
+    /** GM: delete Loot Ledger's compendiums, Build Report and settings (dry run by default; { dryRun: false } deletes). */
+    removeData: (options) => removeModuleData(options),
     sellPrice,
     bandForLevel,
     formatCoins,

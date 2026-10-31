@@ -74,7 +74,22 @@
   "Random suffixes (N)" with the table and the count of source items carrying the line.
 - Tests (`node --test`, no dependencies) and a GitHub Actions workflow running them on every push and PR.
 
+- **Hook `loot-ledger.itemDropped`** (experimental): fires with `{ item, source, actor?, table?, query? }` when
+  `api.roll()` draws an item (`"roll"`) and when a Loot Ledger item is created on an actor or Item Piles pile
+  (`"actor"`, active GM's client only). README now has a Public API and hooks table marked stable / experimental.
+- **`api.removeData()`** (GM, experimental): removes Loot Ledger's compendiums, Build Report journal and settings;
+  dry run by default; `itemFlags: true` also clears `flags["loot-ledger"]` from items. README lists where the
+  data lives.
+- Tests for the release tag check, manifest compatibility, the hook payload and its bail-outs, the cleanup plan,
+  and converter-version bumps leaving accepted / tweaked items alone.
+
 ### Changed
+- `module.json`: minimum Foundry 14 (verified 14); dnd5e verified 6.0.6; Item Piles and Wayfarer's Toolkit
+  listed under `recommends` (neither is required).
+- Release workflow fails at once when the release tag is not `vMAJOR.MINOR.PATCH`.
+- Hot hooks bail out earlier: the chat-message colour hook returns when a message has no item card or content
+  link, and the suffix `createItem` hook checks the cheap conditions (actor parent, flag) before the active-GM
+  lookup.
 - `<Random enchantment>` lines are treated as flavour: they no longer count as "not converted" lines (they
   now mark the item for a random suffix instead). `CONVERTER_VERSION` 3, so converted items pick up the flag.
 - Every tunable number moved to one commented file, `scripts/rules.mjs` (rarity by quality, drop weights, price

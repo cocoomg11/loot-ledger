@@ -9,7 +9,7 @@
     }
   ],
   "compatibility": {
-    "minimum": "13",
+    "minimum": "14",
     "verified": "14"
   },
   "relationships": {
@@ -18,13 +18,24 @@
         "id": "dnd5e",
         "type": "system",
         "compatibility": {
-          "minimum": "5.0.0"
+          "minimum": "5.0.0",
+          "verified": "6.0.6"
         }
       }
     ],
     "requires": [
       {
         "id": "wow-classic-items",
+        "type": "module"
+      }
+    ],
+    "recommends": [
+      {
+        "id": "item-piles",
+        "type": "module"
+      },
+      {
+        "id": "wayfarers-toolkit",
         "type": "module"
       }
     ]

@@ -237,6 +237,48 @@ await ll.findTable({ band: 4, type: "jewelry" });   // the RollTable document
 `humanoid` `undead` `elemental` `dragonkin` `demon` `giant` `mechanical`). With none of them it rolls
 the band's mixed drop. A `loot-ledger.ready` hook fires on ready with the API as its argument.
 
+## Public API and hooks
+
+Everything below is reached through `game.modules.get("loot-ledger").api` or the hooks listed here. Do not import
+the module's scripts or read its settings directly. **Stable** = kept compatible across 0.x releases;
+**experimental** = may change in any release.
+
+| Name | Status | What it does |
+| --- | --- | --- |
+| `api.build(options)`, `api.roll(query)`, `api.findTable(query)` | stable | Build the pools; roll loot; find a generated table. |
+| `api.sellPrice(item)`, `api.bandForLevel(level)`, `api.formatCoins(copper)` | stable | Price and band helpers. |
+| `api.BANDS`, `api.QUALITIES`, `api.TYPES`, `api.CREATURES` | stable | Lookup lists. |
+| `api.setQuality(items, quality)`, `api.qualityOf(item)` | stable | Quality colours (undefined `setQuality` while the setting is off). |
+| `api.convert`, `api.convertToPack`, `api.rules()`, `api.replaceList()`, `api.auditHandWritten()`, `api.auditHandAuthored()` | experimental | 5e conversion and calibration tools. |
+| `api.reviewBoard()`, `api.rollSuffix(item, options)`, `api.suffixes()` | experimental | Review board and random suffixes. |
+| `api.removeData({ dryRun, confirm, itemFlags })` | experimental | GM: remove Loot Ledger's data (see below). |
+| Hook `loot-ledger.ready` (argument: the API) | stable | Fires on `ready`. |
+| Hook `loot-ledger.itemDropped` | experimental | Fires when a Loot Ledger item is rolled or lands on an actor. |
+
+```js
+// source "roll": api.roll() drew the item from a table.
+// source "actor": a Loot Ledger item was created on an actor or Item Piles pile (active GM's client only).
+Hooks.on("loot-ledger.itemDropped", ({ item, source, actor, table, query }) => {
+  console.log(source, item.name);
+});
+```
+
+The payload is one object: `item` (the Item document) and `source` always; `actor` for `"actor"`; `table` and
+`query` for `"roll"`. Fired with `Hooks.callAll`, so return values are ignored.
+
+### Where Loot Ledger keeps its data, and removing it
+
+- World compendiums **Loot Ledger · Items**, **· Converted Items** and **· Tables**.
+- The **Loot Ledger · Build Report** journal entry.
+- World settings (all small: booleans and one short string; nothing grows over time).
+- Item flags under `flags["loot-ledger"]` (source link, quality, price, hash, review decision, random suffix).
+  They live on the items in those compendiums and on any item you copied out of them.
+
+Everything is stored under its own `loot-ledger` namespace. To remove it, run `await ll.removeData()` for a dry
+run (it lists what would go), then `await ll.removeData({ dryRun: false })` to delete the compendiums, the Build
+Report and the settings after a confirm dialog. Add `itemFlags: true` to also clear `flags["loot-ledger"]` from
+world and actor items (this removes hand-set qualities too). Export a backup first.
+
 ## 5e conversion
 
 `scripts/convert.mjs` turns each source item into a dnd5e (2024 rules) item. Build runs it when the **Convert

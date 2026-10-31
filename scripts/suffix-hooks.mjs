@@ -77,8 +77,8 @@ export function listSuffixes() {
 }
 
 async function onCreateItem(item) {
-  if (!isActiveGM() || !(item.parent instanceof Actor)) return;
-  if (!canRoll(item) || isRolled(item)) return;
+  // createItem fires for every item anywhere: cheapest checks first.
+  if (!(item.parent instanceof Actor) || !canRoll(item) || isRolled(item) || !isActiveGM()) return;
   try {
     if (game.settings.get(MODULE_ID, "suffixMode") === "gm") {
       await ChatMessage.create({

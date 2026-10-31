@@ -6,7 +6,8 @@ import { build, ITEMS_PACK, CONVERTED_PACK, TABLES_PACK } from "./build.mjs";
 import { createApi } from "./api.mjs";
 import { ReviewBoard, registerReviewBoard } from "./review.mjs";
 import { registerQualityColours } from "./quality.mjs";
-import { registerSuffixSettings, registerSuffixHooks } from "./suffix-hooks.mjs";
+import { registerSuffixSettings, registerSuffixHooks, isActiveGM } from "./suffix-hooks.mjs";
+import { registerDropHook } from "./events.mjs";
 
 const { ApplicationV2 } = foundry.applications.api;
 
@@ -136,5 +137,6 @@ Hooks.once("init", () => {
 
 Hooks.once("ready", () => {
   registerSuffixHooks();
+  registerDropHook(isActiveGM);
   Hooks.callAll(`${MODULE_ID}.ready`, game.modules.get(MODULE_ID)?.api);
 });

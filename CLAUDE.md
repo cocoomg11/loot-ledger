@@ -1,6 +1,6 @@
 # CLAUDE.md: Loot Ledger
 
-Foundry VTT module (v13/v14, dnd5e) that copies the classic MMO item compendium from the `wow-classic-items` module into world compendiums with sell-accurate prices, and generates rollable loot tables (by quality x level band, item type, mixed drops, creature type). Optionally converts items to 5e. Code only, no item data. Requires `wow-classic-items`. Public repo, MIT.
+Foundry VTT module (v14, dnd5e) that copies the classic MMO item compendium from the `wow-classic-items` module into world compendiums with sell-accurate prices, and generates rollable loot tables (by quality x level band, item type, mixed drops, creature type). Optionally converts items to 5e. Code only, no item data. Requires `wow-classic-items`. Public repo, MIT.
 
 ## File map (`scripts/`)
 - `main.mjs` entry: settings (`coinRatio`, `convertOnBuild`, `reviewBoard`, `qualityColours`, `qualityRarityFallback`, `qualityPicker`), the "Build loot pools" settings menu (with a Review board button), feature registration, API registration.
@@ -11,6 +11,7 @@ Foundry VTT module (v13/v14, dnd5e) that copies the classic MMO item compendium 
 - `review-model.mjs` (pure) review statuses, actions, rebuild protection (`protectReviewed`, `carryReview`), table exclusion (`isRejected`), queue filters / counts, `itemView`, shortcuts; `review.mjs` the Review board window (ApplicationV2) and its Build Report button.
 - `quality-model.mjs` (pure) quality resolution (explicit flag, then rarity fallback), CSS classes, flag update; `quality.mjs` render hooks, item sheet picker, "Set quality" context entry, Item Piles observer, `setQuality`.
 - `suffix.mjs` pure random-suffix logic (group, power, weighted pick, effects, naming, price, item update, report page); `suffix-hooks.mjs` its settings (`randomSuffixes`, `suffixMode`), the active-GM `createItem` hook, the item context-menu entry, `api.rollSuffix` / `api.suffixes`.
+- `events.mjs` (pure payload + bail-outs, `loot-ledger.itemDropped`) and `cleanup.mjs` (pure `cleanupPlan`, GM `api.removeData`).
 - Also `styles/`, `lang/en.json`.
 
 ## Key patterns
@@ -43,3 +44,13 @@ Foundry VTT module (v13/v14, dnd5e) that copies the classic MMO item compendium 
 - Every option must be a setting that can be turned off; conversion is off by default.
 - The README carries an unofficial fan-content disclaimer; keep it.
 - Commit author `cocoomg11 <cocoomg11@users.noreply.github.com>`; end commit messages with the attribution trailers given by the session.
+
+## House practices
+- **Releases:** the tag is `vMAJOR.MINOR.PATCH` (the Release workflow fails otherwise; `tests/house.test.mjs` checks the regex). Agents never tag or publish. Every release ends with a live checklist (what only a live world can confirm) in the handoff.
+- **Compatibility:** `module.json` `compatibility` minimum/verified 14; dnd5e under `relationships.systems` with a minimum and `verified`. Optional integrations (Item Piles, Wayfarer's Toolkit) go under `recommends`, never `requires`. The source item module is the data source and stays `requires`.
+- **Hot hooks:** hooks on frequent events (`createItem`, `updateItem`, `renderChatMessageHTML`, render hooks) must return on the cheapest irrelevant check first, before any lookup or DOM work. Register nothing when the feature's setting is off.
+- **Settings size:** world settings stay small (booleans, short strings). Never store a growing list or record in a setting; use compendium or document flags. Add every new setting key to `SETTING_KEYS` in `cleanup.mjs` (a test enforces it).
+- **Namespace:** all flags under `flags.loot-ledger.*`. Talk to other modules only through their API or hooks, never their internals; expose ours through `api` and documented hooks.
+- **Data versions:** converted items carry `flags.loot-ledger.converted.version` (= `CONVERTER_VERSION`); the hash covers `CONVERTER_VERSION`, `COPY_VERSION` and the rules. Bump `CONVERTER_VERSION` / `COPY_VERSION` whenever output changes; a bump rewrites unreviewed items on the next Build but `protectReviewed` keeps accepted / tweaked ones unless `force`. Keep that test green.
+- **Cleanup:** anything the module writes into a world must be removable. Update `cleanup.mjs` and the README "Where Loot Ledger keeps its data" list when adding a new write location.
+- **API docs:** the README "Public API and hooks" table lists every API member and hook, marked stable or experimental. Update it in the same commit as the change. New hooks start experimental.

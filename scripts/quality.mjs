@@ -86,7 +86,8 @@ function onRenderItemSheet(app, element) {
 /** Chat: dnd5e item cards (<div class="item-icon" data-uuid> + <span class="title">) and content links. */
 function onRenderChatMessage(message, html) {
   const root = html instanceof HTMLElement ? html : html?.[0];
-  if (!root) return;
+  // Chat renders constantly: bail unless the message has an item card header or a content link.
+  if (!root?.querySelector(".card-header, a.content-link")) return;
   for (const header of root.querySelectorAll(".card-header")) {
     const uuid = header.querySelector("[data-uuid]")?.dataset.uuid;
     const item = itemFromUuid(uuid);
