@@ -913,7 +913,7 @@ function applyLinesCommon(ctx) {
   applyGreenRule(ctx);
   const { p } = ctx;
   for (const s of p.sets) notConverted(ctx, s, "set bonuses are not converted yet, as there are no set rules", "set bonus");
-  if (p.randomEnchant) notConverted(ctx, "<Random enchantment>", "random enchantments are not rolled", "random enchantment");
+  // "<Random enchantment>" is flavour (nothing to roll or convert), so it is not a "not converted" line.
 }
 
 /* -------------------------------------------- */

@@ -27,9 +27,15 @@
 - `tools/calibration-report.mjs`: prints the calibration rules as a table and shows how sample items convert
   (bundled: `tools/fixtures/sample-items.json`, ~40 made-up items). `BOOK-DAY.md`: calibration and release
   checklist.
+- **Dry run**: `api.build({ dryRun: true })` runs every stage up to the writes (conversion, rules, hashing, sync
+  planning, roll-table planning, report generation) and returns the plan, the report data (rows, pages, chat
+  summary) and the summary counts, without creating or changing any compendium, folder, Build Report journal or chat
+  message, and without the confirm dialog. Existing packs are only read. `BOOK-DAY.md` has a "run a dry run
+  first" step with a console snippet.
 - Tests (`node --test`, no dependencies) and a GitHub Actions workflow running them on every push and PR.
 
 ### Changed
+- `<Random enchantment>` lines are treated as flavour: they no longer count as "not converted" lines.
 - Every tunable number moved to one commented file, `scripts/rules.mjs` (rarity by quality, drop weights, price
   rule, weapon / armour mapping, +N curves, stat passives, trinket bonuses, line thresholds, proc dice, Flurry and
   blast uses, consumables, level bands, creature-table spread, potion reflavour tiers, the empty-item review

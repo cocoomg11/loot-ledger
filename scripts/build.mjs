@@ -60,8 +60,17 @@ export async function ensurePack({ name, label }, type) {
   return CompendiumCls().createCompendium({ type, label, name, package: "world" });
 }
 
+/** Dry runs must never reach a write. Every write path in this file calls this first, so a bug cannot slip one through. */
+function noWrites(dryRun, what) {
+  if (dryRun) throw new Error(`Loot Ledger: dry run attempted a write (${what}); this is a bug.`);
+}
+
+/** The collection id of one of our world packs, whether or not the pack exists yet. */
+const worldCollection = ({ name }) => `world.${name}`;
+
 /** Remove every document and folder from one of our packs. */
-async function clearPack(pack) {
+async function clearPack(pack, dryRun = false) {
+  noWrites(dryRun, "clearPack");
   if (pack.locked) await pack.configure({ locked: false });
   const cls = pack.documentClass;
   const ids = Array.from((await pack.getIndex()).keys());
@@ -332,19 +341,20 @@ async function confirmRebuild(labels, convert) {
 }
 
 /** Create the per-category item folders that are missing (stable ids). Returns {category: folderId}. */
-async function ensureItemFolders(pack) {
+async function ensureItemFolders(pack, dryRun = false) {
   const ids = {};
   const missing = [];
   CATEGORIES.forEach((c, i) => {
     ids[c.key] = stableId(`ifolder:${c.key}`);
-    if (!pack.folders.get(ids[c.key])) missing.push({ _id: ids[c.key], name: c.label, type: "Item", sort: (i + 1) * 100, sorting: "a" });
+    if (!pack?.folders.get(ids[c.key])) missing.push({ _id: ids[c.key], name: c.label, type: "Item", sort: (i + 1) * 100, sorting: "a" });
   });
-  if (missing.length) await Folder.createDocuments(missing, { pack: pack.collection, keepId: true });
+  if (missing.length && !dryRun) await Folder.createDocuments(missing, { pack: pack.collection, keepId: true });
   return ids;
 }
 
 /** id -> stored hash for every document in one of our item packs, plus the stored Loot Ledger flags. */
 async function packState(pack) {
+  if (!pack) return { hashes: new Map(), flags: new Map() }; // dry run and the pack does not exist yet
   const index = await pack.getIndex({ fields: [`flags.${MODULE_ID}`] });
   const hashes = new Map(), flags = new Map();
   for (const e of index) {
@@ -360,28 +370,35 @@ async function packState(pack) {
  * an interrupted build leaves at most one batch missing and the next run (which compares hashes) fills it in.
  * `dataFor(id)` may return null (item could not be produced): it is then left out of the pack.
  */
-async function applySync(pack, plan, dataFor, { onProgress, label }) {
+async function applySync(pack, plan, dataFor, { onProgress, label, dryRun = false }) {
   const stale = new Set(plan.replace);
   const ids = [...plan.create, ...plan.replace];
+  const produced = new Map(); // dry run: id -> the data that would have been written
   for (let i = 0; i < ids.length; i += ITEM_CHUNK) {
     const slice = ids.slice(i, i + ITEM_CHUNK);
     const batch = [];
     for (const id of slice) {
       const data = await dataFor(id);
-      if (data) batch.push(data);
+      if (data) { batch.push(data); if (dryRun) produced.set(id, data); }
     }
+    if (dryRun) { onProgress?.((i + slice.length) / ids.length, `${label} ${Math.min(i + ITEM_CHUNK, ids.length)} / ${ids.length}`); continue; }
+    noWrites(dryRun, "applySync");
     const del = slice.filter(id => stale.has(id));
     if (del.length) await Item.deleteDocuments(del, { pack: pack.collection });
     if (batch.length) await Item.createDocuments(batch, { pack: pack.collection, keepId: true });
     onProgress?.((i + slice.length) / ids.length, `${label} ${Math.min(i + ITEM_CHUNK, ids.length)} / ${ids.length}`);
   }
+  if (dryRun) return produced;
   for (let i = 0; i < plan.remove.length; i += 1000) {
+    noWrites(dryRun, "applySync remove");
     await Item.deleteDocuments(plan.remove.slice(i, i + 1000), { pack: pack.collection });
   }
+  return produced;
 }
 
 /** Find or create the Build Report journal entry and replace its pages. */
-async function writeReport(pages) {
+async function writeReport(pages, dryRun = false) {
+  noWrites(dryRun, "writeReport");
   let entry = game.journal.find(j => j.getFlag(MODULE_ID, "buildReport")) ?? game.journal.getName(REPORT_NAME);
   if (!entry) {
     entry = await JournalEntry.create({ name: REPORT_NAME, flags: { [MODULE_ID]: { buildReport: true } }, ownership: { default: 0 } });
@@ -413,10 +430,14 @@ async function writeReport(pages) {
  * @param {boolean}  [options.convert]        convert to 5e (default: the "Convert items to 5e when building" setting)
  * @param {boolean}  [options.force=false]    ignore stored hashes and rewrite every item
  * @param {boolean}  [options.report=true]    whisper the GM summary and write the Build Report journal
+ * @param {boolean}  [options.dryRun=false]   run every stage up to the writes and return the plan, the report data and the
+ *                                            summary counts instead of writing anything: no compendium or folder is created,
+ *                                            changed or cleared, no Build Report is written, no chat message is sent, no
+ *                                            confirm dialog is shown. Packs that already exist are only read.
  */
 export async function build({
   confirm = true, itemsPack = ITEMS_PACK, convertedPack = CONVERTED_PACK, tablesPack = TABLES_PACK,
-  filter = null, ratio = null, convert = null, force = false, report = true
+  filter = null, ratio = null, convert = null, force = false, report = true, dryRun = false
 } = {}) {
   if (!game.user.isGM) throw new Error("Loot Ledger: only a GM can build loot pools.");
   const source = game.packs.get(SOURCE_PACK);
@@ -426,22 +447,25 @@ export async function build({
   }
   convert ??= !!game.settings.get(MODULE_ID, "convertOnBuild");
   const labels = [itemsPack.label, ...(convert ? [convertedPack.label] : []), tablesPack.label];
-  if (confirm && !(await confirmRebuild(labels, convert))) return null;
+  if (confirm && !dryRun && !(await confirmRebuild(labels, convert))) return null;
   ratio ??= game.settings.get(MODULE_ID, "coinRatio");
   const dnd5eMajor = Number(String(game.system?.version ?? "0").split(".")[0]);
 
-  const bar = progressBar("Loot Ledger: reading source items…");
+  const bar = dryRun ? { update() {}, done() {} } : progressBar("Loot Ledger: reading source items…");
   const t0 = performance.now();
   try {
     const docs = await source.getDocuments();
     bar.update(0.04, `Loot Ledger: analysing ${docs.length} items…`);
 
-    const items = await ensurePack(itemsPack, "Item");
-    const conv = convert ? await ensurePack(convertedPack, "Item") : null;
-    const tables = await ensurePack(tablesPack, "RollTable");
-    for (const p of [items, conv, tables]) if (p?.locked) await p.configure({ locked: false });
-    const itemFolders = await ensureItemFolders(items);
-    const convFolders = conv ? await ensureItemFolders(conv) : null;
+    // A dry run only looks at packs that already exist (missing ones read as empty); it never creates or unlocks anything.
+    const getPack = async (def, type) => dryRun ? (game.packs.get(worldCollection(def)) ?? null) : ensurePack(def, type);
+    const items = await getPack(itemsPack, "Item");
+    const conv = convert ? await getPack(convertedPack, "Item") : null;
+    const tables = await getPack(tablesPack, "RollTable");
+    if (!dryRun) for (const p of [items, conv, tables]) if (p?.locked) await p.configure({ locked: false });
+    const itemFolders = await ensureItemFolders(items, dryRun);
+    const convFolders = convert ? await ensureItemFolders(conv, dryRun) : null;
+    const itemsId = worldCollection(itemsPack), convId = worldCollection(convertedPack), tablesId = worldCollection(tablesPack);
 
     // Analyse and hash every source item.
     const rules = rulesFingerprint();
@@ -477,10 +501,10 @@ export async function build({
       data.folder = itemFolders[meta.category] ?? null;
       data.flags[MODULE_ID].hash = copyHash;
       return data;
-    }, { label: "Loot Ledger: items", onProgress: (f, m) => bar.update(0.08 + (convert ? 0.27 : 0.62) * f, m) });
+    }, { dryRun, label: "Loot Ledger: items", onProgress: (f, m) => bar.update(0.08 + (convert ? 0.27 : 0.62) * f, m) });
 
     // 2. 5e conversions (separate pack; tables point here when conversion is on).
-    let convPlan = null;
+    let convPlan = null, convProduced = new Map();
     const failed = new Map();
     if (convert) {
       const convState = await packState(conv);
@@ -493,7 +517,7 @@ export async function build({
         return officialCache.get(key);
       };
       // Items the converter throws on go to GM review; their stale conversion is removed (tables use the plain copy).
-      await applySync(conv, convPlan, async id => {
+      convProduced = await applySync(conv, convPlan, async id => {
         const { doc, meta, replace, convHash } = byId.get(id);
         try {
           const opts = { ratio, dnd5eMajor, forceReplace: replace };
@@ -510,29 +534,36 @@ export async function build({
           failed.set(id, err.message);
           return null;
         }
-      }, { label: "Loot Ledger: converted", onProgress: (f, m) => bar.update(0.36 + 0.34 * f, m) });
+      }, { dryRun, label: "Loot Ledger: converted", onProgress: (f, m) => bar.update(0.36 + 0.34 * f, m) });
     }
 
     // 3. Roll tables: converted versions when available, plain copies otherwise.
-    const convStored = conv ? (await packState(conv)).flags : new Map();
+    // Dry run: what the converted pack would hold after this build (stored items, minus removals, plus freshly converted ones).
+    const convStored = convert ? (await packState(conv)).flags : new Map();
+    if (dryRun && convert) {
+      for (const id of convPlan.remove) convStored.delete(id);
+      for (const [id, d] of convProduced) convStored.set(id, { name: d.name, flags: d.flags?.[MODULE_ID] ?? {} });
+    }
     const metas = [];
     for (const [id, { doc, meta }] of byId) {
       const inConv = convert && convStored.has(id) && !failed.has(id);
       metas.push({
         ...meta, id, name: doc.name, img: doc.img,
-        uuid: inConv ? `Compendium.${conv.collection}.Item.${id}` : `Compendium.${items.collection}.Item.${id}`
+        uuid: inConv ? `Compendium.${convId}.Item.${id}` : `Compendium.${itemsId}.Item.${id}`
       });
     }
     bar.update(0.72, "Loot Ledger: generating roll tables…");
-    await clearPack(tables);
+    if (!dryRun) await clearPack(tables);
     const tf = { quality: "By quality", type: "By item type", drop: "Mixed drops", creature: "By creature type" };
     const tableFolders = {};
-    await Folder.createDocuments(Object.entries(tf).map(([k, name], i) => {
+    const folderData = Object.entries(tf).map(([k, name], i) => {
       tableFolders[k] = stableId(`tfolder:${k}`);
       return { _id: tableFolders[k], name, type: "RollTable", sort: (i + 1) * 100, sorting: "m" };
-    }), { pack: tables.collection, keepId: true });
-    const plan = planTables(metas, tables.collection, tableFolders);
-    for (let i = 0; i < plan.length; i += TABLE_CHUNK) {
+    });
+    if (!dryRun) await Folder.createDocuments(folderData, { pack: tables.collection, keepId: true });
+    const plan = planTables(metas, tablesId, tableFolders);
+    for (let i = 0; !dryRun && i < plan.length; i += TABLE_CHUNK) {
+      noWrites(dryRun, "table write");
       await RollTable.createDocuments(plan.slice(i, i + TABLE_CHUNK), { pack: tables.collection, keepId: true });
       bar.update(0.75 + 0.2 * ((i + TABLE_CHUNK) / plan.length), `Loot Ledger: tables ${Math.min(i + TABLE_CHUNK, plan.length)} / ${plan.length}`);
     }
@@ -541,11 +572,11 @@ export async function build({
     const rows = [];
     if (convert) {
       for (const [id, { name, flags }] of convStored) {
-        if (byId.has(id) && !failed.has(id)) rows.push(reportRow(id, name, flags, `Compendium.${conv.collection}.Item.${id}`));
+        if (byId.has(id) && !failed.has(id)) rows.push(reportRow(id, name, flags, `Compendium.${convId}.Item.${id}`));
       }
       for (const [id, msg] of failed) {
         const { doc, meta } = byId.get(id);
-        rows.push(errorRow(id, doc.name, meta, `Compendium.${items.collection}.Item.${id}`, msg));
+        rows.push(errorRow(id, doc.name, meta, `Compendium.${itemsId}.Item.${id}`, msg));
       }
     }
     const rl = convert ? replaceListStatus(REPLACE_LIST, replaceHits) : null;
@@ -558,10 +589,24 @@ export async function build({
       return acc;
     }, {});
     let reportUuid = null;
+    if (dryRun) {
+      const pages = reportPages(counts, rows, { convertOn: convert, replaceList: rl, tables: plan.length, seconds });
+      const result = {
+        dryRun: true, items: copyWant.length, rollable: metas.filter(m => m.rollable).length, tables: plan.length, counts: kinds,
+        build: counts, convert, replaceList: rl, seconds,
+        itemsPack: itemsId, convertedPack: convert ? convId : null, tablesPack: tablesId,
+        plan: { copy: copyPlan, convert: convPlan, tables: plan },
+        report: { rows, pages, summaryHtml: summaryHtml(counts, { convertOn: convert, tables: plan.length, seconds }) }
+      };
+      console.info(`${MODULE_ID} | dry run: nothing was written.`, result.build);
+      return result;
+    }
     if (report) {
       const pages = reportPages(counts, rows, { convertOn: convert, replaceList: rl, tables: plan.length, seconds });
+      noWrites(dryRun, "report");
       const entry = await writeReport(pages);
       reportUuid = entry.uuid;
+      noWrites(dryRun, "chat message");
       await ChatMessage.create({
         content: summaryHtml(counts, { convertOn: convert, tables: plan.length, seconds, reportUuid }),
         whisper: game.users.filter(u => u.isGM).map(u => u.id),

@@ -220,6 +220,23 @@ tooltip; `scripts/replace-list.mjs` names 3 of them. The other 44 are found in t
 
 ## 6. Build in the world (conversion on)
 
+0. **Run a dry run first.** It runs every stage (conversion, rules, hashing, sync planning, roll-table planning, report
+   generation) but writes nothing: no compendium, folder, Build Report journal or chat message is created or changed,
+   and no confirm dialog appears. Paste into the console (F12), as GM:
+
+   ```js
+   const ll = game.modules.get("loot-ledger").api;
+   const dry = await ll.build({ dryRun: true, convert: true });
+   console.table(dry.build);            // counts: copied, converted, review, replaced, kept, skipped, removed
+   console.log(dry.tables, "roll tables planned;", dry.plan.convert.skip.length, "conversions unchanged");
+   console.table(dry.report.rows.filter(r => r.review).map(r => ({ name: r.name, lines: r.reviewLines.join(" | ") })));
+   ```
+
+   `dry.plan` holds the item sync plans and the planned tables, `dry.report.pages` the Build Report pages and
+   `dry.report.summaryHtml` the chat summary. Packs that already exist are only read; missing ones count as empty.
+   If the counts look wrong (a huge review list, nothing converting), fix the rules and dry-run again before
+   writing anything.
+
 1. Settings -> Loot Ledger -> turn on **Convert items to 5e when building** -> **Build loot pools**.
    (Or `await game.modules.get("loot-ledger").api.build({ convert: true })`.)
 2. The first build after a rules change re-converts every item (about 12,000; a few minutes). Later builds
@@ -306,4 +323,5 @@ update the module from the manifest URL and run one more Build to confirm.
 | Rules in the world | `game.modules.get("loot-ledger").api.rules()` |
 | Hand-written audit | `await game.modules.get("loot-ledger").api.auditHandWritten({ journal: true })` |
 | Convert one item | `game.modules.get("loot-ledger").api.convert(item)` |
+| Dry run (writes nothing) | `await game.modules.get("loot-ledger").api.build({ dryRun: true, convert: true })` |
 | Build with conversion | `await game.modules.get("loot-ledger").api.build({ convert: true })` |

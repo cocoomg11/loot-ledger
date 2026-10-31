@@ -111,3 +111,98 @@ test("force rewrites everything", async () => {
   assert.equal(s.build.copied, FIXTURES.length);
   assert.equal(items(env).docs.size, FIXTURES.length);
 });
+
+/** Counts every call that could write: pack document/folder creates and deletes, journal and chat creates, pack creation. */
+function spyOnWrites(env) {
+  const calls = [];
+  const wrap = (obj, name, label) => { const orig = obj[name]; obj[name] = (...a) => { calls.push(label); return orig.apply(obj, a); }; };
+  for (const k of ["Item", "RollTable", "Folder"]) { wrap(globalThis[k], "createDocuments", `${k}.createDocuments`); wrap(globalThis[k], "deleteDocuments", `${k}.deleteDocuments`); }
+  wrap(globalThis.JournalEntry, "create", "JournalEntry.create");
+  wrap(globalThis.ChatMessage, "create", "ChatMessage.create");
+  const C = globalThis.foundry.documents.collections.CompendiumCollection;
+  wrap(C, "createCompendium", "createCompendium");
+  for (const p of env.packs.values()) wrap(p, "configure", "pack.configure");
+  const dlg = globalThis.foundry.applications.api.DialogV2; wrap(dlg, "confirm", "confirm dialog");
+  return calls;
+}
+
+test("dryRun on an empty world: returns plan, report data and counts; zero writes of any kind", async () => {
+  const rollable = srcItem({ name: "Sample Sturdy Axe", quality: "rare", type: "weapon", lines: ["One-Hand", "Axe", "30 - 55 Damage", "Speed 2.40", "+8 Strength", "Item Level 42"] });
+  const sources = [...FIXTURES, rollable]; // fixture names start with "Test " and are kept out of the tables
+  const env = install({ sourceItems: sources, settings: { convertOnBuild: true } });
+  const calls = spyOnWrites(env);
+  const packsBefore = [...env.packs.keys()];
+  const s = await build({ dryRun: true });   // confirm left on: a dry run must not even ask
+  assert.deepEqual(calls, [], "no write, create, delete, configure, chat or confirm call");
+  assert.deepEqual([...env.packs.keys()], packsBefore, "no compendium created");
+  assert.equal(env.journal.length, 0);
+  assert.equal(env.chat.length, 0);
+  assert.equal(s.dryRun, true);
+  assert.equal(s.build.copied, sources.length);
+  assert.equal(s.build.converted, sources.length);
+  assert.equal(s.build.review, 1, "the odd ring is reported");
+  assert.equal(s.plan.copy.create.length, sources.length);
+  assert.equal(s.plan.convert.create.length, sources.length);
+  assert.ok(s.plan.tables.length > 0 && s.tables === s.plan.tables.length);
+  assert.ok(s.plan.tables.flatMap(t => t.results.map(r => r.documentUuid)).filter(u => u.includes(".Item.")).every(u => u.includes(CONVERTED_PACK.name)));
+  assert.equal(s.report.pages.length, 3);
+  assert.match(s.report.pages[1].html ?? s.report.pages[1].text?.content ?? "", /Test Odd Ring/);
+  assert.match(s.report.summaryHtml, /GM review needed/);
+  assert.equal(s.reportUuid ?? null, null);
+  // and a real build afterwards still works and matches the plan
+  const real = await build({ confirm: false });
+  assert.equal(real.build.copied, s.build.copied);
+  assert.equal(real.build.converted, s.build.converted);
+  assert.equal(real.build.review, s.build.review);
+  assert.equal(real.tables, s.tables);
+});
+
+test("dryRun on a built world: plans only the differences, leaves the packs byte-for-byte alone", async () => {
+  const env = install({ sourceItems: FIXTURES, settings: { convertOnBuild: true } });
+  await build({ confirm: false });
+  const snapshot = () => JSON.stringify([...env.packs].filter(([k]) => k.startsWith("world.")).map(([k, p]) => [k, [...p.docs.entries()], [...p.folderDocs.entries()], p.writes]));
+  const before = snapshot(), chatBefore = env.chat.length, journalBefore = env.journal.length;
+  const [first, second] = [...env.source.docs.values()];
+  first.flags["wow-classic-items"].vendorPrice.totalCopper += 1;
+  env.source.docs.delete(second._id);
+  const calls = spyOnWrites(env);
+  const s = await build({ dryRun: true, confirm: false });
+  assert.deepEqual(calls, []);
+  assert.equal(snapshot(), before, "packs untouched");
+  assert.equal(env.chat.length, chatBefore);
+  assert.equal(env.journal.length, journalBefore);
+  assert.equal(s.build.copied, 1);
+  assert.equal(s.build.converted, 1);
+  assert.equal(s.build.removed, 2);
+  assert.equal(s.plan.copy.remove.length, 1);
+  assert.equal(s.build.review, 1, "unchanged review items still reported");
+});
+
+test("dryRun with the pack locked and with conversion off: still no writes", async () => {
+  const env = install({ sourceItems: FIXTURES });
+  await build({ confirm: false });
+  for (const p of env.packs.values()) p.locked = true;
+  const calls = spyOnWrites(env);
+  const s = await build({ dryRun: true, force: true });
+  assert.deepEqual(calls, []);
+  assert.ok([...env.packs.values()].filter(p => p !== env.source).every(p => p.locked), "still locked");
+  assert.equal(s.convert, false);
+  assert.equal(s.plan.convert, null);
+  assert.equal(s.build.copied, FIXTURES.length, "force plans every item");
+});
+
+test('"<Random enchantment>" is flavour: not counted as not converted', async () => {
+  const { convertItem } = await import("../scripts/convert.mjs");
+  const base = ["Finger", "+9 Strength", "Item Level 40"];
+  const plain = srcItem({ name: "Test Plain Band", quality: "rare", lines: base });
+  const rnd = srcItem({ name: "Test Random Band", quality: "rare", lines: [...base, "&lt;Random enchantment&gt;"] });
+  const rnd2 = srcItem({ name: "Test Random Band Raw", quality: "rare", lines: [...base, "<Random enchantment>"] });
+  const nc = d => convertItem(d, { dnd5eMajor: 6 }).result.notConverted ?? [];
+  const parse = d => convertItem(d, { dnd5eMajor: 6 });
+  for (const d of [rnd, rnd2]) {
+    const r = parse(d);
+    assert.equal(JSON.stringify(r).includes("Random enchantment") && JSON.stringify(nc(d)).includes("enchantment"), false, "not listed as not converted");
+    assert.deepEqual(nc(d), nc(plain), "same not-converted list as the same item without the line");
+  }
+  assert.equal(parse(rnd2).result.needsReview, parse(plain).result.needsReview, "no review added either");
+});

@@ -15,13 +15,15 @@ Foundry VTT module (v13/v14, dnd5e) that copies the classic MMO item compendium 
 - Stat-less items reflavour an official item of the same slot/rarity, copied at build time from the user's installed compendiums; the repo stores names only, never official text.
 - Prices are stored as decimals in the largest coin; the 5e converter never raises ability scores.
 - No feature registry, health check or update-notes card; settings are minimal.
+- `build({ dryRun: true })` runs every stage up to the writes and returns `{ dryRun, plan, report, build (counts), ... }`. Every write path (`applySync`, `clearPack`, folder and table creation, `writeReport`, chat, pack creation, confirm dialog) is skipped and also guarded by `noWrites(dryRun, ...)`, which throws. Any new write in `build()` must be skipped under `dryRun` and guarded the same way; `tests/build.test.mjs` spies on every write call and asserts zero.
+- "<Random enchantment>" is flavour: it is not added to the not-converted list.
 - Writes (build, conversion) run from a GM-triggered action; do not add automatic hooks that write documents without an active-GM check.
 
 ## Branches
 - `main` = released v0.2.0 plus docs. `v030-dev` = v0.3.0 prep (unmerged, unreleased): convert-on-build, incremental/resumable builds (`flags.loot-ledger.hash`), GM review pages, Build Report journal, `scripts/rules.mjs` (all tunable numbers), `scripts/replace-list.mjs`, `scripts/ledger.mjs` (pure bookkeeping), `tests/`, `tools/calibration-report.mjs`, `BOOK-DAY.md`. Do feature work for 0.3.0 there.
 
 ## Tests
-- On main there is no test suite. On `v030-dev`: `npm test` (`node --test tests/*.test.mjs`), `npm run check`, `npm run calibrate`; pure logic (data, rules, ledger, replace list, build planning) is tested in Node with fixtures; `build()` and compendium writes need a live Foundry world and are untested there.
+- On main there is no test suite. On `v030-dev`: `npm test` (`node --test tests/*.test.mjs`), `npm run check`, `npm run calibrate`; pure logic (data, rules, ledger, replace list, build planning) is tested in Node with fixtures; `build()` is tested against an in-memory Foundry mock (`tests/_foundry.mjs`, including dry-run write guards); real compendium writes need a live Foundry world.
 
 ## Release process
 1. Bump `version` in `module.json` and the `download` URL (`.../releases/download/vX.Y.Z/module.zip`); manifest URL stays `.../releases/latest/download/module.json`.
