@@ -21,12 +21,19 @@
   classic item id or exact name. Seeded with 3 of the 47 known failures (Scarlet Kris, Feathermoon Headdress,
   Band of Sulfuras); the rest are to be added after review.
 - `api.rules()` and `api.replaceList()` return read-only copies of the calibration tables and the replace list.
+- `api.auditHandWritten()` lists every hand-written conversion in the source module, flags the ones failing the
+  traceability audit, marks which are on the replace list, and prints replace-list entries ready to paste
+  (`{ journal: true }` also writes a "Hand-written audit" page to the Build Report).
+- `tools/calibration-report.mjs`: prints the calibration rules as a table and shows how sample items convert
+  (bundled: `tools/fixtures/sample-items.json`, ~40 made-up items). `BOOK-DAY.md`: calibration and release
+  checklist.
 - Tests (`node --test`, no dependencies) and a GitHub Actions workflow running them on every push and PR.
 
 ### Changed
 - Every tunable number moved to one commented file, `scripts/rules.mjs` (rarity by quality, drop weights, price
   rule, weapon / armour mapping, +N curves, stat passives, trinket bonuses, line thresholds, proc dice, Flurry and
-  blast uses, consumables). Values are unchanged from 0.2.0 and the converter output is identical.
+  blast uses, consumables, level bands, creature-table spread, potion reflavour tiers, the empty-item review
+  threshold, the Strength carry multiplier). Values are unchanged from 0.2.0 and the converter output is identical.
   `convert.mjs` re-exports them under the same names.
 - Build no longer clears the item compendium before copying; it updates it in place.
 

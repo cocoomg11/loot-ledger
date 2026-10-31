@@ -241,7 +241,12 @@ weapons, shields and chest armour (`GEAR_BONUS`, `ARMOR_BONUS`), the green-item 
 thresholds, proc dice (`PROC_RULE`), limited uses (`DAILY_USES` for Flurry and the like, `BLAST_USES`) and
 consumable tables. `convert.mjs` re-exports them. Changing any value changes every affected item's hash, so the
 next build re-converts exactly those items. `tests/rules.test.mjs` pins the current values; update it alongside
-any deliberate change.
+any deliberate change. Level bands (`LEVEL_BANDS`) and creature-table spread (`CREATURE_TABLE`) live there too.
+
+`node tools/calibration-report.mjs` prints every rule as a table and shows how a set of sample items converts
+(`tools/fixtures/sample-items.json`, about 40 made-up items, or your own JSON file; `--detail` prints each
+item's features in full, `--json` gives machine-readable rows). [BOOK-DAY.md](BOOK-DAY.md) is the step-by-step
+calibration and release checklist.
 
 ### Replace list: `scripts/replace-list.mjs`
 
@@ -255,6 +260,9 @@ an item with no hand-written rules, and which matched nothing.
 const ll = game.modules.get("loot-ledger").api;
 ll.convert(sourceItem);                                    // → { data, result } without saving anything
 ll.auditHandAuthored(sourceItem);                          // → { pass, problems } for a hand-written source item
+await ll.auditHandWritten();                               // every hand-written source item: failing / passing,
+                                                           // on the replace list or not, plus a paste-ready snippet
+await ll.auditHandWritten({ journal: true });              // same, also as a "Hand-written audit" Build Report page
 await ll.convertToPack({ names: ["Some Item"], pack: { name: "my-test", label: "My Test" } });
 await ll.build({ convert: true });                         // full build with converted items
 ```

@@ -17,6 +17,7 @@
  *     old rules (it is part of every item's source hash, see scripts/ledger.mjs).
  *
  * Sections:
+ *   0. Level bands and table shape                         (build: which band an item lands in, creature tables)
  *   1. Quality -> rarity, drop weights, price rule         (build: every item, converted or not)
  *   2. Item shape tables                                   (which base weapon / armour an item becomes)
  *   3. Power tables                                        (+N curves, attunement, green rule)
@@ -24,7 +25,33 @@
  *   5. Line rules                                          (hit, defence, spell power, resistance, procs)
  *   6. Limited uses                                        (Flurry, Blast, other per-Long-Rest features)
  *   7. Consumables                                         (potions, food, gear healing)
+ *   8. Review thresholds                                   (when an item is sent to GM review)
  */
+
+/* -------------------------------------------- */
+/*  0. Level bands and table shape              */
+/* -------------------------------------------- */
+
+/**
+ * Item-level bands and the D&D character levels they roughly correspond to (1–20 game). Items without an item
+ * level fall back to their required level. min / max: item level range; charMin / charMax: the character
+ * levels bandForLevel() maps to the band; levels: the label shown on tables.
+ */
+export const LEVEL_BANDS = [
+  { band: 1, min: 1,  max: 10,       levels: "L1–3",   charMin: 1,  charMax: 2 },
+  { band: 2, min: 11, max: 20,       levels: "L3–5",   charMin: 3,  charMax: 4 },
+  { band: 3, min: 21, max: 30,       levels: "L5–7",   charMin: 5,  charMax: 6 },
+  { band: 4, min: 31, max: 40,       levels: "L7–9",   charMin: 7,  charMax: 8 },
+  { band: 5, min: 41, max: 50,       levels: "L9–11",  charMin: 9,  charMax: 10 },
+  { band: 6, min: 51, max: 60,       levels: "L11–14", charMin: 11, charMax: 14 },
+  { band: 7, min: 61, max: Infinity, levels: "L15+",   charMin: 15, charMax: 20 }
+];
+
+/**
+ * Creature tables: junk from the creature's own band +/- bandSpread; when fewer than minItems match there, junk
+ * from every band is used instead.
+ */
+export const CREATURE_TABLE = { bandSpread: 1, minItems: 3 };
 
 /* -------------------------------------------- */
 /*  1. Quality -> rarity, drop weights, prices  */
@@ -218,7 +245,7 @@ export const ATTUNE_RIDERS = new Set(["resistance", "attackBonus", "spellBonus",
  */
 export const STAT_RULE = { minTier: 1, minValue: 4, perItemLevel: 7 };
 export const STAT_PASSIVE = {
-  str: { name: "Might", athleticsFrom: 2 },
+  str: { name: "Might", carryMultiplier: 2, athleticsFrom: 2 },
   dex: { name: "Quickness", initiative: { 1: 1, 2: 1, 3: 2, 4: 3 } },
   con: { name: "Vigor", hpPerLevel: { 1: 0.5, 2: 0.5, 3: 1, 4: 1 } },
   int: { name: "Arcane Acuity", dc: { 1: 1, 2: 1, 3: 2, 4: 2 }, uses: { 1: 1, 2: 2, 3: 1, 4: 2 } },
@@ -327,7 +354,23 @@ export const MANA_POTION_SLOT = [
 export const FOOD_HEALING = [
   { maxIlvl: 15, formula: [1, 4, 0] }, { maxIlvl: 35, formula: [1, 6, 0] }, { maxIlvl: Infinity, formula: [1, 8, 0] }
 ];
+/**
+ * Healing potions reflavoured as an official Potion of Healing tier by item level (name only; the data is read
+ * from the user's own compendium or the SRD at build time).
+ */
+export const POTION_REFLAVOUR = [
+  { maxIlvl: 25, name: "Potion of Healing" }, { maxIlvl: 35, name: "Potion of Greater Healing" },
+  { maxIlvl: 45, name: "Potion of Superior Healing" }, { maxIlvl: Infinity, name: "Potion of Supreme Healing" }
+];
 /** "Use: Restores N health" on gear: once per Long Rest, dice by item level. */
 export const GEAR_HEALING = [
   { maxIlvl: 25, formula: [2, 4, 2] }, { maxIlvl: 45, formula: [4, 4, 4] }, { maxIlvl: Infinity, formula: [8, 4, 8] }
 ];
+
+/* -------------------------------------------- */
+/*  8. Review thresholds                        */
+/* -------------------------------------------- */
+
+/** Items of this tier or higher (Very Rare and up) that end up with no feature beyond their base item and no
+ * enhancement bonus are flagged for GM review rather than given something invented. */
+export const EMPTY_REVIEW_TIER = 3;

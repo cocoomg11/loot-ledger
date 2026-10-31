@@ -7,7 +7,7 @@ export const MODULE_ID = "loot-ledger";
 export const SOURCE_MODULE = "wow-classic-items";
 export const SOURCE_PACK = "wow-classic-items.items";
 
-import { RARITY_BY_QUALITY, DROP_WEIGHT, PRICE_RULE } from "./rules.mjs";
+import { RARITY_BY_QUALITY, DROP_WEIGHT, PRICE_RULE, LEVEL_BANDS } from "./rules.mjs";
 
 /** Item quality, ordered low → high. `color` is the tooltip title colour used by the source data. */
 /** Rarity and mixed-drop weight come from rules.mjs (RARITY_BY_QUALITY, DROP_WEIGHT). */
@@ -28,15 +28,8 @@ export const DROP_QUALITIES = ["poor", "common", "uncommon", "rare", "epic"];
  * Item-level bands and the D&D character levels they roughly correspond to (1–20 game).
  * Items without an item level fall back to their required level.
  */
-export const BANDS = [
-  { band: 1, min: 1,  max: 10,       levels: "L1–3",   charMin: 1,  charMax: 2 },
-  { band: 2, min: 11, max: 20,       levels: "L3–5",   charMin: 3,  charMax: 4 },
-  { band: 3, min: 21, max: 30,       levels: "L5–7",   charMin: 5,  charMax: 6 },
-  { band: 4, min: 31, max: 40,       levels: "L7–9",   charMin: 7,  charMax: 8 },
-  { band: 5, min: 41, max: 50,       levels: "L9–11",  charMin: 9,  charMax: 10 },
-  { band: 6, min: 51, max: 60,       levels: "L11–14", charMin: 11, charMax: 14 },
-  { band: 7, min: 61, max: Infinity, levels: "L15+",   charMin: 15, charMax: 20 }
-];
+/** Level bands come from rules.mjs (LEVEL_BANDS). */
+export const BANDS = LEVEL_BANDS;
 
 /** Map a D&D character level (1–20) to a band number. */
 export function bandForLevel(level) {

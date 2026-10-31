@@ -252,3 +252,63 @@ export function reportPages(counts, rows, { convertOn, replaceList, tables, seco
 }
 
 export const REPORT_FLAG = { scope: MODULE_ID, key: "buildReport" };
+
+/* -------------------------------------------- */
+/*  Hand-written audit (book-day replace list)  */
+/* -------------------------------------------- */
+
+/**
+ * Audit every hand-written conversion in a set of source items, for filling the replace list.
+ * Pure: `audit` is convert.mjs auditHandAuthored(parseSource(doc)), passed in so this file stays Foundry- and
+ * converter-free.
+ * @param {object[]} docs   source items (plain data or documents); items without hand-written rules are skipped
+ * @param {object[]} list   the current replace list
+ * @param {(doc:object) => {pass:boolean, problems:{claim:string, text:string}[]}} audit
+ * @returns {{handWritten:number, failing:object[], passing:object[], listed:number, unlisted:object[], expected:number|null}}
+ *   failing / passing rows: {name, itemId, onList, problems:["claim: text"]}; unlisted = failing rows not on the list.
+ */
+export function handWrittenAudit(docs, list, audit) {
+  const index = indexReplaceList(list);
+  const rows = [];
+  for (const doc of docs) {
+    const f = doc.flags?.[SOURCE_MODULE] ?? {};
+    if (!f.handAuthored) continue;
+    const a = audit(doc);
+    rows.push({
+      name: doc.name, itemId: f.itemId ?? f.id ?? null, onList: !!replaceEntry(doc, index), pass: a.pass,
+      problems: a.problems.map(x => `${x.claim}: ${x.text}`)
+    });
+  }
+  rows.sort((a, b) => a.name.localeCompare(b.name));
+  const failing = rows.filter(r => !r.pass), passing = rows.filter(r => r.pass);
+  return {
+    handWritten: rows.length, failing, passing,
+    listed: rows.filter(r => r.onList).length,
+    unlisted: failing.filter(r => !r.onList)
+  };
+}
+
+/** Replace-list entries (JS source, one per line) for audit rows, ready to paste into scripts/replace-list.mjs. */
+export function replaceListSnippet(rows) {
+  const q = s => JSON.stringify(String(s));
+  return rows.map(r => {
+    const claims = [...new Set(r.problems.map(p => p.split(":")[0]))].join(", ");
+    const note = claims ? `no backing tooltip line for: ${claims}` : "fails review: hand-written rule names mechanics with no backing tooltip line";
+    return `  { name: ${q(r.name)}${r.itemId !== null && r.itemId !== undefined ? `, itemId: ${Number(r.itemId) || q(r.itemId)}` : ""}, note: ${q(note)} },`;
+  }).join("\n");
+}
+
+/** Journal page HTML for a handWrittenAudit() result. */
+export function auditPageHtml(res, { expected = null } = {}) {
+  const table = (rows, withProblems) => rows.length
+    ? `<table><thead><tr><th>Item</th><th>Item id</th><th>On list</th>${withProblems ? "<th>Unbacked claims</th>" : ""}</tr></thead><tbody>` +
+      rows.map(r => `<tr><td>${esc(r.name)}</td><td>${esc(r.itemId ?? "")}</td><td>${r.onList ? "yes" : "no"}</td>${withProblems ? `<td>${r.problems.map(esc).join("<br>")}</td>` : ""}</tr>`).join("") +
+      "</tbody></table>"
+    : "<p>None.</p>";
+  return `<p>${res.handWritten} hand-written conversions in the source module; ${res.failing.length} fail the automatic audit, ` +
+    `${res.listed} are on the replace list${expected ? ` (review total: ${expected})` : ""}.</p>` +
+    `<h3>Failing the audit (${res.failing.length})</h3>${table(res.failing, true)}` +
+    `<h3>Passing the audit (${res.passing.length}): read these by hand</h3>` +
+    `<p>The replace list exists for hand-written rules that pass the automatic audit but still fail review. Read each one against its tooltip; add failures with <code>api.auditHandWritten({ add: [...] })</code> output or by hand.</p>` +
+    table(res.passing, false);
+}

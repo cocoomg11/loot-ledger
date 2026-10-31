@@ -53,6 +53,7 @@ test("stat passives and trinket bonuses", () => {
   assert.deepEqual(R.STAT_PASSIVE.int.uses, { 1: 1, 2: 2, 3: 1, 4: 2 });
   assert.deepEqual(R.STAT_PASSIVE.wis.perDie, { 1: "1", 2: "1", 3: "2", 4: "@prof" });
   assert.equal(R.STAT_PASSIVE.str.athleticsFrom, 2);
+  assert.equal(R.STAT_PASSIVE.str.carryMultiplier, 2);
   assert.deepEqual(R.TRINKET_RULE.bonus, { 1: 1, 2: 2, 3: 2, 4: 2 });
   assert.ok(Math.max(...Object.values(R.TRINKET_RULE.bonus)) <= 2, "official items never give more than +2 to checks or saves");
 });
@@ -87,4 +88,26 @@ test("the converter reads the tables from rules.mjs (same objects)", () => {
   for (const k of ["GEAR_BONUS", "ARMOR_BONUS", "STAT_PASSIVE", "TRINKET_RULE", "PROC_RULE", "DAILY_USES", "BLAST_USES", "WEAPON_RULES", "CHEST_RULES"]) {
     assert.equal(C[k], R[k], k);
   }
+});
+
+test("level bands, creature tables, potion reflavour, review threshold", async () => {
+  const { BANDS, bandForLevel, bandForItemLevel } = await import("../scripts/data.mjs");
+  assert.equal(BANDS, R.LEVEL_BANDS, "data.mjs reads the bands from rules.mjs");
+  assert.deepEqual(R.LEVEL_BANDS.map(b => [b.band, b.min, b.max, b.levels, b.charMin, b.charMax]), [
+    [1, 1, 10, "L1–3", 1, 2], [2, 11, 20, "L3–5", 3, 4], [3, 21, 30, "L5–7", 5, 6], [4, 31, 40, "L7–9", 7, 8],
+    [5, 41, 50, "L9–11", 9, 10], [6, 51, 60, "L11–14", 11, 14], [7, 61, Infinity, "L15+", 15, 20]
+  ]);
+  for (let l = 1; l <= 20; l++) assert.ok(R.LEVEL_BANDS.some(b => b.band === bandForLevel(l)), `character level ${l}`);
+  assert.equal(bandForItemLevel(60), 6);
+  assert.deepEqual(R.CREATURE_TABLE, { bandSpread: 1, minItems: 3 });
+  assert.deepEqual(R.POTION_REFLAVOUR.map(r => [r.maxIlvl, r.name]), [
+    [25, "Potion of Healing"], [35, "Potion of Greater Healing"], [45, "Potion of Superior Healing"], [Infinity, "Potion of Supreme Healing"]
+  ]);
+  assert.equal(C.POTION_REFLAVOUR, R.POTION_REFLAVOUR);
+  assert.equal(R.EMPTY_REVIEW_TIER, 3);
+});
+
+test("drop table description follows DROP_WEIGHT", async () => {
+  const { dropOdds } = await import("../scripts/build.mjs");
+  assert.equal(dropOdds(), "poor 60%, common 25%, uncommon 12%, rare 2.5%, epic 0.5%");
 });

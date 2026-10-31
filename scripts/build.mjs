@@ -12,11 +12,19 @@ import {
   summaryCounts, summaryHtml, reportPages
 } from "./ledger.mjs";
 import { REPLACE_LIST } from "./replace-list.mjs";
+import { CREATURE_TABLE } from "./rules.mjs";
 
 export const ITEMS_PACK = { name: "loot-ledger-items", label: "Loot Ledger · Items" };
 export const CONVERTED_PACK = { name: "loot-ledger-converted-items", label: "Loot Ledger · Converted Items" };
 export const TABLES_PACK = { name: "loot-ledger-tables", label: "Loot Ledger · Tables" };
 export const REPORT_NAME = "Loot Ledger · Build Report";
+
+/** "poor 60%, common 25%, ..." from the drop weights in rules.mjs (DROP_WEIGHT). */
+export function dropOdds() {
+  const qs = DROP_QUALITIES.filter(q => QUALITY_BY_KEY[q].weight > 0);
+  const total = qs.reduce((n, q) => n + QUALITY_BY_KEY[q].weight, 0);
+  return qs.map(q => `${q} ${Number((100 * QUALITY_BY_KEY[q].weight / total).toFixed(1))}%`).join(", ");
+}
 
 const ITEM_CHUNK = 500;
 const TABLE_CHUNK = 25;
@@ -270,7 +278,7 @@ export function planTables(metas, tablePack, folders) {
     if (dropResults.length) {
       drop = tableData({
         name: `${prefix} · Drop (mixed)`, folder: folders.drop, sort: sort++,
-        description: `A typical drop for item level ${range}: rolls a quality table (poor 60%, common 25%, uncommon 12%, rare 2.5%, epic 0.5%, re-weighted when a quality is missing).`,
+        description: `A typical drop for item level ${range}: rolls a quality table (${dropOdds()}, re-weighted when a quality is missing).`,
         flags: { kind: "drop", band: b.band },
         results: dropResults
       });
@@ -282,8 +290,8 @@ export function planTables(metas, tablePack, folders) {
     for (const c of CREATURES) {
       const rx = creatureRegex(c);
       const matches = junk.filter(m => rx.test(m.name));
-      let items = matches.filter(m => Math.abs(m.band - b.band) <= 1);
-      if (items.length < 3) items = matches;
+      let items = matches.filter(m => Math.abs(m.band - b.band) <= CREATURE_TABLE.bandSpread);
+      if (items.length < CREATURE_TABLE.minItems) items = matches;
       if (c.gear) items = items.concat(inBand.filter(m => m.quality === "poor" && m.category !== "junk"));
       items = items.sort(byName);
       const results = items.map(asResult);

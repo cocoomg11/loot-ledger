@@ -1,0 +1,579 @@
+[
+ {
+  "name": "Sample Rusty Shortblade",
+  "quality": "poor",
+  "type": "weapon",
+  "sell": 12,
+  "lines": [
+   "One-Hand",
+   "Sword",
+   "3 - 7 Damage",
+   "Speed 1.90",
+   "Item Level 4"
+  ]
+ },
+ {
+  "name": "Sample Militia Axe",
+  "quality": "common",
+  "type": "weapon",
+  "sell": 180,
+  "lines": [
+   "One-Hand",
+   "Axe",
+   "9 - 17 Damage",
+   "Speed 2.60",
+   "Item Level 12"
+  ]
+ },
+ {
+  "name": "Sample Ranger Bow",
+  "quality": "uncommon",
+  "type": "weapon",
+  "sell": 950,
+  "lines": [
+   "Ranged",
+   "Bow",
+   "14 - 27 Damage",
+   "Speed 2.80",
+   "+4 Agility",
+   "Item Level 22"
+  ]
+ },
+ {
+  "name": "Sample Blade of the Tiger",
+  "quality": "uncommon",
+  "type": "weapon",
+  "sell": 1400,
+  "lines": [
+   "One-Hand",
+   "Sword",
+   "18 - 34 Damage",
+   "Speed 2.50",
+   "+4 Strength",
+   "+4 Agility",
+   "Item Level 26"
+  ]
+ },
+ {
+  "name": "Sample Ember Cleaver",
+  "quality": "uncommon",
+  "type": "weapon",
+  "sell": 2100,
+  "lines": [
+   "Two-Hand",
+   "Axe",
+   "40 - 61 Damage",
+   "Speed 3.40",
+   "Chance on hit: Burns the enemy for 25 Fire damage.",
+   "Item Level 28"
+  ]
+ },
+ {
+  "name": "Sample Oak Staff",
+  "quality": "uncommon",
+  "type": "weapon",
+  "sell": 1600,
+  "lines": [
+   "Two-Hand",
+   "Staff",
+   "30 - 46 Damage",
+   "Speed 3.00",
+   "+6 Intellect",
+   "+3 Spirit",
+   "Item Level 24"
+  ]
+ },
+ {
+  "name": "Sample Frostbite Dirk",
+  "quality": "rare",
+  "type": "weapon",
+  "sell": 3400,
+  "lines": [
+   "One-Hand",
+   "Dagger",
+   "22 - 41 Damage",
+   "Speed 1.70",
+   "+ 4 - 8 Frost Damage",
+   "+5 Agility",
+   "Item Level 34"
+  ]
+ },
+ {
+  "name": "Sample Thunder Maul",
+  "quality": "rare",
+  "type": "weapon",
+  "sell": 7800,
+  "lines": [
+   "Two-Hand",
+   "Mace",
+   "70 - 106 Damage",
+   "Speed 3.60",
+   "Chance on hit: Blasts the enemy with lightning for 150 Nature damage.",
+   "+10 Strength",
+   "Item Level 44"
+  ]
+ },
+ {
+  "name": "Sample Swiftstrike Rapier",
+  "quality": "rare",
+  "type": "weapon",
+  "sell": 5200,
+  "lines": [
+   "One-Hand",
+   "Sword",
+   "28 - 53 Damage",
+   "Speed 1.80",
+   "Chance on hit: Grants 1 extra attack on your next swing.",
+   "Item Level 40"
+  ]
+ },
+ {
+  "name": "Sample Ironwood Crossbow",
+  "quality": "rare",
+  "type": "weapon",
+  "sell": 5600,
+  "lines": [
+   "Ranged",
+   "Crossbow",
+   "38 - 58 Damage",
+   "Speed 3.20",
+   "Equip: Improves your chance to hit by 1%.",
+   "Item Level 42"
+  ]
+ },
+ {
+  "name": "Sample Dwarven Handcannon",
+  "quality": "rare",
+  "type": "weapon",
+  "sell": 6100,
+  "lines": [
+   "Ranged",
+   "Gun",
+   "35 - 66 Damage",
+   "Speed 2.70",
+   "+6 Agility",
+   "Item Level 46"
+  ]
+ },
+ {
+  "name": "Sample Duskfang Glaive",
+  "quality": "epic",
+  "type": "weapon",
+  "sell": 21000,
+  "lines": [
+   "Two-Hand",
+   "Polearm",
+   "110 - 166 Damage",
+   "Speed 3.50",
+   "Chance on hit: Wracks the target with shadow for 60 Shadow damage.",
+   "+16 Strength",
+   "+12 Stamina",
+   "Item Level 60"
+  ]
+ },
+ {
+  "name": "Sample Archmage Rod",
+  "quality": "epic",
+  "type": "weapon",
+  "sell": 24000,
+  "lines": [
+   "Two-Hand",
+   "Staff",
+   "80 - 130 Damage",
+   "Speed 3.20",
+   "+18 Intellect",
+   "Equip: Increases damage and healing done by magical spells and effects by up to 30.",
+   "Item Level 62"
+  ]
+ },
+ {
+  "name": "Sample Lightforged Greatsword",
+  "quality": "legendary",
+  "type": "weapon",
+  "sell": 0,
+  "lines": [
+   "Two-Hand",
+   "Sword",
+   "160 - 240 Damage",
+   "Speed 3.50",
+   "Chance on hit: Smites the target for 200 Holy damage.",
+   "+25 Strength",
+   "Item Level 80"
+  ]
+ },
+ {
+  "name": "Sample Padded Vest",
+  "quality": "common",
+  "type": "equipment",
+  "sell": 90,
+  "lines": [
+   "Chest",
+   "Leather",
+   "60 Armor",
+   "Item Level 10"
+  ]
+ },
+ {
+  "name": "Sample Scout Jerkin",
+  "quality": "uncommon",
+  "type": "equipment",
+  "sell": 900,
+  "lines": [
+   "Chest",
+   "Leather",
+   "110 Armor",
+   "+5 Agility",
+   "Item Level 25"
+  ]
+ },
+ {
+  "name": "Sample Ringmail Hauberk",
+  "quality": "uncommon",
+  "type": "equipment",
+  "sell": 850,
+  "lines": [
+   "Chest",
+   "Mail",
+   "210 Armor",
+   "Item Level 22"
+  ]
+ },
+ {
+  "name": "Sample Robe of the Whale",
+  "quality": "uncommon",
+  "type": "equipment",
+  "sell": 1100,
+  "lines": [
+   "Chest",
+   "Cloth",
+   "45 Armor",
+   "+5 Stamina",
+   "+5 Spirit",
+   "Item Level 28"
+  ]
+ },
+ {
+  "name": "Sample Warden Breastplate",
+  "quality": "rare",
+  "type": "equipment",
+  "sell": 5400,
+  "lines": [
+   "Chest",
+   "Plate",
+   "520 Armor",
+   "+12 Stamina",
+   "+15 Fire Resistance",
+   "Item Level 50"
+  ]
+ },
+ {
+  "name": "Sample Starweave Robe",
+  "quality": "rare",
+  "type": "equipment",
+  "sell": 4200,
+  "lines": [
+   "Chest",
+   "Cloth",
+   "70 Armor",
+   "+9 Intellect",
+   "Equip: Increases healing done by spells and effects by up to 22.",
+   "Item Level 45"
+  ]
+ },
+ {
+  "name": "Sample Dragonscale Mail",
+  "quality": "epic",
+  "type": "equipment",
+  "sell": 15000,
+  "lines": [
+   "Chest",
+   "Mail",
+   "480 Armor",
+   "+14 Agility",
+   "+10 Stamina",
+   "+20 Fire Resistance",
+   "Item Level 60"
+  ]
+ },
+ {
+  "name": "Sample Juggernaut Plate",
+  "quality": "epic",
+  "type": "equipment",
+  "sell": 17000,
+  "lines": [
+   "Chest",
+   "Plate",
+   "800 Armor",
+   "+20 Stamina",
+   "Equip: Increased Defense +10.",
+   "Item Level 66"
+  ]
+ },
+ {
+  "name": "Sample Cloth Sandals",
+  "quality": "poor",
+  "type": "equipment",
+  "sell": 8,
+  "lines": [
+   "Feet",
+   "Cloth",
+   "10 Armor",
+   "Item Level 6"
+  ]
+ },
+ {
+  "name": "Sample Leather Bracers",
+  "quality": "common",
+  "type": "equipment",
+  "sell": 110,
+  "lines": [
+   "Wrist",
+   "Leather",
+   "30 Armor",
+   "+2 Stamina",
+   "Item Level 14"
+  ]
+ },
+ {
+  "name": "Sample Boots of the Monkey",
+  "quality": "uncommon",
+  "type": "equipment",
+  "sell": 1300,
+  "lines": [
+   "Feet",
+   "Leather",
+   "70 Armor",
+   "+5 Agility",
+   "+4 Stamina",
+   "Item Level 30"
+  ]
+ },
+ {
+  "name": "Sample Silent Cowl",
+  "quality": "uncommon",
+  "type": "equipment",
+  "sell": 1200,
+  "lines": [
+   "Head",
+   "Cloth",
+   "40 Armor",
+   "Item Level 33"
+  ]
+ },
+ {
+  "name": "Sample Sentinel Cloak",
+  "quality": "rare",
+  "type": "equipment",
+  "sell": 3600,
+  "lines": [
+   "Back",
+   "40 Armor",
+   "+6 Stamina",
+   "+10 Shadow Resistance",
+   "Item Level 48"
+  ]
+ },
+ {
+  "name": "Sample Gauntlets of Precision",
+  "quality": "rare",
+  "type": "equipment",
+  "sell": 4100,
+  "lines": [
+   "Hands",
+   "Mail",
+   "180 Armor",
+   "Equip: Improves your chance to hit by 1%.",
+   "Item Level 52"
+  ]
+ },
+ {
+  "name": "Sample Ring of Warding",
+  "quality": "rare",
+  "type": "equipment",
+  "sell": 2800,
+  "lines": [
+   "Finger",
+   "Equip: +40 Armor.",
+   "Item Level 40"
+  ]
+ },
+ {
+  "name": "Sample Pendant of the Eagle",
+  "quality": "uncommon",
+  "type": "equipment",
+  "sell": 1500,
+  "lines": [
+   "Neck",
+   "+4 Stamina",
+   "+4 Intellect",
+   "Item Level 29"
+  ]
+ },
+ {
+  "name": "Sample Flamewalker Band",
+  "quality": "epic",
+  "type": "equipment",
+  "sell": 9000,
+  "lines": [
+   "Finger",
+   "+25 Fire Resistance",
+   "Item Level 62"
+  ]
+ },
+ {
+  "name": "Sample Talisman of Swiftness",
+  "quality": "rare",
+  "type": "equipment",
+  "sell": 3000,
+  "lines": [
+   "Trinket",
+   "+8 Agility",
+   "Item Level 45"
+  ]
+ },
+ {
+  "name": "Sample Ward of Stone",
+  "quality": "rare",
+  "type": "equipment",
+  "sell": 3300,
+  "lines": [
+   "Trinket",
+   "+10 Stamina",
+   "Equip: Increases your chance to dodge an attack by 1%.",
+   "Item Level 50"
+  ]
+ },
+ {
+  "name": "Sample Kite Shield",
+  "quality": "uncommon",
+  "type": "equipment",
+  "sell": 1700,
+  "lines": [
+   "Off Hand",
+   "Shield",
+   "900 Armor",
+   "17 Block",
+   "+4 Stamina",
+   "Item Level 30"
+  ]
+ },
+ {
+  "name": "Sample Fire Wand",
+  "quality": "uncommon",
+  "type": "weapon",
+  "sell": 1300,
+  "lines": [
+   "Ranged",
+   "Wand",
+   "16 - 30 Fire Damage",
+   "Speed 1.50",
+   "Item Level 25"
+  ]
+ },
+ {
+  "name": "Sample Unwritten Idol",
+  "quality": "epic",
+  "type": "equipment",
+  "sell": 8000,
+  "lines": [
+   "Relic",
+   "Idol",
+   "Equip: Your shapeshifts feel strangely familiar.",
+   "Item Level 60"
+  ]
+ },
+ {
+  "name": "Sample Minor Healing Draught",
+  "quality": "common",
+  "type": "consumable",
+  "sell": 10,
+  "lines": [
+   "Use: Restores 70 to 90 health.",
+   "Item Level 5"
+  ],
+  "sysType": "potion"
+ },
+ {
+  "name": "Sample Superior Healing Draught",
+  "quality": "common",
+  "type": "consumable",
+  "sell": 250,
+  "lines": [
+   "Use: Restores 700 to 900 health.",
+   "Item Level 45"
+  ],
+  "sysType": "potion"
+ },
+ {
+  "name": "Sample Mana Tonic",
+  "quality": "common",
+  "type": "consumable",
+  "sell": 120,
+  "lines": [
+   "Use: Restores 455 to 585 mana.",
+   "Item Level 32"
+  ],
+  "sysType": "potion"
+ },
+ {
+  "name": "Sample Trail Bread",
+  "quality": "common",
+  "type": "consumable",
+  "sell": 25,
+  "lines": [
+   "Use: Restores 552 health over 21 sec. Must remain seated while eating.",
+   "Item Level 25"
+  ],
+  "sysType": "food"
+ },
+ {
+  "name": "Sample Glowing Elixir",
+  "quality": "uncommon",
+  "type": "consumable",
+  "sell": 300,
+  "lines": [
+   "Use: Increases your spell damage by up to 20 for 1 hour.",
+   "Item Level 40"
+  ],
+  "sysType": "potion"
+ },
+ {
+  "name": "Sample Hand-Written Blade",
+  "quality": "rare",
+  "type": "weapon",
+  "sell": 4800,
+  "lines": [
+   "One-Hand",
+   "Sword",
+   "30 - 55 Damage",
+   "Speed 2.40",
+   "Chance on hit: Strikes the target for 60 Frost damage.",
+   "Item Level 42"
+  ],
+  "pre": "<p><strong>Frost Bite.</strong> When you hit, the target takes an extra 1d6 cold damage.</p>"
+ },
+ {
+  "name": "Sample Unbacked Circlet",
+  "quality": "rare",
+  "type": "equipment",
+  "sell": 3900,
+  "lines": [
+   "Head",
+   "Leather",
+   "90 Armor",
+   "+10 Intellect",
+   "Item Level 48"
+  ],
+  "pre": "<p><strong>Starlight.</strong> You have Resistance to Fire damage and a +1 bonus to Armor Class.</p>"
+ },
+ {
+  "name": "Sample Linen Bolt",
+  "quality": "common",
+  "type": "loot",
+  "sell": 40,
+  "lines": [
+   "Trade Goods",
+   "Item Level 10"
+  ]
+ }
+]

@@ -4,7 +4,8 @@
   "type": "module",
   "description": "Development scripts only; the module itself has no dependencies.",
   "scripts": {
-    "check": "for f in scripts/*.mjs tests/*.mjs; do node --check \"$f\" || exit 1; done",
-    "test": "node --test tests/*.test.mjs"
+    "check": "for f in scripts/*.mjs tests/*.mjs tools/*.mjs; do node --check \"$f\" || exit 1; done",
+    "test": "node --test tests/*.test.mjs",
+    "calibrate": "node tools/calibration-report.mjs"
   }
 }

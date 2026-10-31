@@ -32,10 +32,10 @@
 import { MODULE_ID, SOURCE_MODULE, QUALITY_BY_KEY, analyse, tooltipLines, priceFor, formatCoins } from "./data.mjs";
 // Every tunable number lives in rules.mjs (book-day calibration edits values there, not logic here).
 import {
-  WEAPON_RULES, CHEST_RULES, CLOTH_CHEST, SLOT_EQUIPMENT, TIER, GEAR_BONUS, ARMOR_BONUS, GREEN_RULE, ATTUNE_TIER, ATTUNE_RIDERS, STAT_RULE, STAT_PASSIVE, STAT_PASSIVE_NOTE, TRINKET_RULE, HIT_RULE, DEFENSE_RULE, SPELL_RULE, RESIST_RULE, SCHOOL_MAP, PROC_RULE, WEAPON_EXTRA_DICE, DAILY_USES, BLAST_USES, EXTRA_ATTACK_RULE, POTION_HEALING, MANA_POTION_SLOT, FOOD_HEALING, GEAR_HEALING
+  WEAPON_RULES, CHEST_RULES, CLOTH_CHEST, SLOT_EQUIPMENT, TIER, GEAR_BONUS, ARMOR_BONUS, GREEN_RULE, ATTUNE_TIER, ATTUNE_RIDERS, STAT_RULE, STAT_PASSIVE, STAT_PASSIVE_NOTE, TRINKET_RULE, HIT_RULE, DEFENSE_RULE, SPELL_RULE, RESIST_RULE, SCHOOL_MAP, PROC_RULE, WEAPON_EXTRA_DICE, DAILY_USES, BLAST_USES, EXTRA_ATTACK_RULE, POTION_HEALING, MANA_POTION_SLOT, FOOD_HEALING, GEAR_HEALING, POTION_REFLAVOUR, EMPTY_REVIEW_TIER
 } from "./rules.mjs";
 export {
-  WEAPON_RULES, CHEST_RULES, CLOTH_CHEST, SLOT_EQUIPMENT, TIER, GEAR_BONUS, ARMOR_BONUS, GREEN_RULE, ATTUNE_TIER, ATTUNE_RIDERS, STAT_RULE, STAT_PASSIVE, STAT_PASSIVE_NOTE, TRINKET_RULE, HIT_RULE, DEFENSE_RULE, SPELL_RULE, RESIST_RULE, SCHOOL_MAP, PROC_RULE, WEAPON_EXTRA_DICE, DAILY_USES, BLAST_USES, EXTRA_ATTACK_RULE, POTION_HEALING, MANA_POTION_SLOT, FOOD_HEALING, GEAR_HEALING
+  WEAPON_RULES, CHEST_RULES, CLOTH_CHEST, SLOT_EQUIPMENT, TIER, GEAR_BONUS, ARMOR_BONUS, GREEN_RULE, ATTUNE_TIER, ATTUNE_RIDERS, STAT_RULE, STAT_PASSIVE, STAT_PASSIVE_NOTE, TRINKET_RULE, HIT_RULE, DEFENSE_RULE, SPELL_RULE, RESIST_RULE, SCHOOL_MAP, PROC_RULE, WEAPON_EXTRA_DICE, DAILY_USES, BLAST_USES, EXTRA_ATTACK_RULE, POTION_HEALING, MANA_POTION_SLOT, FOOD_HEALING, GEAR_HEALING, POTION_REFLAVOUR, EMPTY_REVIEW_TIER
 };
 
 /** Bump when the rules (rules.mjs) or the conversion logic change: it is part of every item's source hash, so
@@ -187,11 +187,6 @@ export const REFLAVOUR = {
   },
   robe: { uncommon: ["D:Robe of Useful Items#dmgRobeOfUsefulI"], veryRare: ["D:Robe of Scintillating Colors#dmgRobeOfScintil", "D:Robe of Stars#dmgRobeOfStars00"] }
 };
-/** Healing potions -> official Potion of Healing tiers by item level (reflavoured; data from the compendium / SRD). */
-export const POTION_REFLAVOUR = [
-  { maxIlvl: 25, name: "Potion of Healing" }, { maxIlvl: 35, name: "Potion of Greater Healing" },
-  { maxIlvl: 45, name: "Potion of Superior Healing" }, { maxIlvl: Infinity, name: "Potion of Supreme Healing" }
-];
 function hashStr(s) { let h = 2166136261; for (const c of String(s)) h = Math.imul(h ^ c.charCodeAt(0), 16777619); return h >>> 0; }
 /** Official item reference for a mapping entry: {name, pack, id}. */
 function officialRef(entry) {
@@ -647,8 +642,8 @@ export function statPassive(ability, tier, ctx) {
   const base = { type: "statPassive", stat: ABILITY_STAT[ability], ability, trigger: "equipped", provisional: true, note: STAT_PASSIVE_NOTE };
   if (ability === "str") {
     const adv = tier >= P.athleticsFrom;
-    return { name: P.name, rider: { ...base, effect: "carryingCapacity", multiplier: 2, ...(adv ? { advantage: "skill:ath" } : {}) },
-      text: `${hold}, your carrying capacity (the weight you can carry, push, drag, or lift) is doubled${adv ? ", and you have Advantage on Strength (Athletics) checks" : ""}.` };
+    return { name: P.name, rider: { ...base, effect: "carryingCapacity", multiplier: P.carryMultiplier, ...(adv ? { advantage: "skill:ath" } : {}) },
+      text: `${hold}, your carrying capacity (the weight you can carry, push, drag, or lift) is ${P.carryMultiplier === 2 ? "doubled" : `multiplied by ${P.carryMultiplier}`}${adv ? ", and you have Advantage on Strength (Athletics) checks" : ""}.` };
   }
   if (ability === "dex") {
     const n = P.initiative[tier];
@@ -1097,7 +1092,7 @@ function finish(ctx, sys) {
   if (ctx.attuneBy) ctx.attune = true;
   // Very Rare / Legendary gear that ends up with nothing beyond its base: flag it rather than invent.
   const real = ctx.features.filter(f => !/^\+\d /.test(f.name));
-  if (tier >= 3 && !ctx.bonus && !real.length) review(ctx, `${QUALITY_NAME[p.quality]} quality`, `${TIER_NAME[tier]} item with no line that converts; decide whether it needs a feature`);
+  if (tier >= EMPTY_REVIEW_TIER && !ctx.bonus && !real.length) review(ctx, `${QUALITY_NAME[p.quality]} quality`, `${TIER_NAME[tier]} item with no line that converts; decide whether it needs a feature`);
   if (ctx.magic || ctx.bonus) sys.properties = [...new Set([...(sys.properties ?? []), "mgc"])];
   sys.attunement = ctx.attune ? "required" : "";
   return sys;
