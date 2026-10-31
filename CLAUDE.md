@@ -10,6 +10,7 @@ Foundry VTT module (v13/v14, dnd5e) that copies the classic MMO item compendium 
 - `api.mjs` public API: `game.modules.get("loot-ledger").api` (build, convertToPack, reviewBoard, setQuality, qualityOf, ...).
 - `review-model.mjs` (pure) review statuses, actions, rebuild protection (`protectReviewed`, `carryReview`), table exclusion (`isRejected`), queue filters / counts, `itemView`, shortcuts; `review.mjs` the Review board window (ApplicationV2) and its Build Report button.
 - `quality-model.mjs` (pure) quality resolution (explicit flag, then rarity fallback), CSS classes, flag update; `quality.mjs` render hooks, item sheet picker, "Set quality" context entry, Item Piles observer, `setQuality`.
+- `suffix.mjs` pure random-suffix logic (group, power, weighted pick, effects, naming, price, item update, report page); `suffix-hooks.mjs` its settings (`randomSuffixes`, `suffixMode`), the active-GM `createItem` hook, the item context-menu entry, `api.rollSuffix` / `api.suffixes`.
 - Also `styles/`, `lang/en.json`.
 
 ## Key patterns
@@ -18,10 +19,10 @@ Foundry VTT module (v13/v14, dnd5e) that copies the classic MMO item compendium 
 - Prices are stored as decimals in the largest coin; the 5e converter never raises ability scores.
 - No feature registry, health check or update-notes card; settings are minimal.
 - `build({ dryRun: true })` runs every stage up to the writes and returns `{ dryRun, plan, report, build (counts), ... }`. Every write path (`applySync`, `clearPack`, folder and table creation, `writeReport`, chat, pack creation, confirm dialog) is skipped and also guarded by `noWrites(dryRun, ...)`, which throws. Any new write in `build()` must be skipped under `dryRun` and guarded the same way; `tests/build.test.mjs` spies on every write call and asserts zero.
-- "<Random enchantment>" is flavour: it is not added to the not-converted list.
 - **Review decisions** live on the converted item: `flags.loot-ledger.review = {status, note, by, at}` (status pending | accepted | tweaked | skipped | rejected). In `build()`, `protectReviewed` drops accepted/tweaked ids from the converted plan's `replace` unless `force` (removals from the source still happen); `carryReview` copies the review onto rewritten items (force resets accepted/tweaked to pending with `previous`). Rejected ids (read from the converted pack even when conversion is off) are made non-rollable before `planTables`. Keep all three when changing the build.
 - **Quality colours** are render-hook only (no per-frame work, no document writes except the GM picker / `setQuality`). Explicit `flags.loot-ledger.quality` (same key Build writes) beats the rarity fallback. Item Piles windows are Svelte: one MutationObserver per open window (hooks `item-piles-openInterface` / `-closeInterface`), matched by item name.
 - Settings `reviewBoard`, `qualityColours`, `qualityPicker` need a reload and register nothing when off; `qualityRarityFallback` is live.
+- "<Random enchantment>" is not added to the not-converted list; the converter sets `flags.loot-ledger.randomSuffix` + `suffixGroup` instead. Suffixes roll on drop (never at build): active GM only, only when conversion AND `randomSuffixes` are on (no hooks registered otherwise), and never twice (`flags.loot-ledger.suffix`); rerolls start from `suffix.base`. Numbers live in rules.mjs section 9; stat suffixes reuse `STAT_PASSIVE`.
 - Writes (build, conversion) run from a GM-triggered action; do not add automatic hooks that write documents without an active-GM check.
 
 ## Branches

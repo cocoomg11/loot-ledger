@@ -50,7 +50,7 @@ constant(s) in `scripts/rules.mjs` that the answer feeds (step 2 has the details
 | 15 | Mounts: does the book have mounts as items? Speed, cost, rarity, riding skill? | No rule yet (see step 2, "New rules") |
 | 16 | Item level vs character level: which character levels does each item-level band suit? | `LEVEL_BANDS` |
 | 17 | Loot frequency: how often should each quality drop? | `DROP_WEIGHT` |
-| 18 | Set bonuses, sockets / gems, enchantments, random "of the X" suffixes, bind on pickup / equip: any rules? | No rule yet (set lines are kept as flavour; suffix names feed `GREEN_RULE.identitySuffix`) |
+| 18 | Set bonuses, sockets / gems, enchantments, random "of the X" suffixes, bind on pickup / equip: any rules? Does the book have random suffixes; if so, what does each give and how big is it per rarity? | Set lines stay flavour; fixed suffix names feed `GREEN_RULE.identitySuffix`; random suffixes: `SUFFIX_RULE`, `SUFFIXES`, `SUFFIX_WEIGHTS` (first pass, see "Random suffixes" below) |
 | 19 | Anything the book does with WoW-only item mechanics we have not listed (durability, unique-equipped, class restrictions, quest items, reputation items) | Note it; most stay flavour |
 
 Also write down 10 to 20 example items the book itself converts (name, quality, item level, what it becomes
@@ -100,6 +100,19 @@ in `convert.mjs` reads them. If the book contradicts a *rule shape* (not just a 
 | 7 | `FOOD_HEALING` | food: extra Short Rest healing by item level | food |
 | 7 | `GEAR_HEALING` | "Use: Restores N health" on gear: dice by item level | healing gear |
 | 8 | `EMPTY_REVIEW_TIER` | from which tier an item with nothing convertible goes to GM review | (rarely) |
+| 9 | `SUFFIX_RULE` | random suffix power (quality tier + level-band boost), two-stat shrink (`comboDrop`), from which power a resistance suffix is full Resistance (`resistFrom`), price multiplier per power | random suffix sizes and prices |
+| 9 | `SUFFIXES` | each random suffix: what it grants (stats, resistance school, dice, uses) | what a suffix does |
+| 9 | `SUFFIX_WEIGHTS` | how likely each suffix is on each item group (cloth, plate, shield, melee, ranged, caster, ...) | which suffixes fit which gear |
+
+**Random suffixes (first pass, revisit after the book).** The numbers in section 9 are first-pass guidance
+from the user: variety and fun first, power modest, never an ability score. After the book:
+
+- If the book gives random suffixes rules, rewrite `SUFFIXES` to match its conventions (in your own words).
+- Otherwise compare each suffix at power 1 and 4 (Build Report page "Random suffixes", or `api.suffixes()`)
+  against official items of the same rarity; check two-stat suffixes against single-stat ones (`comboDrop`)
+  and the price multipliers against the book's price table.
+- Stat suffixes reuse `STAT_PASSIVE`, so recalibrating stat passives also moves suffixes.
+- Bump `CONVERTER_VERSION` only if the converter's output changes (the suffix roll happens on drop, not at build).
 
 Two settings live outside rules.mjs:
 
@@ -274,6 +287,9 @@ at the top of the Build Report, the Loot Ledger settings window, or `game.module
 - **Hand-written (replaced / kept)**: check that every "kept" item really traces to its tooltip; anything
   that does not goes on the replace list (step 5).
 - **Hand-written audit** (from step 5): reference for the replace list.
+- **Random suffixes (N)**: how many source items carry the random enchantment line, and every suffix's effect
+  at the lowest and highest power. Drop a few such items on a test actor and an Item Piles pile and check the
+  rolled name, effects and price.
 
 Spot-check 10 converted items in each band by opening them: the 5e block under the tooltip should name the
 source line of every feature.

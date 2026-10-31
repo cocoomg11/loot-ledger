@@ -111,3 +111,10 @@ test("drop table description follows DROP_WEIGHT", async () => {
   const { dropOdds } = await import("../scripts/build.mjs");
   assert.equal(dropOdds(), "poor 60%, common 25%, uncommon 12%, rare 2.5%, epic 0.5%");
 });
+
+test("random suffix rules (first pass, section 9)", () => {
+  assert.deepEqual(R.SUFFIX_RULE, { minPower: 1, maxPower: 4, highBandFrom: 5, bandBoost: 1, comboDrop: 1, resistFrom: 3,
+    priceMultiplier: { 1: 1.2, 2: 1.25, 3: 1.35, 4: 1.5 }, baseWeight: 1 });
+  assert.equal(R.SUFFIXES.length, 25);
+  assert.deepEqual(Object.keys(R.SUFFIX_WEIGHTS), ["cloth", "leather", "mail", "plate", "shield", "melee", "ranged", "caster", "jewelry"]);
+});

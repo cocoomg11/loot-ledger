@@ -6,6 +6,7 @@ import { build, ITEMS_PACK, CONVERTED_PACK, TABLES_PACK } from "./build.mjs";
 import { createApi } from "./api.mjs";
 import { ReviewBoard, registerReviewBoard } from "./review.mjs";
 import { registerQualityColours } from "./quality.mjs";
+import { registerSuffixSettings, registerSuffixHooks } from "./suffix-hooks.mjs";
 
 const { ApplicationV2 } = foundry.applications.api;
 
@@ -118,6 +119,7 @@ Hooks.once("init", () => {
   if (game.settings.get(MODULE_ID, "reviewBoard")) registerReviewBoard();
   if (game.settings.get(MODULE_ID, "qualityColours")) registerQualityColours();
   // The picker without the colours would be invisible; it is part of the colours feature.
+  registerSuffixSettings();
 
   game.settings.registerMenu(MODULE_ID, "build", {
     name: "LOOTLEDGER.Menu.Name",
@@ -133,5 +135,6 @@ Hooks.once("init", () => {
 });
 
 Hooks.once("ready", () => {
+  registerSuffixHooks();
   Hooks.callAll(`${MODULE_ID}.ready`, game.modules.get(MODULE_ID)?.api);
 });
