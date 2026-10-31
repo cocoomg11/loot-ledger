@@ -7,6 +7,7 @@ Foundry VTT module (v13/v14, dnd5e) that copies the classic MMO item compendium 
 - `data.mjs` pure constants and helpers: qualities, level bands, categories, creature regexes, item parsing, prices, coin formatting.
 - `build.mjs` build pipeline: copies source items into world pack "Loot Ledger · Items" (price = 2x vendor sell, so selling pays the original amount), then writes "Loot Ledger · Tables".
 - `convert.mjs` converter classic MMO item -> dnd5e 2024 item. Every feature must trace to one source tooltip line; untranslatable lines go to GM review, never invented.
+- `suffix.mjs` pure random-suffix logic (group, power, weighted pick, effects, naming, price, item update, report page); `suffix-hooks.mjs` its settings (`randomSuffixes`, `suffixMode`), the active-GM `createItem` hook, the item context-menu entry, `api.rollSuffix` / `api.suffixes`.
 - `api.mjs` public API: `game.modules.get("loot-ledger").api` (build, convertToPack, ...).
 - Also `styles/`, `lang/en.json`.
 
@@ -16,7 +17,7 @@ Foundry VTT module (v13/v14, dnd5e) that copies the classic MMO item compendium 
 - Prices are stored as decimals in the largest coin; the 5e converter never raises ability scores.
 - No feature registry, health check or update-notes card; settings are minimal.
 - `build({ dryRun: true })` runs every stage up to the writes and returns `{ dryRun, plan, report, build (counts), ... }`. Every write path (`applySync`, `clearPack`, folder and table creation, `writeReport`, chat, pack creation, confirm dialog) is skipped and also guarded by `noWrites(dryRun, ...)`, which throws. Any new write in `build()` must be skipped under `dryRun` and guarded the same way; `tests/build.test.mjs` spies on every write call and asserts zero.
-- "<Random enchantment>" is flavour: it is not added to the not-converted list.
+- "<Random enchantment>" is not added to the not-converted list; the converter sets `flags.loot-ledger.randomSuffix` + `suffixGroup` instead. Suffixes roll on drop (never at build): active GM only, only when conversion AND `randomSuffixes` are on (no hooks registered otherwise), and never twice (`flags.loot-ledger.suffix`); rerolls start from `suffix.base`. Numbers live in rules.mjs section 9; stat suffixes reuse `STAT_PASSIVE`.
 - Writes (build, conversion) run from a GM-triggered action; do not add automatic hooks that write documents without an active-GM check.
 
 ## Branches
