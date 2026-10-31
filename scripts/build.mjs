@@ -12,6 +12,7 @@ import {
   summaryCounts, summaryHtml, reportPages
 } from "./ledger.mjs";
 import { REPLACE_LIST } from "./replace-list.mjs";
+import { protectReviewed, carryReview, isRejected } from "./review-model.mjs";
 import { CREATURE_TABLE } from "./rules.mjs";
 
 export const ITEMS_PACK = { name: "loot-ledger-items", label: "Loot Ledger · Items" };
@@ -420,6 +421,11 @@ async function writeReport(pages, dryRun = false) {
  * removes items no longer in the source (full builds only). A build that stops part-way picks up where it left
  * off. Roll tables are always regenerated (stable ids).
  *
+ * Review board decisions (flags["loot-ledger"].review, see review-model.mjs): converted items the GM accepted or
+ * tweaked are never rewritten, even when their source or the rules changed, so manual edits survive; `force: true`
+ * rewrites them too (their status goes back to pending; the note is kept). Skip / Reject / notes are carried onto
+ * rewritten items. Rejected items are left out of the roll tables.
+ *
  * @param {object}   [options]
  * @param {boolean}  [options.confirm=true]   ask first
  * @param {object}   [options.itemsPack]      {name, label} of the plain-copy items compendium
@@ -428,7 +434,8 @@ async function writeReport(pages, dryRun = false) {
  * @param {Function} [options.filter]         optional (sourceDoc, meta) => boolean to build a subset (no pruning)
  * @param {string}   [options.ratio]          coin ratio override ("100" or "10")
  * @param {boolean}  [options.convert]        convert to 5e (default: the "Convert items to 5e when building" setting)
- * @param {boolean}  [options.force=false]    ignore stored hashes and rewrite every item
+ * @param {boolean}  [options.force=false]    ignore stored hashes and rewrite every item, including converted items
+ *                                            the GM accepted or tweaked on the review board (their manual edits are lost)
  * @param {boolean}  [options.report=true]    whisper the GM summary and write the Build Report journal
  * @param {boolean}  [options.dryRun=false]   run every stage up to the writes and return the plan, the report data and the
  *                                            summary counts instead of writing anything: no compendium or folder is created,
@@ -504,11 +511,13 @@ export async function build({
     }, { dryRun, label: "Loot Ledger: items", onProgress: (f, m) => bar.update(0.08 + (convert ? 0.27 : 0.62) * f, m) });
 
     // 2. 5e conversions (separate pack; tables point here when conversion is on).
-    let convPlan = null, convProduced = new Map();
+    let convPlan = null, convProduced = new Map(), reviewProtected = [];
     const failed = new Map();
     if (convert) {
       const convState = await packState(conv);
-      convPlan = planSync(force ? new Map([...convState.hashes].map(([k]) => [k, null])) : convState.hashes, convWant, { prune });
+      const planned = planSync(force ? new Map([...convState.hashes].map(([k]) => [k, null])) : convState.hashes, convWant, { prune });
+      // Accepted / tweaked items keep the stored (possibly hand-edited) version unless force.
+      ({ plan: convPlan, protected: reviewProtected } = protectReviewed(planned, convState.flags, { force }));
       bar.update(0.36, `Loot Ledger: converting ${convPlan.create.length + convPlan.replace.length} items (${convPlan.skip.length} unchanged)…`);
       const officialCache = new Map();
       const official = async ref => {
@@ -528,6 +537,8 @@ export async function build({
           data._id = doc.id;
           data.folder = convFolders[meta.category] ?? null;
           data.flags[MODULE_ID].hash = convHash;
+          const review = carryReview(convState.flags.get(id)?.flags?.review, { force });
+          if (review) data.flags[MODULE_ID].review = review;
           return data;
         } catch (err) {
           console.error(`${MODULE_ID} | conversion failed for ${doc.name}`, err);
@@ -544,11 +555,15 @@ export async function build({
       for (const id of convPlan.remove) convStored.delete(id);
       for (const [id, d] of convProduced) convStored.set(id, { name: d.name, flags: d.flags?.[MODULE_ID] ?? {} });
     }
+    // Items rejected on the review board stay out of the tables (the decision lives on the converted item, which
+    // is read even when conversion is now off).
+    const reviewFlags = convert ? convStored : (await packState(game.packs.get(convId) ?? null)).flags;
+    const rejected = new Set([...reviewFlags].filter(([, v]) => isRejected(v.flags)).map(([id]) => id));
     const metas = [];
     for (const [id, { doc, meta }] of byId) {
       const inConv = convert && convStored.has(id) && !failed.has(id);
       metas.push({
-        ...meta, id, name: doc.name, img: doc.img,
+        ...meta, id, name: doc.name, img: doc.img, rollable: meta.rollable && !rejected.has(id),
         uuid: inConv ? `Compendium.${convId}.Item.${id}` : `Compendium.${itemsId}.Item.${id}`
       });
     }
@@ -581,7 +596,7 @@ export async function build({
     }
     const rl = convert ? replaceListStatus(REPLACE_LIST, replaceHits) : null;
     const seconds = Math.round((performance.now() - t0) / 100) / 10;
-    const counts = summaryCounts({ copy: copyPlan, convert: convPlan, rows });
+    const counts = summaryCounts({ copy: copyPlan, convert: convPlan, rows, protected: reviewProtected.length, rejected: rejected.size });
 
     const kinds = plan.reduce((acc, t) => {
       const k = t.flags[MODULE_ID].kind;
