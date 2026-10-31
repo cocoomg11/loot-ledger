@@ -13,6 +13,7 @@ import {
 } from "./ledger.mjs";
 import { REPLACE_LIST } from "./replace-list.mjs";
 import { CREATURE_TABLE } from "./rules.mjs";
+import { hasRandomLine } from "./suffix.mjs";
 
 export const ITEMS_PACK = { name: "loot-ledger-items", label: "Loot Ledger · Items" };
 export const CONVERTED_PACK = { name: "loot-ledger-converted-items", label: "Loot Ledger · Converted Items" };
@@ -435,6 +436,14 @@ async function writeReport(pages, dryRun = false) {
  *                                            changed or cleared, no Build Report is written, no chat message is sent, no
  *                                            confirm dialog is shown. Packs that already exist are only read.
  */
+/** Settings read for the Build Report's "Random suffixes" page (read only). */
+function suffixReport(sourceCount) {
+  let enabled = true, mode = "roll";
+  try { enabled = game.settings.get(MODULE_ID, "randomSuffixes") !== false; } catch { /* not registered */ }
+  try { mode = game.settings.get(MODULE_ID, "suffixMode") ?? "roll"; } catch { /* not registered */ }
+  return { sourceCount, enabled, mode };
+}
+
 export async function build({
   confirm = true, itemsPack = ITEMS_PACK, convertedPack = CONVERTED_PACK, tablesPack = TABLES_PACK,
   filter = null, ratio = null, convert = null, force = false, report = true, dryRun = false
@@ -472,9 +481,11 @@ export async function build({
     const officialPacks = [...Object.values(OFFICIAL_PACKS), ...SRD_PACKS].filter(k => game.packs.has(k));
     const replaceIndex = indexReplaceList(REPLACE_LIST);
     const byId = new Map(), copyWant = [], convWant = [], replaceHits = [];
+    let randomLines = 0;
     for (const doc of docs) {
       const meta = analyse(doc);
       if (filter && !filter(doc, meta)) continue;
+      if (hasRandomLine(doc.system?.description?.value)) randomLines++;
       const entry = replaceEntry(doc, replaceIndex);
       if (entry) replaceHits.push({ entry, handAuthored: !!doc.flags?.["wow-classic-items"]?.handAuthored });
       const rec = {
@@ -582,6 +593,7 @@ export async function build({
     const rl = convert ? replaceListStatus(REPLACE_LIST, replaceHits) : null;
     const seconds = Math.round((performance.now() - t0) / 100) / 10;
     const counts = summaryCounts({ copy: copyPlan, convert: convPlan, rows });
+    const suffixes = convert ? suffixReport(randomLines) : null;
 
     const kinds = plan.reduce((acc, t) => {
       const k = t.flags[MODULE_ID].kind;
@@ -590,10 +602,10 @@ export async function build({
     }, {});
     let reportUuid = null;
     if (dryRun) {
-      const pages = reportPages(counts, rows, { convertOn: convert, replaceList: rl, tables: plan.length, seconds });
+      const pages = reportPages(counts, rows, { convertOn: convert, replaceList: rl, tables: plan.length, seconds, suffixes });
       const result = {
         dryRun: true, items: copyWant.length, rollable: metas.filter(m => m.rollable).length, tables: plan.length, counts: kinds,
-        build: counts, convert, replaceList: rl, seconds,
+        build: counts, convert, replaceList: rl, seconds, randomSuffixLines: randomLines,
         itemsPack: itemsId, convertedPack: convert ? convId : null, tablesPack: tablesId,
         plan: { copy: copyPlan, convert: convPlan, tables: plan },
         report: { rows, pages, summaryHtml: summaryHtml(counts, { convertOn: convert, tables: plan.length, seconds }) }
@@ -602,7 +614,7 @@ export async function build({
       return result;
     }
     if (report) {
-      const pages = reportPages(counts, rows, { convertOn: convert, replaceList: rl, tables: plan.length, seconds });
+      const pages = reportPages(counts, rows, { convertOn: convert, replaceList: rl, tables: plan.length, seconds, suffixes });
       noWrites(dryRun, "report");
       const entry = await writeReport(pages);
       reportUuid = entry.uuid;
@@ -616,7 +628,7 @@ export async function build({
 
     const summary = {
       items: copyWant.length, rollable: metas.filter(m => m.rollable).length, tables: plan.length, counts: kinds,
-      build: counts, convert, replaceList: rl, reportUuid,
+      build: counts, convert, replaceList: rl, reportUuid, randomSuffixLines: randomLines,
       seconds, itemsPack: items.collection, convertedPack: conv?.collection ?? null, tablesPack: tables.collection
     };
     bar.done(`Loot Ledger: built ${summary.items} items and ${summary.tables} tables.`);

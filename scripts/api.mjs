@@ -7,6 +7,7 @@ import { REPLACE_LIST, REPLACE_LIST_EXPECTED } from "./replace-list.mjs";
 import { handWrittenAudit, replaceListSnippet, auditPageHtml } from "./ledger.mjs";
 import * as RULES from "./rules.mjs";
 import { convertItem, parseSource, auditHandAuthored } from "./convert.mjs";
+import { rollSuffix, listSuffixes } from "./suffix-hooks.mjs";
 
 /** Find the generated table matching a query. */
 export async function findTable({ band = null, level = null, quality = null, type = null, creature = null, pack = TABLES_PACK.name } = {}) {
@@ -120,6 +121,9 @@ export function createApi() {
     replaceList: () => REPLACE_LIST.map(e => ({ ...e })),
     roll,
     findTable,
+    /** Random suffixes: (re)roll one item (optionally a chosen suffix id), and list the suffix table. GM only. */
+    rollSuffix: (item, options) => rollSuffix(item, options),
+    suffixes: () => listSuffixes(),
     sellPrice,
     bandForLevel,
     formatCoins,

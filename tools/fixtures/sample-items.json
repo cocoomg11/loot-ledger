@@ -575,5 +575,33 @@
    "Trade Goods",
    "Item Level 10"
   ]
+ },
+ {
+  "name": "Sample Banded Girdle",
+  "quality": "uncommon",
+  "type": "equipment",
+  "sell": 820,
+  "lines": [
+   "Waist",
+   "Plate",
+   "180 Armor",
+   "<Random enchantment>",
+   "Item Level 44",
+   "Requires Level 39"
+  ]
+ },
+ {
+  "name": "Sample Willow Bow",
+  "quality": "uncommon",
+  "type": "weapon",
+  "sell": 1150,
+  "lines": [
+   "Ranged",
+   "Bow",
+   "16 - 30 Damage",
+   "Speed 2.70",
+   "<Random enchantment>",
+   "Item Level 27"
+  ]
  }
 ]

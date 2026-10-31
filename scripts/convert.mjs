@@ -30,6 +30,7 @@
  * plain item data, so it can be tested outside Foundry.
  */
 import { MODULE_ID, SOURCE_MODULE, QUALITY_BY_KEY, analyse, tooltipLines, priceFor, formatCoins } from "./data.mjs";
+import { suffixGroup } from "./suffix.mjs";
 // Every tunable number lives in rules.mjs (book-day calibration edits values there, not logic here).
 import {
   WEAPON_RULES, CHEST_RULES, CLOTH_CHEST, SLOT_EQUIPMENT, TIER, GEAR_BONUS, ARMOR_BONUS, GREEN_RULE, ATTUNE_TIER, ATTUNE_RIDERS, STAT_RULE, STAT_PASSIVE, STAT_PASSIVE_NOTE, TRINKET_RULE, HIT_RULE, DEFENSE_RULE, SPELL_RULE, RESIST_RULE, SCHOOL_MAP, PROC_RULE, WEAPON_EXTRA_DICE, DAILY_USES, BLAST_USES, EXTRA_ATTACK_RULE, POTION_HEALING, MANA_POTION_SLOT, FOOD_HEALING, GEAR_HEALING, POTION_REFLAVOUR, EMPTY_REVIEW_TIER
@@ -40,7 +41,7 @@ export {
 
 /** Bump when the rules (rules.mjs) or the conversion logic change: it is part of every item's source hash, so
  * Build re-converts items converted under an older version. */
-export const CONVERTER_VERSION = 2;
+export const CONVERTER_VERSION = 3;
 
 /* -------------------------------------------- */
 /*  SRD 5.2 reference data                      */
@@ -486,6 +487,8 @@ export function convertItem(src, options = {}) {
     vendorSellCopper: p.vendorSellCopper, vendorSell: formatCoins(p.vendorSellCopper), noSell: p.noSell,
     slot: p.slot, category: p.category, band: p.band, coinRatio: ratio,
     riders: kept ? [] : ctx.riders,
+    // "<Random enchantment>": the item can roll a random suffix when it drops (suffix.mjs, suffix-hooks.mjs).
+    ...(p.randomEnchant ? { randomSuffix: true, suffixGroup: suffixGroup(p, shape) } : {}),
     converted: {
       version: CONVERTER_VERSION, shape, needsReview,
       handAuthored: !!p.handAuthored, handAuthoredKept: !!kept,

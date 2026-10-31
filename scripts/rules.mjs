@@ -374,3 +374,90 @@ export const GEAR_HEALING = [
 /** Items of this tier or higher (Very Rare and up) that end up with no feature beyond their base item and no
  * enhancement bonus are flagged for GM review rather than given something invented. */
 export const EMPTY_REVIEW_TIER = 3;
+
+/* -------------------------------------------- */
+/*  9. Random suffix enchantments (first pass)  */
+/* -------------------------------------------- */
+
+/**
+ * Items whose tooltip carries the "<Random enchantment>" line get `flags.loot-ledger.randomSuffix` at build time.
+ * When such a CONVERTED item lands on an actor or loot pile, the active GM rolls one suffix from SUFFIXES
+ * (weighted by SUFFIX_WEIGHTS for the item's group), renames it "<Item> of the X", adds the suffix's effects and
+ * bumps the price. First-pass guidance from the user, to revisit on book day: variety first, power kept modest
+ * (official 5e items of the same rarity are the reference), never an ability SCORE increase.
+ *
+ * Power 1-4: the item's quality tier (TIER, Common/Poor count as 1), +bandBoost when the item's level band is
+ * highBandFrom or higher, capped at maxPower.
+ *   minPower / maxPower   power range.
+ *   highBandFrom          level band from which the power gets +bandBoost (band 5 = character levels 9-11).
+ *   comboDrop             two-stat suffixes: each stat passive is sized at power - comboDrop (at least 1), so a
+ *                         two-stat suffix is two smaller effects rather than two full ones.
+ *   resistFrom            resistance suffixes: full Resistance from this power; below it, Advantage on saving
+ *                         throws against effects that deal that damage type.
+ *   priceMultiplier       listed price x this, by power.
+ *   baseWeight            pick weight of an eligible suffix that its group does not list in SUFFIX_WEIGHTS.
+ */
+export const SUFFIX_RULE = {
+  minPower: 1, maxPower: 4, highBandFrom: 5, bandBoost: 1, comboDrop: 1, resistFrom: 3,
+  priceMultiplier: { 1: 1.2, 2: 1.25, 3: 1.35, 4: 1.5 },
+  baseWeight: 1
+};
+
+/**
+ * The suffix table. kind:
+ *   "stat"    stats: the STAT_PASSIVE abilities it grants (one = full size, two = two smaller effects, see comboDrop).
+ *   "resist"  school: the classic damage school (SCHOOL_MAP gives the 5e damage type).
+ *   "healing" die: extra healing die on healing spells, by power.
+ *   "power"   critDie below onHitFrom (extra damage on a Critical Hit), onHitDie from onHitFrom (once per turn).
+ *   "defense" below acFrom: Reaction +reactionAc against one attack, uses per Long Rest; from acFrom: +ac AC.
+ *   "blocking" Reaction: reduce the damage of one hit by the die, uses per Long Rest (shields only).
+ *   "marksmanship" ranged attacks ignore Half Cover; from threeQuarterFrom also Three-Quarters Cover (ranged only).
+ * only: item groups the suffix can roll on (default: every group). Suffix names are generic fantasy wording.
+ */
+export const SUFFIXES = [
+  { id: "bear",     label: "of the Bear",     kind: "stat", stats: ["str", "con"] },
+  { id: "tiger",    label: "of the Tiger",    kind: "stat", stats: ["str", "dex"] },
+  { id: "gorilla",  label: "of the Gorilla",  kind: "stat", stats: ["str", "int"] },
+  { id: "boar",     label: "of the Boar",     kind: "stat", stats: ["str", "wis"] },
+  { id: "monkey",   label: "of the Monkey",   kind: "stat", stats: ["dex", "con"] },
+  { id: "falcon",   label: "of the Falcon",   kind: "stat", stats: ["dex", "int"] },
+  { id: "wolf",     label: "of the Wolf",     kind: "stat", stats: ["dex", "wis"] },
+  { id: "eagle",    label: "of the Eagle",    kind: "stat", stats: ["con", "int"] },
+  { id: "whale",    label: "of the Whale",    kind: "stat", stats: ["con", "wis"] },
+  { id: "owl",      label: "of the Owl",      kind: "stat", stats: ["int", "wis"] },
+  { id: "strength", label: "of Strength",     kind: "stat", stats: ["str"] },
+  { id: "agility",  label: "of Agility",      kind: "stat", stats: ["dex"] },
+  { id: "stamina",  label: "of Stamina",      kind: "stat", stats: ["con"] },
+  { id: "intellect", label: "of Intellect",   kind: "stat", stats: ["int"] },
+  { id: "spirit",   label: "of Spirit",       kind: "stat", stats: ["wis"] },
+  { id: "fireres",   label: "of Fire Resistance",   kind: "resist", school: "Fire" },
+  { id: "frostres",  label: "of Frost Resistance",  kind: "resist", school: "Frost" },
+  { id: "natureres", label: "of Nature Resistance", kind: "resist", school: "Nature" },
+  { id: "shadowres", label: "of Shadow Resistance", kind: "resist", school: "Shadow" },
+  { id: "arcaneres", label: "of Arcane Resistance", kind: "resist", school: "Arcane" },
+  { id: "healing",  label: "of Healing",      kind: "healing", die: { 1: "1d4", 2: "1d4", 3: "1d6", 4: "1d8" } },
+  { id: "power",    label: "of Power",        kind: "power", critDie: "1d6", onHitFrom: 3, onHitDie: { 3: "1d4", 4: "1d6" } },
+  { id: "defense",  label: "of Defense",      kind: "defense", reactionAc: 2, uses: { 1: 1, 2: 2 }, acFrom: 3, ac: 1 },
+  { id: "blocking", label: "of Blocking",     kind: "blocking", only: ["shield"], die: { 1: "1d6", 2: "1d8", 3: "2d6", 4: "2d8" }, uses: { 1: 1, 2: 2, 3: 2, 4: 3 } },
+  { id: "marksmanship", label: "of Marksmanship", kind: "marksmanship", only: ["ranged"], threeQuarterFrom: 3 }
+];
+
+/**
+ * Pick weights per item group (unlisted eligible suffixes use SUFFIX_RULE.baseWeight; 0 = never on that group).
+ * Groups: cloth, leather, mail, plate (worn armour by armour class), shield, melee, ranged, caster (staves, wands,
+ * held off-hand items, relics) and jewelry (rings, necks, trinkets, cloaks, shirts and anything else).
+ */
+export const SUFFIX_WEIGHTS = {
+  cloth:   { owl: 4, intellect: 3, spirit: 3, eagle: 2, falcon: 2, whale: 2, healing: 3, arcaneres: 1.5, shadowres: 1.5,
+             bear: 0.25, tiger: 0.25, strength: 0.25, boar: 0.5, gorilla: 0.5, power: 0.25, defense: 0.25 },
+  leather: { monkey: 4, agility: 3, falcon: 2, wolf: 2, tiger: 2, power: 2, natureres: 1.5, owl: 0.5, intellect: 0.5 },
+  mail:    { eagle: 3, falcon: 2, monkey: 2, wolf: 2, tiger: 2, agility: 2, stamina: 2, healing: 1.5, frostres: 1.5, natureres: 1.5 },
+  plate:   { bear: 4, strength: 3, stamina: 3, defense: 3, tiger: 2, boar: 2, gorilla: 1.5, fireres: 1.5, shadowres: 1.5,
+             owl: 0.25, intellect: 0.25, falcon: 0.5 },
+  shield:  { blocking: 4, defense: 3, bear: 3, stamina: 3, strength: 2, whale: 2, fireres: 1.5, frostres: 1.5, shadowres: 1.5, intellect: 0.5, owl: 0.5 },
+  melee:   { tiger: 3, bear: 3, strength: 3, power: 3, monkey: 2, agility: 2, boar: 1.5, owl: 0.25, intellect: 0.25, spirit: 0.5, healing: 0.25 },
+  ranged:  { marksmanship: 4, agility: 3, monkey: 3, falcon: 2, wolf: 2, power: 2, strength: 0.25, bear: 0.5, owl: 0.25, healing: 0.25 },
+  caster:  { owl: 4, intellect: 3, spirit: 3, healing: 3, eagle: 2, falcon: 1.5, whale: 1.5,
+             strength: 0.25, bear: 0.25, tiger: 0.25, monkey: 0.5, agility: 0.5, power: 0.25 },
+  jewelry: {}
+};

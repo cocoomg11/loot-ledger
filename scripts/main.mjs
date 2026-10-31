@@ -4,6 +4,7 @@
 import { MODULE_ID, SOURCE_MODULE, BANDS } from "./data.mjs";
 import { build, ITEMS_PACK, CONVERTED_PACK, TABLES_PACK } from "./build.mjs";
 import { createApi } from "./api.mjs";
+import { registerSuffixSettings, registerSuffixHooks } from "./suffix-hooks.mjs";
 
 const { ApplicationV2 } = foundry.applications.api;
 
@@ -86,6 +87,8 @@ Hooks.once("init", () => {
     default: false
   });
 
+  registerSuffixSettings();
+
   game.settings.registerMenu(MODULE_ID, "build", {
     name: "LOOTLEDGER.Menu.Name",
     label: "LOOTLEDGER.Menu.Build",
@@ -100,5 +103,6 @@ Hooks.once("init", () => {
 });
 
 Hooks.once("ready", () => {
+  registerSuffixHooks();
   Hooks.callAll(`${MODULE_ID}.ready`, game.modules.get(MODULE_ID)?.api);
 });

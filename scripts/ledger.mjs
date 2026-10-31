@@ -6,6 +6,7 @@
  *   - routing of a conversion to converted / replaced / GM review;
  *   - the GM summary and Build Report HTML.
  */
+import { suffixPageHtml } from "./suffix.mjs";
 import { MODULE_ID, SOURCE_MODULE } from "./data.mjs";
 import * as RULES from "./rules.mjs";
 
@@ -219,7 +220,7 @@ export function summaryHtml(counts, { convertOn, tables, seconds, reportUuid = n
 }
 
 /** Build Report journal pages: [{name, html}]. */
-export function reportPages(counts, rows, { convertOn, replaceList, tables, seconds, date = new Date().toISOString() } = {}) {
+export function reportPages(counts, rows, { convertOn, replaceList, tables, seconds, suffixes = null, date = new Date().toISOString() } = {}) {
   const link = r => r.uuid ? `@UUID[${r.uuid}]{${esc(r.name)}}` : esc(r.name);
   const summary = `<p>Build finished ${esc(date)}${seconds !== undefined ? ` in ${seconds}s` : ""}.</p>` +
     summaryHtml(counts, { convertOn, tables }).replace(/^<h3>[^<]*<\/h3>/, "") +
@@ -248,6 +249,8 @@ export function reportPages(counts, rows, { convertOn, replaceList, tables, seco
       : "<p>None.</p>") +
       `<h3>Kept (passes the traceability audit)</h3>` + (kept.length ? `<p>${kept.map(link).join(", ")}</p>` : "<p>None.</p>")
   });
+  // Random suffixes (suffix.mjs): the table and how many source items carry the random enchantment line.
+  if (suffixes) pages.push({ name: `Random suffixes (${suffixes.sourceCount ?? 0})`, html: suffixPageHtml(suffixes) });
   return pages;
 }
 
