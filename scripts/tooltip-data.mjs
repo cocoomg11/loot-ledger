@@ -1,7 +1,9 @@
 /**
  * Item tooltip: pure model building and HTML rendering. No Foundry globals are read here; the caller passes the dnd5e
  * config, a localize function and the coin table, so this file can be unit-tested in Node (tests/tooltip-data.test.mjs).
+ * Quality colours and coin text come from the vendored wanderers-core (pure half).
  */
+import { quality, QUALITY_KEYS, formatCoins } from "../vendor/wanderers-core/index.mjs";
 
 /** Tooltip rarity tiers, low → high. `quality` is the matching Loot Ledger quality key. */
 export const TIERS = ["mundane", "common", "uncommon", "rare", "veryRare", "legendary", "artifact"];
@@ -17,6 +19,16 @@ const BODY_ARMOR = new Set(["light", "medium", "heavy"]);
 /** Escape text for HTML. */
 export function esc(value) {
   return String(value ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+}
+
+/**
+ * Core quality key (poor … artifact) of an item, for the `--wc-q-*` colour tokens: Loot Ledger's own quality flag when it is a
+ * known key, else the dnd5e rarity tier through core's `quality()` (mundane → poor, veryRare → epic).
+ */
+export function qualityOf(item) {
+  const q = item?.flags?.["loot-ledger"]?.quality;
+  if (typeof q === "string" && QUALITY_KEYS.includes(q)) return q;
+  return quality(tierOf(item));
 }
 
 /** Read a label that may be a string or `{label}` and localize it. */
@@ -70,28 +82,30 @@ export function excerpt(html, max = 220) {
   return `${(at > max * 0.6 ? cut.slice(0, at) : cut).replace(/[\s,.;:]+$/, "")}…`;
 }
 
-/**
- * Item price in the smallest coin, using the dnd5e currency conversions (relative to gp: gp 1, sp 10 or 100, cp 100 or 10000).
- * @returns {{copper:number, step:number}} step = coins per next denomination (10 or 100)
- */
-export function priceCopper(price, currencies, ratio = "100") {
-  const fallbackStep = ratio === "10" ? 10 : 100;
-  const conv = k => num(currencies?.[k]?.conversion);
-  const cp = conv("cp") || fallbackStep * fallbackStep;
-  const sp = conv("sp") || fallbackStep;
-  const step = Math.round(cp / sp) || fallbackStep;
-  const value = num(price?.value);
-  const denom = price?.denomination || "gp";
-  const d = conv(denom) || (denom === "sp" ? sp : denom === "cp" ? cp : 1);
-  return { copper: value > 0 ? Math.round((value * cp) / d) : 0, step };
+/** A coin ratio setting value ("100" | "10" | number) as a number; anything else is 100. */
+export function ratioOf(ratio) {
+  return Number(ratio) === 10 ? 10 : 100;
 }
 
-/** "1g 2s 3c" for a copper amount with the given coin step (100 by Loot Ledger's default, 10 for standard 5e). */
-export function formatGsc(copper, step = 100) {
-  const c = Math.max(0, Math.round(copper));
-  if (!c) return "";
-  const g = Math.floor(c / (step * step)), s = Math.floor((c % (step * step)) / step), r = c % step;
-  return [g && `${g}g`, s && `${s}s`, r && `${r}c`].filter(Boolean).join(" ");
+/**
+ * Item price in copper for a coin ratio (1 gold = ratio² copper). The price's value in gold comes from the world's currency
+ * conversions (relative to gp: gp 1, sp 10 or 100, cp 100 or 10000); missing conversions fall back to the ratio's own.
+ * @returns {{copper:number, step:number}} step = the ratio used (coins per next denomination, 10 or 100)
+ */
+export function priceCopper(price, currencies, ratio = "100") {
+  const step = ratioOf(ratio);
+  const conv = k => num(currencies?.[k]?.conversion);
+  const value = num(price?.value);
+  const denom = price?.denomination || "gp";
+  const fallback = { gp: 1, sp: step, cp: step * step };
+  const d = conv(denom) || fallback[denom] || 1;
+  return { copper: value > 0 ? Math.round((value / d) * step * step) : 0, step };
+}
+
+/** "1g 2s 3c" for a copper amount and coin ratio (core `formatCoins`); "" for nothing. */
+export function formatPrice(copper, step = 100) {
+  const c = Math.max(0, Math.round(num(copper)));
+  return c ? formatCoins(c, { ratio: ratioOf(step) }) : "";
 }
 
 /** Whether magical bonuses apply (dnd5e requires the Magical property). */
@@ -208,7 +222,7 @@ function typeLine(item, dnd5e, t) {
  * @param {object} ctx
  * @param {object}   ctx.dnd5e      CONFIG.DND5E (or a subset)
  * @param {(key:string)=>string} ctx.t  localize
- * @param {string}   [ctx.ratio]    Loot Ledger coin ratio setting ("100" | "10"), used when currencies lack conversions
+ * @param {string}   [ctx.ratio]    Loot Ledger coin ratio setting ("100" | "10"): how gold splits into silver and copper
  * @param {boolean}  [ctx.isGM]     GMs see unidentified items' real details
  * @param {object}   [ctx.equipped] equipped item in the same slot, for the compare section
  */
@@ -217,6 +231,7 @@ export function buildModel(item, { dnd5e = {}, t = s => s, ratio = "100", isGM =
   const hidden = sys.identified === false && !isGM;
   const tier = hidden ? "mundane" : tierOf(item);
   const model = {
+    quality: hidden ? "poor" : qualityOf(item),
     name: hidden ? (sys.unidentified?.name || item.name) : item.name,
     img: item.img ?? "",
     tier,
@@ -283,7 +298,7 @@ export function buildModel(item, { dnd5e = {}, t = s => s, ratio = "100", isGM =
   model.description = excerpt(hidden ? sys.unidentified?.description : sys.description?.value);
 
   const { copper, step } = priceCopper(sys.price, dnd5e.currencies, item.flags?.["loot-ledger"]?.coinRatio ?? ratio);
-  model.price = formatGsc(copper, step);
+  model.price = formatPrice(copper, step);
   const sell = item.flags?.["loot-ledger"];
   if (sell?.vendorSell && !sell.noSell) model.sell = String(sell.vendorSell);
 
@@ -305,8 +320,9 @@ export function buildModel(item, { dnd5e = {}, t = s => s, ratio = "100", isGM =
 export function renderModel(m, t = s => s) {
   const row = (cls, html) => `<div class="ll-tt-${cls}">${html}</div>`;
   const parts = [];
-  parts.push(`<div class="ll-tt-name ll-tier-${esc(m.tier)}">${esc(m.name)}${m.quantity ? ` <span class="ll-tt-qty">×${esc(m.quantity)}</span>` : ""}</div>`);
-  if (m.rarity) parts.push(row("rarity", `<span class="ll-tier-${esc(m.tier)}">${esc(m.rarity)}</span>`));
+  const q = esc(m.quality ?? quality(m.tier));
+  parts.push(`<div class="ll-tt-name wc-q-text wc-q-${q}" data-quality="${q}">${esc(m.name)}${m.quantity ? ` <span class="ll-tt-qty">×${esc(m.quantity)}</span>` : ""}</div>`);
+  if (m.rarity) parts.push(row("rarity", `<span class="wc-q-text wc-q-${q}">${esc(m.rarity)}</span>`));
   if (m.type.left || m.type.right) parts.push(row("type", `<span>${esc(m.type.left)}</span><span>${esc(m.type.right)}</span>`));
   for (const s of m.stats) parts.push(row(`stat ll-tt-${esc(s.key)}`, esc(s.text)));
   if (m.properties.length) parts.push(row("props", esc(m.properties.join(", "))));

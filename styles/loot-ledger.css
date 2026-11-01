@@ -4,7 +4,9 @@
 .loot-ledger-menu .form-footer { display: flex; justify-content: flex-end; }
 .loot-ledger-sell { margin-top: 0.4em; opacity: 0.85; }
 
-/* Item tooltip (opt-in, hold Shift). Fixed, outside every app, pointer-transparent: no layout shift, never takes focus. */
+/* Item tooltip (opt-in, hold Shift). Fixed, outside every app, pointer-transparent: no layout shift, never takes focus.
+   The element also carries core's root classes, so quality colours are core's --wc-q-* tokens (bright on the dark tooltip,
+   darkened on the light one via its theme-* class) and names use core's .wc-q-text. Only the tooltip's own surface is here. */
 .loot-ledger-tooltip {
   --ll-tt-bg: rgba(12, 14, 24, 0.96);
   --ll-tt-border: #6b6f80;
@@ -12,13 +14,6 @@
   --ll-tt-muted: #b4b1a6;
   --ll-tt-up: #3ad13a;
   --ll-tt-down: #ff5a4f;
-  --ll-tier-mundane: #9d9d9d;
-  --ll-tier-common: #ffffff;
-  --ll-tier-uncommon: #1eff00;
-  --ll-tier-rare: #3a8eff;
-  --ll-tier-veryRare: #b357ff;
-  --ll-tier-legendary: #ff8000;
-  --ll-tier-artifact: #e6cc80;
   position: fixed;
   top: 0;
   left: 0;
@@ -47,24 +42,10 @@
   --ll-tt-muted: #5c554a;
   --ll-tt-up: #1c7a1c;
   --ll-tt-down: #b3261e;
-  --ll-tier-mundane: #6e6e6e;
-  --ll-tier-common: #2a2a2a;
-  --ll-tier-uncommon: #1a8a00;
-  --ll-tier-rare: #0058b0;
-  --ll-tier-veryRare: #7a24c4;
-  --ll-tier-legendary: #c25e00;
-  --ll-tier-artifact: #8f7424;
 }
 .loot-ledger-tooltip > div + div { margin-top: 2px; }
 .loot-ledger-tooltip .ll-tt-name { font-size: 1.1em; font-weight: bold; }
 .loot-ledger-tooltip .ll-tt-qty { color: var(--ll-tt-muted); font-weight: normal; }
-.loot-ledger-tooltip .ll-tier-mundane { color: var(--ll-tier-mundane); }
-.loot-ledger-tooltip .ll-tier-common { color: var(--ll-tier-common); }
-.loot-ledger-tooltip .ll-tier-uncommon { color: var(--ll-tier-uncommon); }
-.loot-ledger-tooltip .ll-tier-rare { color: var(--ll-tier-rare); }
-.loot-ledger-tooltip .ll-tier-veryRare { color: var(--ll-tier-veryRare); }
-.loot-ledger-tooltip .ll-tier-legendary { color: var(--ll-tier-legendary); }
-.loot-ledger-tooltip .ll-tier-artifact { color: var(--ll-tier-artifact); }
 .loot-ledger-tooltip .ll-tt-rarity { font-size: 0.9em; }
 .loot-ledger-tooltip .ll-tt-type,
 .loot-ledger-tooltip .ll-tt-foot { display: flex; justify-content: space-between; gap: 12px; }
@@ -72,8 +53,8 @@
 .loot-ledger-tooltip .ll-tt-props,
 .loot-ledger-tooltip .ll-tt-line { color: var(--ll-tt-muted); }
 .loot-ledger-tooltip .ll-tt-bonus,
-.loot-ledger-tooltip .ll-tt-uses { color: var(--ll-tier-uncommon); }
-.loot-ledger-tooltip .ll-tt-desc { margin-top: 6px; color: var(--ll-tier-artifact); font-style: italic; }
+.loot-ledger-tooltip .ll-tt-uses { color: var(--wc-q-uncommon); }
+.loot-ledger-tooltip .ll-tt-desc { margin-top: 6px; color: var(--wc-q-artifact); font-style: italic; }
 .loot-ledger-tooltip .ll-tt-compare { margin-top: 6px; padding-top: 4px; border-top: 1px solid var(--ll-tt-border); }
 .loot-ledger-tooltip .ll-tt-cmp-head { color: var(--ll-tt-muted); font-size: 0.9em; }
 .loot-ledger-tooltip .ll-tt-compare ul { margin: 2px 0 0; padding: 0; list-style: none; }

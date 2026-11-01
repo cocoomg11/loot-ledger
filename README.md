@@ -206,18 +206,20 @@ Without Shift nothing changes, and dnd5e's own tooltips work as before.
 
 It works on any item, not just Loot Ledger's copies, wherever the item's row carries its id or UUID: actor sheets
 (including the dnd5e 6 sheets), the Items sidebar, compendium windows, the dnd5e compendium browser, chat item cards and
-item links. Other modules' item lists (for example merchant or loot-pile windows) work when their rows use the same
-attributes; this has not been checked.
+item links. **Item Piles** windows (item piles, merchants, vaults) work too: their rows carry no item id, so Loot Ledger reads the
+item from Item Piles' own row hooks, or, for a row drawn before you turned the tooltip on, from the pile's items by the row's name
+and image (two identical items in one pile cannot be told apart and show no tooltip). Other modules' item lists work when their
+rows carry an item id or UUID.
 
 Contents, top to bottom:
 
 - **Name** in the rarity colour: mundane grey, common white, uncommon green, rare blue, very rare purple, legendary orange,
-  artifact gold. Loot Ledger items use their original quality (poor items show grey); other items use their dnd5e rarity.
+  artifact gold (the shared item quality colours of the author's modules, darkened on the light theme). Loot Ledger items use their original quality (poor items show grey); other items use their dnd5e rarity.
 - Rarity, item type and slot (weapon type, armour weight, equipment or consumable type; the source slot for Loot Ledger items).
 - Damage (with the magical bonus), versatile damage, range, AC (with the Dex cap), mastery and item properties.
 - Magical bonus, attunement, charges / uses with their recovery period, Strength requirement.
 - A short plain-text excerpt of the item's own description (HTML, links and the "Sells for" line are stripped).
-- Price in gold / silver / copper (`1g 2s 3c`) using the world's currency conversions, the classic sell price for Loot Ledger
+- Price in gold / silver / copper (`1g 2s 3c`) using the world's currency conversions and the *Coin ratio* setting, the classic sell price for Loot Ledger
   items, and weight.
 - **Compare**: if your character already has an *equipped* item in the same slot, arrows show the difference in AC, magical
   bonus and average damage (↑ better, ↓ worse). Slots are body armour, shield, melee weapon, ranged weapon, ring, and the

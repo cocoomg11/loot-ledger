@@ -8,8 +8,10 @@ Foundry VTT module (v13/v14, dnd5e) that copies the classic MMO item compendium 
 - `build.mjs` build pipeline: copies source items into world pack "Loot Ledger · Items" (price = 2x vendor sell, so selling pays the original amount), then writes "Loot Ledger · Tables".
 - `convert.mjs` converter classic MMO item -> dnd5e 2024 item. Every feature must trace to one source tooltip line; untranslatable lines go to GM review, never invented.
 - `api.mjs` public API: `game.modules.get("loot-ledger").api` (build, convertToPack, ...).
-- `tooltip.mjs` opt-in item tooltip (client setting `itemTooltip`, default off, shown only while Shift is held): document-level pointer/key listeners, item lookup from `data-item-uuid` / `data-uuid` / `data-item-id` / `.directory-item[data-entry-id]` and chat cards (`getAssociatedItem`), one fixed `#loot-ledger-tooltip` element. Read-only.
-- `tooltip-data.mjs` pure tooltip model + HTML render (rarity tier, stats, excerpt, g/s/c price, slot compare); tested in `tests/tooltip-data.test.mjs`.
+- `tooltip.mjs` opt-in item tooltip (client setting `itemTooltip`, default off, shown only while Shift is held): document-level pointer/key listeners, item lookup from `data-item-uuid` / `data-uuid` / `data-item-id` / `.directory-item[data-entry-id]` and chat cards (`getAssociatedItem`) and Item Piles rows (`item-piles-model.mjs`; hooks registered only while the tooltip is on), one fixed `#loot-ledger-tooltip` element carrying core's `UI_CLASSES`. Read-only.
+- `tooltip-data.mjs` pure tooltip model + HTML render (rarity tier → core quality key `qualityOf`, stats, excerpt, price via core `formatCoins` with the `coinRatio` setting, slot compare); tested in `tests/tooltip-data.test.mjs`.
+- `item-piles-model.mjs` (0.2.2, pure) Item Piles rows → items: `ITEM_PILES_HOOKS` (Item Piles' documented `item-piles-render*Item` / `-mouseHover*Item` hooks pass `(element, item)`), `rowMap()` (WeakMap element → item, filled by those hooks while the tooltip is on), fallback `matchRowItem(actor.items, { name, img })` (name+img → name → img, single match only) on `pileActorOf(app)` (`app.actor`, merchant `app.merchant`). Checked against Item Piles 3.3.4 source; tested in `tests/item-piles.test.mjs`.
+- `vendor/wanderers-core/` **wanderers-core 0.5.0** (0.2.2), pinned by `wanderers-core.lock.json`; never edit by hand: `node vendor/wanderers-core/vendor.mjs update X.Y.Z` (behind the agent proxy: `NODE_USE_ENV_PROXY=1 NODE_EXTRA_CA_CERTS=/root/.ccr/ca-bundle.crt`). Core's CONVENTIONS.md applies. Used so far: `quality`/`QUALITY_KEYS`, `formatCoins`, `UI_CLASSES` (tooltip root, so `--wc-q-*` tokens apply), the shared stylesheet (first in `module.json` `styles`). Never write the revision class (`wc-r3`) out; a test checks.
 - Also `styles/`, `lang/en.json`.
 
 ## Key patterns
@@ -20,18 +22,18 @@ Foundry VTT module (v13/v14, dnd5e) that copies the classic MMO item compendium 
 - Writes (build, conversion) run from a GM-triggered action; do not add automatic hooks that write documents without an active-GM check.
 
 ## Branches
-- `main` = released v0.2.1 (item tooltip, test/lint setup, Tests workflow) plus docs. `v030-dev` = v0.3.0 prep (unmerged, unreleased): convert-on-build, incremental/resumable builds (`flags.loot-ledger.hash`), GM review pages, Build Report journal, `scripts/rules.mjs` (all tunable numbers), `scripts/replace-list.mjs`, `scripts/ledger.mjs` (pure bookkeeping), `tests/`, `tools/calibration-report.mjs`, `BOOK-DAY.md`. Do feature work for 0.3.0 there.
-- **Before 0.3.0, merge main into `v030-dev`** so it gets the 0.2.1 tooltip and test setup (expect conflicts in `package.json`, `tests/`, `CHANGELOG.md`, `lang/en.json`, `main.mjs` settings and this file; keep both sides).
+- `main` = released v0.2.1 (item tooltip, test/lint setup, Tests workflow) plus 0.2.2 (vendored core 0.5.0, tooltip on core, Item Piles fix; unreleased until the user tags). `v030-dev` = v0.3.0 prep (unmerged, unreleased): convert-on-build, incremental/resumable builds (`flags.loot-ledger.hash`), GM review pages, Build Report journal, `scripts/rules.mjs` (all tunable numbers), `scripts/replace-list.mjs`, `scripts/ledger.mjs` (pure bookkeeping), `tests/`, `tools/calibration-report.mjs`, `BOOK-DAY.md`. Do feature work for 0.3.0 there.
+- **Before 0.3.0, merge main into `v030-dev`** so it gets the 0.2.1 tooltip, the 0.2.2 vendored core / Item Piles fix and test setup (expect conflicts in `package.json`, `tests/`, `CHANGELOG.md`, `lang/en.json`, `main.mjs` settings, `module.json` styles, the workflows and this file; keep both sides).
 
 ## Tests
-- CI: `.github/workflows/test.yml` (push/PR to main; actions pinned by SHA) runs `npm install --no-package-lock --ignore-scripts` (eslint is the only dependency, no lockfile), `npm run check`, `npm run lint`, `npm test`. Keep it green; the release workflow is separate.
+- CI: `.github/workflows/test.yml` (push/PR to main; actions pinned by SHA) runs the core pin check (`vendor.mjs verify --remote`), `npm install --no-package-lock --ignore-scripts` (eslint is the only dependency, no lockfile), `npm run check`, `npm run lint`, `npm test`. Keep it green; the release workflow is separate.
 - Since 0.2.1, main has `package.json`: `npm test` (`node --test tests/*.test.mjs`), `npm run check`, `npm run lint` (`eslint.config.mjs`, recommended rules inlined, no plugins). Only the tooltip's pure logic is tested; the DOM wiring needs a live world.
 - On main before 0.2.1 there was no test suite. On `v030-dev`: `npm test` (`node --test tests/*.test.mjs`), `npm run check`, `npm run calibrate`; pure logic (data, rules, ledger, replace list, build planning) is tested in Node with fixtures; `build()` and compendium writes need a live Foundry world and are untested there.
 
 ## Release process
 1. Bump `version` in `module.json` and the `download` URL (`.../releases/download/vX.Y.Z/module.zip`); manifest URL stays `.../releases/latest/download/module.json`.
 2. Update `CHANGELOG.md`. Merge to main.
-3. **Agents never tag or publish.** The user publishes the GitHub release; the Release workflow sets version/URLs and uploads `module.json` and `module.zip` (`module.json scripts styles lang README.md LICENSE`). A new top-level folder must be added to the zip step.
+3. **Agents never tag or publish.** The user publishes the GitHub release; the Release workflow sets version/URLs and uploads `module.json` and `module.zip` (`module.json scripts styles lang vendor README.md LICENSE`, minus `vendor/wanderers-core/config/`, `vendor.mjs` and `testing/`; it runs the pin check first). A new top-level folder must be added to the zip step.
 
 ## Focus tagging (research)
 Researched 2026-11-01 against dnd5e 6.1.0 (branch `6.1.x`, commit `0a247dd`, read-only; no code written). Permalinks are pinned to that commit (`https://github.com/foundryvtt/dnd5e/blob/0a247dd7d88d4646930ac140d73363282d25b24e/` = `https://github.com/foundryvtt/dnd5e/blob/0a247dd7d88d4646930ac140d73363282d25b24e/`).

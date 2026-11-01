@@ -5,11 +5,14 @@
  * hovering user's equipped item in the same slot.
  *
  * One document-level listener set finds the hovered item from its element's data attributes, so no sheet is patched and
- * nothing is written. The tooltip is a single fixed-position element outside every application (no layout shift); it ignores
+ * nothing is written. Item Piles rows carry no ids: their items come from Item Piles' own row hooks, else from the window's pile
+ * actor by shown name and image (item-piles-model.mjs). The tooltip is a single fixed-position element outside every application (no layout shift); it ignores
  * the pointer and never takes focus. Model and HTML come from tooltip-data.mjs (pure, tested in Node).
  */
 import { MODULE_ID } from "./data.mjs";
 import { TOOLTIP_TYPES, buildModel, renderModel, equippedInSlot } from "./tooltip-data.mjs";
+import { ITEM_PILES_HOOKS, ROW_SELECTOR, APP_SELECTOR, rowMap, matchRowItem, pileActorOf } from "./item-piles-model.mjs";
+import { UI_CLASSES } from "../vendor/wanderers-core/index.mjs";
 
 export const SETTING = "itemTooltip";
 
@@ -22,14 +25,19 @@ let shown = null; // element the tooltip currently describes
 let token = 0; // invalidates stale async lookups
 let frame = 0;
 let enabled = false;
-const ITEM_SELECTOR = "[data-item-uuid], [data-uuid], [data-item-id], .directory-item[data-entry-id], .chat-message .card-header, .chat-message .item-name";
+const ITEM_SELECTOR = `[data-item-uuid], [data-uuid], [data-item-id], .directory-item[data-entry-id], .chat-message .card-header, .chat-message .item-name, ${ROW_SELECTOR}`;
+/** Item Piles row element → item, from its hooks (registered while the tooltip is on). */
+const pileRows = rowMap();
+/** @type {Array<[string, number]>} */
+let pileHookIds = [];
 
 /** Create (once) the tooltip element. */
 function element() {
   if (tip?.isConnected) return tip;
   tip = document.createElement("aside");
   tip.id = "loot-ledger-tooltip";
-  tip.className = "loot-ledger-tooltip";
+  // Core's root classes give the tooltip the shared quality tokens (--wc-q-*) and coin styles; its own CSS keeps the in-world look.
+  tip.className = ["loot-ledger-tooltip", ...UI_CLASSES].join(" ");
   tip.setAttribute("role", "tooltip");
   tip.setAttribute("aria-hidden", "true");
   document.body.append(tip);
@@ -38,7 +46,7 @@ function element() {
 
 /** The ApplicationV2 (or v1) instance that owns an element. */
 function appFor(el) {
-  const root = el.closest(".application, .app");
+  const root = el.closest(".application, .app, .item-piles-app");
   if (!root) return null;
   const v2 = foundry.applications?.instances?.get?.(root.id);
   if (v2) return v2;
@@ -46,8 +54,38 @@ function appFor(el) {
   return appId ? (ui.windows?.[appId] ?? null) : null;
 }
 
+/** The element and its ancestors up to (and including) `stop`, nearest first. */
+function chainTo(el, stop) {
+  const out = [];
+  for (let n = el; n; n = n.parentElement) {
+    out.push(n);
+    if (n === stop) break;
+  }
+  return out;
+}
+
+/** The item behind an Item Piles row: the hook map first, else the window's pile actor matched by shown name and image. */
+function pileItem(row) {
+  const fromHook = pileRows.find(chainTo(row, row.closest(".item-piles-item-row, .grid-item") ?? row));
+  if (fromHook) return fromHook;
+  const root = row.closest(APP_SELECTOR);
+  const actor = pileActorOf(root ? appFor(root) : null);
+  if (!actor) return null;
+  const name = row.querySelector("a.item-piles-clickable, .item-piles-name-container p, .item-piles-name-container span")?.textContent
+    ?? row.getAttribute("data-fast-tooltip") ?? "";
+  const img = row.querySelector("img.item-piles-img, img.grid-item-image, img")?.getAttribute("src") ?? "";
+  return matchRowItem(actor.items, { name, img });
+}
+
+/** Item Piles' merchant rows use `display: contents`, so the hovered cell may sit beside the row's other cells: find the row. */
+function pileRowOf(target) {
+  return target.closest(ROW_SELECTOR);
+}
+
 /** Resolve the item a hovered element stands for. @returns {Promise<Item|null>} */
 async function resolveItem(target) {
+  const row = target.closest(APP_SELECTOR) ? pileRowOf(target) : null;
+  if (row) return pileItem(row);
   // Chat cards: the message knows its item even after the original is deleted.
   const msgEl = target.closest(".chat-message[data-message-id]");
   if (msgEl && target.closest(".card-header, .item-name, .item-icon")) {
@@ -187,7 +225,12 @@ export function setTooltipEnabled(on) {
     if (on) target.addEventListener(type, fn, { passive: true, capture: type !== "pointerover" });
     else target.removeEventListener(type, fn, { capture: type !== "pointerover" });
   }
-  if (!on) { hide(); tip?.remove(); tip = null; hovered = null; }
+  if (on) pileHookIds = ITEM_PILES_HOOKS.map(name => [name, Hooks.on(name, (element, item) => pileRows.remember(element, item))]);
+  else {
+    for (const [name, id] of pileHookIds) Hooks.off(name, id);
+    pileHookIds = [];
+    hide(); tip?.remove(); tip = null; hovered = null;
+  }
 }
 
 /** Register the client setting (called from init). */

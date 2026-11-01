@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-  tierOf, excerpt, priceCopper, formatGsc, damageOf, acOf, magicalBonusOf, slotOf, equippedInSlot, compare, buildModel, renderModel, esc
+  tierOf, qualityOf, ratioOf, excerpt, priceCopper, formatPrice, damageOf, acOf, magicalBonusOf, slotOf, equippedInSlot, compare, buildModel, renderModel, esc
 } from "../scripts/tooltip-data.mjs";
 
 /** Small slice of CONFIG.DND5E in the shapes dnd5e 6 uses. */
@@ -48,15 +48,31 @@ test("excerpt strips html, enrichers and the sell line, and cuts at a word", () 
   assert.equal(excerpt(null), "");
 });
 
-test("priceCopper and formatGsc use the world's currency conversions", () => {
+test("priceCopper and formatPrice use the world's conversions and core formatCoins with the coin ratio", () => {
   assert.deepEqual(priceCopper({ value: 1.4672, denomination: "gp" }, DND5E.currencies), { copper: 14672, step: 100 });
-  assert.equal(formatGsc(14672), "1g 46s 72c");
-  assert.equal(formatGsc(priceCopper({ value: 47, denomination: "sp" }, DND5E.currencies).copper), "47s");
+  assert.equal(formatPrice(14672), "1g 46s 72c");
+  assert.equal(formatPrice(priceCopper({ value: 47, denomination: "sp" }, DND5E.currencies).copper), "47s");
   const std = { gp: { conversion: 1 }, sp: { conversion: 10 }, cp: { conversion: 100 } };
-  const p = priceCopper({ value: 2.5, denomination: "gp" }, std);
+  const p = priceCopper({ value: 2.5, denomination: "gp" }, std, "10");
   assert.deepEqual(p, { copper: 250, step: 10 });
-  assert.equal(formatGsc(p.copper, p.step), "2g 5s");
-  assert.equal(formatGsc(0), "");
+  assert.equal(formatPrice(p.copper, p.step), "2g 5s");
+  // No conversions in the world: the ratio's own.
+  assert.deepEqual(priceCopper({ value: 3, denomination: "sp" }, undefined, "10"), { copper: 30, step: 10 });
+  assert.deepEqual(priceCopper({ value: 3, denomination: "sp" }, undefined), { copper: 300, step: 100 });
+  assert.equal(formatPrice(0), "");
+  assert.equal(formatPrice(-5), "");
+  assert.equal(ratioOf("10"), 10);
+  assert.equal(ratioOf("100"), 100);
+  assert.equal(ratioOf("bogus"), 100);
+});
+
+test("qualityOf: Loot Ledger quality key, else core quality() of the dnd5e rarity", () => {
+  assert.equal(qualityOf({ flags: { "loot-ledger": { quality: "poor" } }, system: { rarity: "rare" } }), "poor");
+  assert.equal(qualityOf({ flags: { "loot-ledger": { quality: "epic" } }, system: {} }), "epic");
+  assert.equal(qualityOf({ system: { rarity: "veryRare" } }), "epic");
+  assert.equal(qualityOf({ system: { rarities: new Set(["legendary"]) } }), "legendary");
+  assert.equal(qualityOf({ system: {} }), "poor");
+  assert.equal(qualityOf({ flags: { "loot-ledger": { quality: "nonsense" } }, system: { rarity: "uncommon" } }), "uncommon");
 });
 
 test("damage, AC and magical bonus", () => {
@@ -102,6 +118,7 @@ test("buildModel and renderModel: full weapon", () => {
   item.flags = { "loot-ledger": { vendorSell: "7s 50c", coinRatio: "100" } };
   const m = buildModel(item, { dnd5e: DND5E, equipped: sword({ equipped: true }) });
   assert.equal(m.tier, "rare");
+  assert.equal(m.quality, "rare");
   assert.equal(m.type.left, "Martial Melee");
   assert.equal(m.stats[0].text, "1d8 + 1 Slashing");
   assert.ok(m.properties[0] === "Magical" && m.properties.includes("Versatile"));
@@ -113,7 +130,8 @@ test("buildModel and renderModel: full weapon", () => {
   assert.equal(m.description, "Old & sharp.");
   assert.deepEqual(m.compare.map(c => [c.key, c.delta]), [["bonus", 1], ["damage", 1]]);
   const html = renderModel(m);
-  assert.match(html, /ll-tier-rare/);
+  assert.match(html, /class="ll-tt-name wc-q-text wc-q-rare" data-quality="rare"/);
+  assert.ok(!html.includes("ll-tier-"));
   assert.match(html, /Old &amp; sharp\./);
   assert.match(html, /ll-cmp-up/);
 });
@@ -123,6 +141,7 @@ test("unidentified items hide details from players, not from the GM", () => {
   const player = buildModel(item, { dnd5e: DND5E });
   assert.equal(player.name, "Strange Blade");
   assert.equal(player.tier, "mundane");
+  assert.equal(player.quality, "poor");
   assert.equal(player.stats.length, 0);
   assert.equal(player.description, "Odd.");
   const gm = buildModel(item, { dnd5e: DND5E, isGM: true });
