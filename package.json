@@ -1,0 +1,14 @@
+{
+  "name": "loot-ledger",
+  "private": true,
+  "description": "Dev tooling for the Loot Ledger Foundry VTT module (the module itself needs no install step).",
+  "scripts": {
+    "test": "node --test tests/*.test.mjs",
+    "check": "for f in scripts/*.mjs tests/*.mjs eslint.config.mjs; do node --check \"$f\" || exit 1; done",
+    "lint": "eslint .",
+    "ci": "npm run check && npm run lint && npm test"
+  },
+  "devDependencies": {
+    "eslint": "10.13.0"
+  }
+}

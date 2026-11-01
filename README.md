@@ -19,7 +19,7 @@ There is also an optional, **off-by-default 5e conversion** that rewrites each s
 - [Requirements](#requirements) · [Installation](#installation) · [Quick start](#quick-start)
 - [Building the loot pools](#building-the-loot-pools) · [Prices](#prices) · [Rarity](#rarity) · [Level bands](#level-bands)
 - [Roll tables](#roll-tables) · [Item flags](#item-flags) · [API](#api)
-- [5e conversion (preview)](#5e-conversion-preview) · [Licence](#licence)
+- [Item tooltip (hold Shift)](#item-tooltip-hold-shift) · [5e conversion (preview)](#5e-conversion-preview) · [Licence](#licence)
 
 ## Requirements
 
@@ -196,6 +196,36 @@ await ll.findTable({ band: 4, type: "jewelry" });   // the RollTable document
 `armor-limbs` `armor-back` `shield` `jewelry` `consumable` `goods` `junk`) or `creature` (`beast`
 `humanoid` `undead` `elemental` `dragonkin` `demon` `giant` `mechanical`). With none of them it rolls
 the band's mixed drop. A `loot-ledger.ready` hook fires on ready with the API as its argument.
+
+## Item tooltip (hold Shift)
+
+An optional MMO-style tooltip for dnd5e items. It is a **client setting, off by default**
+(*Configure Settings → Loot Ledger → Item tooltip (hold Shift)*), so each user turns it on for themselves.
+When it is on, **hold Shift** while hovering an item; releasing Shift, clicking, scrolling or moving off the item hides it.
+Without Shift nothing changes, and dnd5e's own tooltips work as before.
+
+It works on any item, not just Loot Ledger's copies, wherever the item's row carries its id or UUID: actor sheets
+(including the dnd5e 6 sheets), the Items sidebar, compendium windows, the dnd5e compendium browser, chat item cards and
+item links. Other modules' item lists (for example merchant or loot-pile windows) work when their rows use the same
+attributes; this has not been checked.
+
+Contents, top to bottom:
+
+- **Name** in the rarity colour: mundane grey, common white, uncommon green, rare blue, very rare purple, legendary orange,
+  artifact gold. Loot Ledger items use their original quality (poor items show grey); other items use their dnd5e rarity.
+- Rarity, item type and slot (weapon type, armour weight, equipment or consumable type; the source slot for Loot Ledger items).
+- Damage (with the magical bonus), versatile damage, range, AC (with the Dex cap), mastery and item properties.
+- Magical bonus, attunement, charges / uses with their recovery period, Strength requirement.
+- A short plain-text excerpt of the item's own description (HTML, links and the "Sells for" line are stripped).
+- Price in gold / silver / copper (`1g 2s 3c`) using the world's currency conversions, the classic sell price for Loot Ledger
+  items, and weight.
+- **Compare**: if your character already has an *equipped* item in the same slot, arrows show the difference in AC, magical
+  bonus and average damage (↑ better, ↓ worse). Slots are body armour, shield, melee weapon, ranged weapon, ring, and the
+  source slot for Loot Ledger items. "Your character" is a controlled token you own, otherwise your assigned character.
+
+Unidentified items show only their unidentified name and description to players (GMs see everything). The tooltip follows the
+light / dark theme of the window it is shown over, never takes focus, ignores the mouse and does not move any layout.
+It only reads documents; it never writes anything.
 
 ## 5e conversion (preview)
 

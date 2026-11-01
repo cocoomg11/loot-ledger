@@ -8,6 +8,8 @@ Foundry VTT module (v13/v14, dnd5e) that copies the classic MMO item compendium 
 - `build.mjs` build pipeline: copies source items into world pack "Loot Ledger · Items" (price = 2x vendor sell, so selling pays the original amount), then writes "Loot Ledger · Tables".
 - `convert.mjs` converter classic MMO item -> dnd5e 2024 item. Every feature must trace to one source tooltip line; untranslatable lines go to GM review, never invented.
 - `api.mjs` public API: `game.modules.get("loot-ledger").api` (build, convertToPack, ...).
+- `tooltip.mjs` opt-in item tooltip (client setting `itemTooltip`, default off, shown only while Shift is held): document-level pointer/key listeners, item lookup from `data-item-uuid` / `data-uuid` / `data-item-id` / `.directory-item[data-entry-id]` and chat cards (`getAssociatedItem`), one fixed `#loot-ledger-tooltip` element. Read-only.
+- `tooltip-data.mjs` pure tooltip model + HTML render (rarity tier, stats, excerpt, g/s/c price, slot compare); tested in `tests/tooltip-data.test.mjs`.
 - Also `styles/`, `lang/en.json`.
 
 ## Key patterns
@@ -19,9 +21,11 @@ Foundry VTT module (v13/v14, dnd5e) that copies the classic MMO item compendium 
 
 ## Branches
 - `main` = released v0.2.0 plus docs. `v030-dev` = v0.3.0 prep (unmerged, unreleased): convert-on-build, incremental/resumable builds (`flags.loot-ledger.hash`), GM review pages, Build Report journal, `scripts/rules.mjs` (all tunable numbers), `scripts/replace-list.mjs`, `scripts/ledger.mjs` (pure bookkeeping), `tests/`, `tools/calibration-report.mjs`, `BOOK-DAY.md`. Do feature work for 0.3.0 there.
+- `feat/item-tooltip` = 0.2.1 (item tooltip, test/lint setup), branched from main 83f9750, untested in Foundry. **It must later be merged into `v030-dev` too** (expect conflicts in `package.json`, `tests/`, `CHANGELOG.md`, `lang/en.json`, `main.mjs` settings and this file; keep both sides).
 
 ## Tests
-- On main there is no test suite. On `v030-dev`: `npm test` (`node --test tests/*.test.mjs`), `npm run check`, `npm run calibrate`; pure logic (data, rules, ledger, replace list, build planning) is tested in Node with fixtures; `build()` and compendium writes need a live Foundry world and are untested there.
+- `feat/item-tooltip` (0.2.1) adds `package.json`: `npm test` (`node --test tests/*.test.mjs`), `npm run check`, `npm run lint` (`eslint.config.mjs`, recommended rules inlined, no plugins). Only the tooltip's pure logic is tested; the DOM wiring needs a live world.
+- On main before 0.2.1 there was no test suite. On `v030-dev`: `npm test` (`node --test tests/*.test.mjs`), `npm run check`, `npm run calibrate`; pure logic (data, rules, ledger, replace list, build planning) is tested in Node with fixtures; `build()` and compendium writes need a live Foundry world and are untested there.
 
 ## Release process
 1. Bump `version` in `module.json` and the `download` URL (`.../releases/download/vX.Y.Z/module.zip`); manifest URL stays `.../releases/latest/download/module.json`.

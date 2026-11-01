@@ -6,6 +6,10 @@
         "Hint": "How classic gold/silver/copper is converted into item prices. Applied the next time you build the loot pools.",
         "Hundred": "100:1 (classic MMO, matches three-coin economies)",
         "Ten": "Standard 5e (10:1, converted by value; small amounts lose precision)"
+      },
+      "Tooltip": {
+        "Name": "Item tooltip (hold Shift)",
+        "Hint": "Off by default. While on, hold Shift and hover an item on a sheet, in the Items sidebar, a compendium or a chat card to see a tooltip with its rarity colour, stats, price, weight and a comparison with your character's equipped item in the same slot. Only affects you."
       }
     },
     "Menu": {
@@ -19,6 +23,25 @@
       "Missing": "not found (enable wow-classic-items)",
       "NotBuilt": "not built yet",
       "Bands": "Level bands"
+    },
+    "Tooltip": {
+      "Armor": "Armor",
+      "AC": "AC",
+      "MaxDex": "max Dex",
+      "Strength": "Requires Strength",
+      "MagicalBonus": "magical bonus",
+      "Magical": "Magical",
+      "Versatile": "Versatile",
+      "Range": "Range",
+      "Mastery": "Mastery",
+      "Attunement": "Requires attunement",
+      "Attuned": "attuned",
+      "Charges": "Charges",
+      "Price": "Price",
+      "Sells": "Sells for",
+      "Weight": "Weight",
+      "AvgDamage": "Average damage",
+      "CompareWith": "Compared with"
     }
   }
 }
