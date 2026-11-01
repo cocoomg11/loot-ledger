@@ -12,6 +12,13 @@ Loot Ledger ships no item data of its own. It reads the item compendium from the
 
 The source module and its compendium are never modified.
 
+## Contents
+
+- [Requirements](#requirements) · [Installation](#installation) · [Quick start](#quick-start)
+- [Building the loot pools](#building-the-loot-pools) · [Prices](#prices) · [Rarity](#rarity) · [Level bands](#level-bands)
+- [Roll tables](#roll-tables) · [Item flags](#item-flags) · [API](#api)
+- [5e conversion (preview)](#5e-conversion-preview) · [Licence](#licence)
+
 ## Requirements
 
 | | |
@@ -30,6 +37,18 @@ https://github.com/cocoomg11/loot-ledger/releases/latest/download/module.json
 
 Enable **Loot Ledger** and `wow-classic-items` in your world.
 
+## Quick start
+
+1. **Install the source module first.** Loot Ledger ships no items. Install and enable `wow-classic-items` (its item compendium is what gets copied), then enable **Loot Ledger**. You need a dnd5e world and you must be the GM.
+2. **Open the settings.** Go to **Game Settings › Configure Settings › Loot Ledger**. Pick a **Coin ratio**: *100:1* if your world uses three coins (copper, silver, gold), or *Standard 5e (10:1)* if it uses normal 5e coins.
+3. **Build.** Click **Build loot pools** (under *Loot pools*) and confirm. A progress bar runs for a few minutes. Nothing outside the two Loot Ledger compendiums is touched.
+4. **Find your tables.** Open the **Compendium Packs** sidebar and look for **Loot Ledger · Tables**. Open one, for example `Loot · Band 2 (L3–5) · Drop (mixed)`, and click **Roll** or **Draw**. Each result links to an item.
+5. **Hand out the loot.** Drag an item from **Loot Ledger · Items** onto a character sheet or an NPC. Its price is already set so that selling it pays the original vendor amount.
+6. **Roll from a macro (optional).** Make a script macro with `game.modules.get("loot-ledger").api.roll({ level: 6, chat: true })` to draw a mixed drop for a level 6 party and post it to chat. See [API](#api) for more.
+
+<!-- screenshot: the Loot Ledger settings page with Coin ratio and the Build loot pools button -->
+<!-- screenshot: the Loot Ledger · Tables compendium open on a mixed-drop table -->
+
 ## Building the loot pools
 
 1. As GM, open **Game Settings → Configure Settings → Loot Ledger**.
@@ -42,6 +61,8 @@ first) and touches nothing else in the world. Item ids are kept from the source 
 ids are derived from table names, so UUID links stay valid across rebuilds.
 
 Change the coin ratio or update the source module? Just build again.
+
+<!-- screenshot: a Loot Ledger item sheet showing its price and the "Sells for" line -->
 
 ## Prices
 
