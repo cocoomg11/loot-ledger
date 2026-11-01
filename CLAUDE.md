@@ -16,7 +16,8 @@ Foundry VTT module (v14, dnd5e) that copies the classic MMO item compendium from
 - `tooltip-data.mjs` pure tooltip model + HTML render (flag via the quality normaliser, else rarity tier → core quality key `qualityOf`, stats, excerpt, price via core `formatCoins` with the `coinRatio` setting, slot compare); tested in `tests/tooltip-data.test.mjs`.
 - `item-piles-model.mjs` (0.2.2, pure) Item Piles rows → items: `ITEM_PILES_HOOKS` (Item Piles' documented `item-piles-render*Item` / `-mouseHover*Item` hooks pass `(element, item)`), `rowMap()` (WeakMap element → item, filled by those hooks while the tooltip is on), fallback `matchRowItem(actor.items, { name, img })` (name+img → name → img, single match only) on `pileActorOf(app)` (`app.actor`, merchant `app.merchant`). Checked against Item Piles 3.3.4 source; tested in `tests/item-piles.test.mjs`.
 - `vendor/wanderers-core/` **wanderers-core 0.5.2** (0.2.2 on main: 0.5.0), pinned by `wanderers-core.lock.json`; never edit by hand: `node vendor/wanderers-core/vendor.mjs update X.Y.Z` (behind the agent proxy: `NODE_USE_ENV_PROXY=1 NODE_EXTRA_CA_CERTS=/root/.ccr/ca-bundle.crt`). Core's CONVENTIONS.md applies. Used so far: `quality`/`QUALITY_KEYS`, `formatCoins`, `UI_CLASSES` (tooltip root, so `--wc-q-*` tokens apply), the shared stylesheet (first in `module.json` `styles`). Never write the revision class (`wc-r4`) out; a test checks.
-- Also `styles/`, `lang/en.json`.
+- Also `styles/`, `lang/en.json`, `docs/conversion.md` (calibration and replace-list notes, linked from the README's For developers section).
+- README order (family layout): Requirements, Install, Quick start, How to use, Settings, Troubleshooting, Removing its data ("Where Loot Ledger keeps its data"), The Wanderer's family, For developers ("Public API and hooks" table, API examples, Item flags), License.
 
 ## Key patterns
 - Conversion: `api.convertToPack`, and on this branch Build converts when `convertOnBuild` is on (off by default).
