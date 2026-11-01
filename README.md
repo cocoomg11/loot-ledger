@@ -12,6 +12,8 @@ Loot Ledger ships no item data of its own. It reads the item compendium from the
 
 The source module and its compendium are never modified.
 
+There is also an optional, **off-by-default 5e conversion** that rewrites each source item as a dnd5e (2024 rules) item from its own tooltip lines, flagging anything it can't translate for the GM to review. It is an early preview: see [5e conversion (preview)](#5e-conversion-preview). Work on tuning it, and on resumable builds and review pages, is in progress and not part of the current release.
+
 ## Contents
 
 - [Requirements](#requirements) · [Installation](#installation) · [Quick start](#quick-start)
