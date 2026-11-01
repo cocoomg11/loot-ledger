@@ -223,7 +223,7 @@ await ll.qualityOf(item);             // the quality the item shows
 An optional MMO-style tooltip for dnd5e items. It is a **client setting, off by default**
 (*Configure Settings → Loot Ledger → Item tooltip (hold Shift)*), so each user turns it on for themselves.
 When it is on, **hold Shift** while hovering an item; releasing Shift, clicking, scrolling or moving off the item hides it.
-Without Shift nothing changes, and dnd5e's own tooltips work as before.
+Without Shift nothing changes, and dnd5e's own tooltips work as before. So players find out it exists, each browser that has it off gets a one-time notification (switch it off with the world setting **Tell players about the item tooltip**).
 
 It works on any item, not just Loot Ledger's copies, wherever the item's row carries its id or UUID: actor sheets
 (including the dnd5e 6 sheets), the Items sidebar, compendium windows, the dnd5e compendium browser, chat item cards and
@@ -289,6 +289,7 @@ Open **Game Settings › Configure Settings › Loot Ledger**.
 | **Random suffix enchantments** | On by default; works only with 5e conversion on (reload needed). |
 | **Random suffixes: who picks** | *Roll on drop* or *GM picks*. |
 | **Item tooltip (hold Shift)** | Per user, off by default. |
+| **Tell players about the item tooltip** | On by default. Shows a one-time notification (once per browser) to players who have the tooltip off, saying where to turn it on. Does not turn it on. |
 | **Build loot pools** (button) | Runs the build. |
 
 

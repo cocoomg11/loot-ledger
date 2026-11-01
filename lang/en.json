@@ -14,6 +14,14 @@
       "Tooltip": {
         "Name": "Item tooltip (hold Shift)",
         "Hint": "Off by default. While on, hold Shift and hover an item on a sheet, in the Items sidebar, a compendium or a chat card to see a tooltip with its rarity colour, stats, price, weight and a comparison with your character's equipped item in the same slot. Only affects you."
+      },
+      "Hint": {
+        "Name": "Tell players about the item tooltip",
+        "Hint": "Once per player (per browser), show a notification that the item tooltip exists and where to turn it on. Players who already use the tooltip are not told. Does not turn the tooltip on."
+      },
+      "HintSeen": {
+        "Name": "Item tooltip hint shown",
+        "Hint": "Remembers that this browser has been told about the item tooltip."
       }
     },
     "Menu": {
@@ -30,6 +38,9 @@
       "Convert": "Convert to 5e",
       "On": "on",
       "Off": "off"
+    },
+    "Hint": {
+      "Message": "Loot Ledger: you can turn on an item tooltip. In Configure Settings, find Loot Ledger and enable \"Item tooltip (hold Shift)\", then hold Shift while pointing at an item to see its stats, price and a comparison with what you have equipped."
     },
     "Tooltip": {
       "Armor": "Armor",

@@ -88,6 +88,9 @@
 - **Random suffixes only roll for items created by a GM user.** A player could put the suffix flag on an item they create on their own actor and trigger a roll (or a GM whisper). The hook now checks the creating user id; use the item's Roll suffix action or `api.rollSuffix` for a player's item.
 - **Chat card names are escaped.** The "GM picks" whisper put item and actor names into the message as raw HTML; they are now escaped.
 
+### Merged 0.2.4
+- `main` 0.2.4 merged in (tooltip fixes): trailing source "Sell Price" text left out of the tooltip description, chest armour / clothing / Chest-flagged items compare in one body slot (Finger items with rings), price and sells-for hidden on unidentified items for players, and a one-time hint with the world setting **Tell players about the item tooltip**. Entry under 0.2.4 below; the version stays 0.3.0 (unreleased). Conflicts were resolved in favour of this branch's quality / colour code (none touched it).
+
 ### Merged 0.2.1-0.2.2
 - `main` merged into this branch: the Shift item tooltip with compare (0.2.1), and wanderers-core 0.5.0 vendored with the tooltip on core's shared quality tokens / `formatCoins` and the Item Piles row fix (0.2.2). Also from main: ESLint (`npm run lint`), the pinned CI and Release workflows with the core pin check. Entries for 0.2.2 and 0.2.1 are below. The version stays 0.3.0 (unreleased).
 - The tooltip's quality colours come from core's `--wc-q-*` tokens; since the unification below, so do the name colours.
@@ -143,6 +146,23 @@
   rarity or "mundane" rarity is grey (a spell or feature without rarity stays uncoloured, so does a homebrew
   rarity). Switching the interface theme recolours open names without a reload.
 - The Shift tooltip of an item whose quality flag is "heirloom" or an alias ("purple") shows that colour.
+
+## 0.2.4 (2026-11-01)
+
+- Fix: the tooltip description no longer repeats the price. A trailing "Sell Price: ..." line from the item's own text is left
+  out of the tooltip (display only; the item is not changed). The footer still shows Price and Sells for.
+- Fix: chest armour now compares with what the character wears on the body. Armour of any weight, natural armour and clothing
+  count as one body slot, and so do items flagged as Chest, so a cloth vest compares with equipped leather armour or clothes.
+  Items flagged Finger compare with rings. Other slots (head, legs, trinket and so on) still compare only within their own slot.
+- Fix: for players, price and sells-for are hidden on unidentified items, like the stats. GMs still see them.
+- New: a one-time hint. Players who have the item tooltip off get a notification, once per browser, saying it exists and where
+  to turn it on (Configure Settings, hold Shift). A new world setting, **Tell players about the item tooltip** (on by default),
+  switches the hint off. The tooltip itself stays off by default and is never turned on for anyone.
+
+### Untested in Foundry
+- Everything here is covered by Node tests only. In a world: the Thick Cloth Vest tooltip shows a comparison with equipped
+  Leather Armor and with Clothes; a description ending "Sell Price: 1s" no longer shows it; an unidentified item shows no
+  price to a player; a player with the tooltip off sees the notification once after loading, and not again after a reload.
 
 ## 0.2.3 (2026-11-01)
 
