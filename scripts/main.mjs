@@ -4,6 +4,7 @@
 import { MODULE_ID, SOURCE_MODULE, BANDS } from "./data.mjs";
 import { build, ITEMS_PACK, TABLES_PACK } from "./build.mjs";
 import { createApi } from "./api.mjs";
+import { shouldShowHint } from "./hint-model.mjs";
 import { registerTooltipSetting, setTooltipEnabled, SETTING as TOOLTIP_SETTING } from "./tooltip.mjs";
 
 const { ApplicationV2 } = foundry.applications.api;
@@ -75,6 +76,23 @@ Hooks.once("init", () => {
 
   registerTooltipSetting();
 
+  game.settings.register(MODULE_ID, "tooltipHint", {
+    name: "LOOTLEDGER.Settings.Hint.Name",
+    hint: "LOOTLEDGER.Settings.Hint.Hint",
+    scope: "world",
+    config: true,
+    type: Boolean,
+    default: true
+  });
+  game.settings.register(MODULE_ID, "tooltipHintSeen", {
+    name: "LOOTLEDGER.Settings.HintSeen.Name",
+    hint: "LOOTLEDGER.Settings.HintSeen.Hint",
+    scope: "client",
+    config: false,
+    type: Boolean,
+    default: false
+  });
+
   game.settings.registerMenu(MODULE_ID, "build", {
     name: "LOOTLEDGER.Menu.Name",
     label: "LOOTLEDGER.Menu.Build",
@@ -90,5 +108,19 @@ Hooks.once("init", () => {
 
 Hooks.once("ready", () => {
   setTooltipEnabled(game.settings.get(MODULE_ID, TOOLTIP_SETTING));
+  setTimeout(showTooltipHint, 4000);
   Hooks.callAll(`${MODULE_ID}.ready`, game.modules.get(MODULE_ID)?.api);
 });
+
+/** Tell this client once that the item tooltip exists (world setting on, tooltip off here, not told before). */
+async function showTooltipHint() {
+  try {
+    const get = key => game.settings.get(MODULE_ID, key);
+    if (!shouldShowHint({ worldOn: get("tooltipHint"), tooltipOn: get(TOOLTIP_SETTING), seen: get("tooltipHintSeen") })) return;
+    // Remembered when shown, so closing the notification (or ignoring it) never brings it back.
+    await game.settings.set(MODULE_ID, "tooltipHintSeen", true);
+    ui.notifications.info(game.i18n.localize("LOOTLEDGER.Hint.Message"), { permanent: true });
+  } catch (err) {
+    console.warn("Loot Ledger | tooltip hint skipped", err);
+  }
+}
