@@ -8,6 +8,7 @@ import { ReviewBoard, registerReviewBoard } from "./review.mjs";
 import { registerQualityColours } from "./quality.mjs";
 import { registerSuffixSettings, registerSuffixHooks, isActiveGM } from "./suffix-hooks.mjs";
 import { registerDropHook } from "./events.mjs";
+import { registerTooltipSetting, setTooltipEnabled, SETTING as TOOLTIP_SETTING } from "./tooltip.mjs";
 
 const { ApplicationV2 } = foundry.applications.api;
 
@@ -121,6 +122,7 @@ Hooks.once("init", () => {
   if (game.settings.get(MODULE_ID, "qualityColours")) registerQualityColours();
   // The picker without the colours would be invisible; it is part of the colours feature.
   registerSuffixSettings();
+  registerTooltipSetting();
 
   game.settings.registerMenu(MODULE_ID, "build", {
     name: "LOOTLEDGER.Menu.Name",
@@ -138,5 +140,6 @@ Hooks.once("init", () => {
 Hooks.once("ready", () => {
   registerSuffixHooks();
   registerDropHook(isActiveGM);
+  setTooltipEnabled(game.settings.get(MODULE_ID, TOOLTIP_SETTING));
   Hooks.callAll(`${MODULE_ID}.ready`, game.modules.get(MODULE_ID)?.api);
 });

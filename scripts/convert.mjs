@@ -1153,7 +1153,6 @@ const esc = s => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(
 
 /** The 5e block appended under the classic tooltip. */
 function rulesBlock(ctx, hand, shape) {
-  const { p } = ctx;
   const rarityName = TIER_NAME[ctx.tier] ?? "Common";
   if (hand?.kept) {
     const slot = hand.slotNote ? ` Converted to a worn item with no AC (${esc(hand.slotNote)}).` : "";

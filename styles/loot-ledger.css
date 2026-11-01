@@ -92,3 +92,62 @@ a.content-link.ll-q { font-weight: 600; }
 .theme-dark .llrb-st-rejected { color: #ff6b81; }
 .llrb-empty { opacity: 0.8; padding: 1rem; }
 @media (max-width: 760px) { .llrb-cols { grid-template-columns: 1fr; } .llrb-list { flex-basis: 12rem; } }
+/* Item tooltip (opt-in, hold Shift). Fixed, outside every app, pointer-transparent: no layout shift, never takes focus.
+   The element also carries core's root classes, so quality colours are core's --wc-q-* tokens (bright on the dark tooltip,
+   darkened on the light one via its theme-* class) and names use core's .wc-q-text. Only the tooltip's own surface is here. */
+.loot-ledger-tooltip {
+  --ll-tt-bg: rgba(12, 14, 24, 0.96);
+  --ll-tt-border: #6b6f80;
+  --ll-tt-text: #e8e6df;
+  --ll-tt-muted: #b4b1a6;
+  --ll-tt-up: #3ad13a;
+  --ll-tt-down: #ff5a4f;
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 10000;
+  max-width: 320px;
+  min-width: 200px;
+  padding: 8px 10px;
+  border: 1px solid var(--ll-tt-border);
+  border-radius: 4px;
+  background: var(--ll-tt-bg);
+  color: var(--ll-tt-text);
+  font-size: var(--font-size-13, 13px);
+  line-height: 1.35;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
+  pointer-events: none;
+  visibility: hidden;
+  opacity: 0;
+  transition: opacity 80ms linear;
+  contain: layout paint;
+}
+.loot-ledger-tooltip.active { visibility: visible; opacity: 1; }
+.loot-ledger-tooltip.theme-light {
+  --ll-tt-bg: rgba(250, 247, 238, 0.98);
+  --ll-tt-border: #8a7f68;
+  --ll-tt-text: #1f1b14;
+  --ll-tt-muted: #5c554a;
+  --ll-tt-up: #1c7a1c;
+  --ll-tt-down: #b3261e;
+}
+.loot-ledger-tooltip > div + div { margin-top: 2px; }
+.loot-ledger-tooltip .ll-tt-name { font-size: 1.1em; font-weight: bold; }
+.loot-ledger-tooltip .ll-tt-qty { color: var(--ll-tt-muted); font-weight: normal; }
+.loot-ledger-tooltip .ll-tt-rarity { font-size: 0.9em; }
+.loot-ledger-tooltip .ll-tt-type,
+.loot-ledger-tooltip .ll-tt-foot { display: flex; justify-content: space-between; gap: 12px; }
+.loot-ledger-tooltip .ll-tt-foot { flex-wrap: wrap; margin-top: 6px; color: var(--ll-tt-muted); font-size: 0.9em; }
+.loot-ledger-tooltip .ll-tt-props,
+.loot-ledger-tooltip .ll-tt-line { color: var(--ll-tt-muted); }
+.loot-ledger-tooltip .ll-tt-bonus,
+.loot-ledger-tooltip .ll-tt-uses { color: var(--wc-q-uncommon); }
+.loot-ledger-tooltip .ll-tt-desc { margin-top: 6px; color: var(--wc-q-artifact); font-style: italic; }
+.loot-ledger-tooltip .ll-tt-compare { margin-top: 6px; padding-top: 4px; border-top: 1px solid var(--ll-tt-border); }
+.loot-ledger-tooltip .ll-tt-cmp-head { color: var(--ll-tt-muted); font-size: 0.9em; }
+.loot-ledger-tooltip .ll-tt-compare ul { margin: 2px 0 0; padding: 0; list-style: none; }
+.loot-ledger-tooltip .ll-tt-compare li { display: flex; justify-content: space-between; }
+.loot-ledger-tooltip .ll-cmp-up span:last-child { color: var(--ll-tt-up); }
+.loot-ledger-tooltip .ll-cmp-down span:last-child { color: var(--ll-tt-down); }
+.loot-ledger-tooltip .ll-cmp-same span:last-child { color: var(--ll-tt-muted); }
+@media (prefers-reduced-motion: reduce) { .loot-ledger-tooltip { transition: none; } }

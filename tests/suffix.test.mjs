@@ -13,7 +13,6 @@ import { srcItem, FIXTURES } from "./_fixtures.mjs";
 import { install } from "./_foundry.mjs";
 
 const RND = "&lt;Random enchantment&gt;";
-const seq = vals => { let i = 0; return () => vals[i++ % vals.length]; };
 const lcg = (seed = 7) => () => ((seed = (seed * 1103515245 + 12345) % 2147483648) / 2147483648);
 const counts = (group, n = 20000) => {
   const rng = lcg(42), c = {};

@@ -15,6 +15,16 @@ Loot Ledger ships no item data of its own. It reads the item compendium from the
 
 The source module and its compendium are never modified.
 
+There is also an optional, **off-by-default 5e conversion** that rewrites each source item as a dnd5e (2024 rules) item from its own tooltip lines, flagging anything it can't translate for the GM to review. Its rules are still being tuned; see [5e conversion](#5e-conversion).
+
+## Contents
+
+- [Requirements](#requirements) · [Install](#install) · [Quick start](#quick-start)
+- [Building the loot pools](#building-the-loot-pools) · [Prices](#prices) · [Rarity](#rarity) · [Level bands](#level-bands)
+- [Roll tables](#roll-tables) · [Item flags](#item-flags) · [Review board](#review-board) · [Quality colours](#quality-colours)
+- [API](#api) · [Item tooltip (hold Shift)](#item-tooltip-hold-shift) · [Public API and hooks](#public-api-and-hooks)
+- [5e conversion](#5e-conversion) · [Development](#development) · [License](#license)
+
 ## Requirements
 
 | | |
@@ -23,7 +33,7 @@ The source module and its compendium are never modified.
 | System | dnd5e 5.x or 6.x |
 | Module | `wow-classic-items` (provides the source item compendium), enabled in the world |
 
-## Installation
+## Install
 
 Install with this manifest URL (Setup → Add-on Modules → Install Module):
 
@@ -32,6 +42,18 @@ https://github.com/cocoomg11/loot-ledger/releases/latest/download/module.json
 ```
 
 Enable **Loot Ledger** and `wow-classic-items` in your world.
+
+## Quick start
+
+1. **Install the source module first.** Loot Ledger ships no items. Install and enable `wow-classic-items` (its item compendium is what gets copied), then enable **Loot Ledger**. You need a dnd5e world and you must be the GM.
+2. **Open the settings.** Go to **Game Settings › Configure Settings › Loot Ledger**. Pick a **Coin ratio**: *100:1* if your world uses three coins (copper, silver, gold), or *Standard 5e (10:1)* if it uses normal 5e coins.
+3. **Build.** Click **Build loot pools** (under *Loot pools*) and confirm. A progress bar runs for a few minutes. Nothing outside the two Loot Ledger compendiums is touched.
+4. **Find your tables.** Open the **Compendium Packs** sidebar and look for **Loot Ledger · Tables**. Open one, for example `Loot · Band 2 (L3–5) · Drop (mixed)`, and click **Roll** or **Draw**. Each result links to an item.
+5. **Hand out the loot.** Drag an item from **Loot Ledger · Items** onto a character sheet or an NPC. Its price is already set so that selling it pays the original vendor amount.
+6. **Roll from a macro (optional).** Make a script macro with `game.modules.get("loot-ledger").api.roll({ level: 6, chat: true })` to draw a mixed drop for a level 6 party and post it to chat. See [Public API and hooks](#public-api-and-hooks) for more.
+
+<!-- screenshot: the Loot Ledger settings page with Coin ratio and the Build loot pools button -->
+<!-- screenshot: the Loot Ledger · Tables compendium open on a mixed-drop table -->
 
 ## Building the loot pools
 
@@ -72,6 +94,8 @@ with the exact lines to look at and a link to the item. Very Rare or better item
 their base item are listed too. An item the converter fails on outright is listed with the error, and the tables
 use its plain copy. The **Hand-written** page lists source items whose own 5e rules were replaced (with the
 reason) or kept.
+
+<!-- screenshot: a Loot Ledger item sheet showing its price and the "Sells for" line -->
 
 ## Prices
 
@@ -237,6 +261,38 @@ await ll.findTable({ band: 4, type: "jewelry" });   // the RollTable document
 `humanoid` `undead` `elemental` `dragonkin` `demon` `giant` `mechanical`). With none of them it rolls
 the band's mixed drop. A `loot-ledger.ready` hook fires on ready with the API as its argument.
 
+## Item tooltip (hold Shift)
+
+An optional MMO-style tooltip for dnd5e items. It is a **client setting, off by default**
+(*Configure Settings → Loot Ledger → Item tooltip (hold Shift)*), so each user turns it on for themselves.
+When it is on, **hold Shift** while hovering an item; releasing Shift, clicking, scrolling or moving off the item hides it.
+Without Shift nothing changes, and dnd5e's own tooltips work as before.
+
+It works on any item, not just Loot Ledger's copies, wherever the item's row carries its id or UUID: actor sheets
+(including the dnd5e 6 sheets), the Items sidebar, compendium windows, the dnd5e compendium browser, chat item cards and
+item links. **Item Piles** windows (item piles, merchants, vaults) work too: their rows carry no item id, so Loot Ledger reads the
+item from Item Piles' own row hooks, or, for a row drawn before you turned the tooltip on, from the pile's items by the row's name
+and image (two identical items in one pile cannot be told apart and show no tooltip). Other modules' item lists work when their
+rows carry an item id or UUID.
+
+Contents, top to bottom:
+
+- **Name** in the rarity colour: mundane grey, common white, uncommon green, rare blue, very rare purple, legendary orange,
+  artifact gold (the shared item quality colours of the author's modules, darkened on the light theme). Loot Ledger items use their original quality (poor items show grey); other items use their dnd5e rarity.
+- Rarity, item type and slot (weapon type, armour weight, equipment or consumable type; the source slot for Loot Ledger items).
+- Damage (with the magical bonus), versatile damage, range, AC (with the Dex cap), mastery and item properties.
+- Magical bonus, attunement, charges / uses with their recovery period, Strength requirement.
+- A short plain-text excerpt of the item's own description (HTML, links and the "Sells for" line are stripped).
+- Price in gold / silver / copper (`1g 2s 3c`) using the world's currency conversions and the *Coin ratio* setting, the classic sell price for Loot Ledger
+  items, and weight.
+- **Compare**: if your character already has an *equipped* item in the same slot, arrows show the difference in AC, magical
+  bonus and average damage (↑ better, ↓ worse). Slots are body armour, shield, melee weapon, ranged weapon, ring, and the
+  source slot for Loot Ledger items. "Your character" is a controlled token you own, otherwise your assigned character.
+
+Unidentified items show only their unidentified name and description to players (GMs see everything). The tooltip follows the
+light / dark theme of the window it is shown over, never takes focus, ignores the mouse and does not move any layout.
+It only reads documents; it never writes anything.
+
 ## Public API and hooks
 
 Everything below is reached through `game.modules.get("loot-ledger").api` or the hooks listed here. Do not import
@@ -342,14 +398,15 @@ await ll.build({ convert: true });                         // full build with co
 
 ```sh
 npm run check   # node --check every script and test
-npm test        # node --test tests/*.test.mjs (no dependencies)
+npm run lint    # eslint (the only dev dependency)
+npm test        # node --test tests/*.test.mjs
 ```
 
 The tests cover the rules tables, build hashing and the sync plan, the replace list, review routing and the
 report, and run `build()` end to end against a small in-memory Foundry stand-in (`tests/_foundry.mjs`) with
 made-up items (`tests/_fixtures.mjs`). GitHub Actions runs them on every push and pull request.
 
-## Licence
+## License
 
 Loot Ledger is unofficial fan content. It is not affiliated with, endorsed, sponsored or approved by Blizzard Entertainment or Wizards of the Coast. All trademarks belong to their respective owners.
 

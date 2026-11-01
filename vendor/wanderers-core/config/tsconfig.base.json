@@ -1,0 +1,20 @@
+{
+  "$comment": "Shared JSDoc type checking for wanderers-core and the modules that vendor it. A module's tsconfig.json: { \"extends\": \"./vendor/wanderers-core/config/tsconfig.base.json\", \"include\": [\"scripts/**/*.mjs\", \"vendor/wanderers-core/config/foundry-globals.d.ts\"] }. Run with: tsc -p tsconfig.json",
+  "compilerOptions": {
+    "target": "ES2023",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "allowJs": true,
+    "checkJs": true,
+    "noEmit": true,
+    "strict": true,
+    "noImplicitAny": false,
+    "useUnknownInCatchVariables": false,
+    "noFallthroughCasesInSwitch": true,
+    "noImplicitReturns": false,
+    "skipLibCheck": true,
+    "resolveJsonModule": true,
+    "types": []
+  }
+}

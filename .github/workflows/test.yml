@@ -12,15 +12,27 @@ jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 22
 
-      # No install step: the tests use only Node's built-in test runner and the module's own scripts.
+      # Fails when vendor/wanderers-core differs from wanderers-core.lock.json or the lock doesn't match the published release.
+      - name: Vendored wanderers-core matches its pin
+        run: node vendor/wanderers-core/vendor.mjs verify --remote
+
+      # The only dependency is eslint (pinned in package.json); there is no lockfile, so install without one.
+      - name: Install dev tools
+        run: npm install --no-package-lock --ignore-scripts
+
       - name: Syntax check every script
         run: npm run check
+
+      - name: Lint
+        run: npm run lint
 
       - name: Unit tests
         run: npm test

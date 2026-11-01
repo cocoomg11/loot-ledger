@@ -10,6 +10,10 @@
       "Convert": {
         "Name": "Convert items to 5e when building",
         "Hint": "When on, Build also converts every copied item to dnd5e rules into the Loot Ledger · Converted Items compendium and points the roll tables at the converted versions. Lines the converter has no rule for are listed for GM review in the Loot Ledger · Build Report journal instead of being invented. Applied the next time you build."
+      },
+      "Tooltip": {
+        "Name": "Item tooltip (hold Shift)",
+        "Hint": "Off by default. While on, hold Shift and hover an item on a sheet, in the Items sidebar, a compendium or a chat card to see a tooltip with its rarity colour, stats, price, weight and a comparison with your character's equipped item in the same slot. Only affects you."
       }
     },
     "Menu": {
@@ -26,6 +30,25 @@
       "Convert": "Convert to 5e",
       "On": "on",
       "Off": "off"
+    },
+    "Tooltip": {
+      "Armor": "Armor",
+      "AC": "AC",
+      "MaxDex": "max Dex",
+      "Strength": "Requires Strength",
+      "MagicalBonus": "magical bonus",
+      "Magical": "Magical",
+      "Versatile": "Versatile",
+      "Range": "Range",
+      "Mastery": "Mastery",
+      "Attunement": "Requires attunement",
+      "Attuned": "attuned",
+      "Charges": "Charges",
+      "Price": "Price",
+      "Sells": "Sells for",
+      "Weight": "Weight",
+      "AvgDamage": "Average damage",
+      "CompareWith": "Compared with"
     }
   }
 }
