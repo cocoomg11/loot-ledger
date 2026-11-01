@@ -15,6 +15,8 @@ const QUALITY_TIER = { poor: "mundane", common: "common", uncommon: "uncommon", 
 export const TOOLTIP_TYPES = new Set(["weapon", "equipment", "consumable", "tool", "loot", "container"]);
 
 const BODY_ARMOR = new Set(["light", "medium", "heavy"]);
+/** dnd5e equipment types that are worn on the body when the item carries no slot of its own (armour, natural armour, clothes). */
+const BODY_TYPES = new Set(["light", "medium", "heavy", "natural", "clothing"]);
 
 /** Escape text for HTML. */
 export function esc(value) {
@@ -62,6 +64,15 @@ export function tierOf(item) {
   return TIERS.includes(r) && r !== "mundane" ? r : "mundane";
 }
 
+/** Coin amounts as the source text writes them: "1s", "1 s", "1g 46s 72c", "2 Silver", "5 gp". */
+const COINS = String.raw`\d+(?:[.,]\d+)?\s*(?:gold|silver|copper|gp|sp|cp|g|s|c)\b\.?`;
+const SELL_PRICE_TAIL = new RegExp(String.raw`\s*\bSell(?:s)?\s+Price\s*:?\s*(?:${COINS}\s*)+$`, "i");
+
+/** Drop a trailing "Sell Price: 1s" line from plain description text (the footer shows the price; display only). */
+export function stripSellPrice(text) {
+  return String(text ?? "").replace(SELL_PRICE_TAIL, "").trim();
+}
+
 /**
  * Plain text excerpt of an item description: drops the Loot Ledger sell line, unwraps enrichers, strips tags and entities,
  * collapses whitespace and cuts at a word boundary. Returns text, never HTML; the renderer escapes it.
@@ -76,6 +87,7 @@ export function excerpt(html, max = 220) {
   s = s.replace(/&nbsp;/g, " ").replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"')
     .replace(/&#0?39;|&apos;/g, "'").replace(/&#(\d+);/g, (_, d) => String.fromCharCode(Number(d))).replace(/&\w+;/g, " ");
   s = s.replace(/\s+/g, " ").trim();
+  s = stripSellPrice(s);
   if (s.length <= max) return s;
   const cut = s.slice(0, max);
   const at = cut.lastIndexOf(" ");
@@ -160,21 +172,33 @@ export function acOf(item) {
   return item.documentName ? value : value + magicalBonusOf(item);
 }
 
+/** Loot Ledger slot flag (source slot name) → comparison slot. Chest armour and clothes share the body slot, finger items are rings. */
+function flagSlot(flag) {
+  const f = String(flag ?? "").trim().toLowerCase();
+  if (!f) return null;
+  if (f === "chest") return "body";
+  if (f === "finger") return "ring";
+  return `ll:${f}`;
+}
+
 /**
  * Equipment slot key used for comparison, or null when the item does not occupy a comparable slot.
- * Body armor → "armor", shields → "shield", weapons → "weapon-melee" / "weapon-ranged", rings → "ring";
- * other equipment uses Loot Ledger's `slot` flag when both items carry it.
+ * Weapons → "weapon-melee" / "weapon-ranged", shields → "shield". Other equipment: Loot Ledger's `slot` flag when it has one
+ * (Chest → "body", Finger → "ring", else "ll:<slot>"), otherwise its dnd5e type: light / medium / heavy / natural armour and
+ * clothing → "body", ring → "ring". So a chest piece (clothing, or armour of any weight) compares with the equipped body armour
+ * or clothes, whichever of the two carries the slot flag.
  */
 export function slotOf(item) {
   const sys = item?.system ?? {};
   const type = sys.type?.value ?? "";
   if (item?.type === "weapon") return /R$/.test(type) ? "weapon-ranged" : "weapon-melee";
   if (item?.type !== "equipment") return null;
-  if (BODY_ARMOR.has(type)) return "armor";
   if (type === "shield") return "shield";
+  const fromFlag = flagSlot(item.flags?.["loot-ledger"]?.slot);
+  if (fromFlag) return fromFlag;
+  if (BODY_TYPES.has(type)) return "body";
   if (type === "ring") return "ring";
-  const flag = item.flags?.["loot-ledger"]?.slot;
-  return flag ? `ll:${String(flag).toLowerCase()}` : null;
+  return null;
 }
 
 /** The equipped item of `items` that fills the same slot as `item` (not `item` itself), or null. */
@@ -310,10 +334,13 @@ export function buildModel(item, { dnd5e = {}, t = s => s, ratio = "100", isGM =
   model.lines = model.lines.map(l => (typeof l === "string" ? { key: "line", text: l } : l));
   model.description = excerpt(hidden ? sys.unidentified?.description : sys.description?.value);
 
-  const { copper, step } = priceCopper(sys.price, dnd5e.currencies, item.flags?.["loot-ledger"]?.coinRatio ?? ratio);
-  model.price = formatPrice(copper, step);
-  const sell = item.flags?.["loot-ledger"];
-  if (sell?.vendorSell && !sell.noSell) model.sell = String(sell.vendorSell);
+  // Price and sell value reveal what an unidentified item is worth, so they are hidden from players like the stats.
+  if (!hidden) {
+    const { copper, step } = priceCopper(sys.price, dnd5e.currencies, item.flags?.["loot-ledger"]?.coinRatio ?? ratio);
+    model.price = formatPrice(copper, step);
+    const sell = item.flags?.["loot-ledger"];
+    if (sell?.vendorSell && !sell.noSell) model.sell = String(sell.vendorSell);
+  }
 
   const w = sys.weight;
   const wv = typeof w === "object" ? num(w?.value) : num(w);

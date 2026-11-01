@@ -94,7 +94,7 @@ test("damage, AC and magical bonus", () => {
 test("slots and equipped lookup", () => {
   assert.equal(slotOf(sword()), "weapon-melee");
   assert.equal(slotOf(sword({ type: { value: "martialR" } })), "weapon-ranged");
-  assert.equal(slotOf(armor(16)), "armor");
+  assert.equal(slotOf(armor(16)), "body");
   assert.equal(slotOf({ type: "equipment", system: { type: { value: "wondrous" } }, flags: {} }), null);
   assert.equal(slotOf({ type: "equipment", system: { type: { value: "wondrous" } }, flags: { "loot-ledger": { slot: "Neck" } } }), "ll:neck");
   const worn = armor(16, { equipped: true });
@@ -190,4 +190,80 @@ test("buildModel price follows the world's conversions over the setting and the 
   const item = { type: "loot", name: "X", system: { price: { value: 15, denomination: "sp" } }, flags: { "loot-ledger": { coinRatio: "10" } } };
   assert.equal(buildModel(item, { dnd5e: { currencies: wide }, ratio: "10" }).price, "15s");
   assert.equal(buildModel(item, { dnd5e: {}, ratio: "10" }).price, "1g 5s");
+});
+
+import { stripSellPrice } from "../scripts/tooltip-data.mjs";
+import { shouldShowHint } from "../scripts/hint-model.mjs";
+
+test("description drops a trailing source sell-price line but keeps other text", () => {
+  assert.equal(excerpt("<div>Thick and warm.</div><div>Sell Price: 1s</div>"), "Thick and warm.");
+  assert.equal(excerpt("<p>Soft.</p><p>Sell Price: <span>1</span> <span>g</span> <span>46</span> s 72c</p>"), "Soft.");
+  assert.equal(excerpt(`<p>Soft.</p><p>Sell Price: 5g</p><p class="loot-ledger-sell"><em>Sells for 5g</em></p>`), "Soft.");
+  assert.equal(excerpt("<p>Sell Price: 1s</p>"), "");
+  assert.equal(stripSellPrice("Sell Price: 2 Silver 5 Copper"), "");
+  // Not at the end, or followed by more text: left alone.
+  assert.equal(stripSellPrice("Sell Price: 1s Use: heals."), "Sell Price: 1s Use: heals.");
+  assert.equal(stripSellPrice("Worth the Sell Price of nothing"), "Worth the Sell Price of nothing");
+  const m = buildModel({ ...sword(), system: { ...sword().system, description: { value: "<p>Sharp.</p><p>Sell Price: 1s</p>" } },
+    flags: { "loot-ledger": { vendorSell: "1s" } } }, { dnd5e: DND5E });
+  assert.equal(m.description, "Sharp.");
+  assert.equal(m.sell, "1s");
+  assert.ok(m.price);
+});
+
+const piece = (type, slot, over = {}) => ({
+  type: "equipment", name: `${type}-${slot ?? "none"}`, documentName: "Item",
+  flags: slot ? { "loot-ledger": { slot } } : {},
+  system: { type: { value: type }, armor: {}, properties: new Set(), equipped: false, ...over }
+});
+
+test("chest armour, clothes and flagged chest pieces share the body slot", () => {
+  const vest = piece("clothing", "Chest");
+  for (const worn of [piece("light", null), piece("medium", null), piece("heavy", null), piece("natural", null), piece("clothing", null), piece("light", "Chest"), piece("clothing", "Chest")]) {
+    assert.equal(slotOf(worn), "body");
+    assert.equal(equippedInSlot(vest, [{ ...worn, system: { ...worn.system, equipped: true } }])?.name, worn.name);
+  }
+  assert.equal(slotOf(piece("heavy", "Chest")), "body");
+  assert.equal(slotOf(piece("wondrous", "Chest")), "body");
+});
+
+test("other slots stay apart and match through their flag or type", () => {
+  assert.equal(slotOf(piece("clothing", "Head")), "ll:head");
+  assert.notEqual(slotOf(piece("clothing", "Head")), slotOf(piece("clothing", null)));
+  assert.equal(slotOf(piece("clothing", "Legs")), "ll:legs");
+  assert.equal(slotOf(piece("trinket", "Finger")), "ring");
+  assert.equal(slotOf(piece("ring", null)), "ring");
+  assert.equal(slotOf(piece("ring", "Finger")), "ring");
+  assert.equal(slotOf(piece("shield", "Off Hand")), "shield");
+  assert.equal(slotOf(piece("wondrous", null)), null);
+  assert.equal(slotOf(piece("trinket", "Trinket")), "ll:trinket");
+});
+
+test("a vest compares with equipped leather armour", () => {
+  const leather = piece("light", null, { armor: { value: 11, dex: null }, equipped: true });
+  const vest = piece("clothing", "Chest");
+  const m = buildModel(vest, { dnd5e: DND5E, equipped: equippedInSlot(vest, [leather]) });
+  assert.deepEqual(m.compare.map(c => [c.key, c.delta]), [["ac", -11]]);
+});
+
+test("price and sells-for are hidden on unidentified items for players, shown to the GM", () => {
+  const item = { ...sword(), flags: { "loot-ledger": { vendorSell: "1s" } } };
+  item.system = { ...item.system, identified: false, unidentified: { name: "Strange Blade" } };
+  const player = buildModel(item, { dnd5e: DND5E });
+  assert.equal(player.price, "");
+  assert.equal(player.sell, "");
+  assert.equal(player.name, "Strange Blade");
+  const gm = buildModel(item, { dnd5e: DND5E, isGM: true });
+  assert.equal(gm.price, "15g");
+  assert.equal(gm.sell, "1s");
+  const known = buildModel({ ...item, system: { ...item.system, identified: true } }, { dnd5e: DND5E });
+  assert.equal(known.price, "15g");
+});
+
+test("tooltip hint shows once, only with the world setting on and the tooltip off", () => {
+  assert.equal(shouldShowHint({ worldOn: true, tooltipOn: false, seen: false }), true);
+  assert.equal(shouldShowHint({ worldOn: false, tooltipOn: false, seen: false }), false);
+  assert.equal(shouldShowHint({ worldOn: true, tooltipOn: true, seen: false }), false);
+  assert.equal(shouldShowHint({ worldOn: true, tooltipOn: false, seen: true }), false);
+  assert.equal(shouldShowHint(), false);
 });
