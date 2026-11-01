@@ -26,7 +26,7 @@ const FOUNDRY = ["game", "ui", "canvas", "CONFIG", "CONST", "Hooks", "foundry", 
 const NODE = ["process", "Buffer"];
 
 export default [
-  { ignores: ["node_modules/", "dist/"] },
+  { ignores: ["node_modules/", "dist/", "vendor/"] },
   {
     files: ["**/*.mjs"],
     languageOptions: { ecmaVersion: 2024, sourceType: "module" },

@@ -25,8 +25,13 @@ jobs:
             | .bugs = "https://github.com/\($r)/issues"
           ' module.json > module.tmp && mv module.tmp module.json
 
+      - name: Vendored wanderers-core matches its pin
+        run: node vendor/wanderers-core/vendor.mjs verify --remote
+
       - name: Build module.zip
-        run: zip -r module.zip module.json scripts styles lang README.md LICENSE
+        run: |
+          zip -r module.zip module.json scripts styles lang vendor README.md LICENSE \
+            -x 'vendor/wanderers-core/config/*' 'vendor/wanderers-core/vendor.mjs' 'vendor/wanderers-core/testing/*'
 
       - name: Upload release assets
         env:
