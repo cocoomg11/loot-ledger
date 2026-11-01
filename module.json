@@ -1,7 +1,7 @@
 {
   "id": "loot-ledger",
   "title": "Loot Ledger",
-  "description": "Priced, rollable loot pools for dnd5e, built from the classic item compendium in wow-classic-items: sell prices that match the original vendor prices, rarity from item quality, and roll tables by level band, quality, item type, mixed drop and creature type. An optional 5e item conversion is available as an early preview and is off by default.",
+  "description": "Priced, rollable loot pools for dnd5e, built from a classic-MMO item compendium module: sell prices that match the source's vendor prices, rarity from item quality, and roll tables by level band, quality, item type, mixed drop and creature type. An optional 5e item conversion is available as an early preview and is off by default.",
   "version": "0.2.0",
   "authors": [
     {
