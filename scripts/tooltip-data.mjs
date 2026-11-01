@@ -3,7 +3,8 @@
  * config, a localize function and the coin table, so this file can be unit-tested in Node (tests/tooltip-data.test.mjs).
  * Quality colours and coin text come from the vendored wanderers-core (pure half).
  */
-import { quality, QUALITY_KEYS, formatCoins } from "../vendor/wanderers-core/index.mjs";
+import { quality, formatCoins } from "../vendor/wanderers-core/index.mjs";
+import { normalizeQuality } from "./quality-model.mjs";
 
 /** Tooltip rarity tiers, low → high. `quality` is the matching Loot Ledger quality key. */
 export const TIERS = ["mundane", "common", "uncommon", "rare", "veryRare", "legendary", "artifact"];
@@ -22,13 +23,12 @@ export function esc(value) {
 }
 
 /**
- * Core quality key (poor … artifact) of an item, for the `--wc-q-*` colour tokens: Loot Ledger's own quality flag when it is a
- * known key, else the dnd5e rarity tier through core's `quality()` (mundane → poor, veryRare → epic).
+ * Quality key of an item, for the `--wc-q-*` colour tokens: Loot Ledger's own quality flag through the shared normaliser
+ * (quality-model.mjs: aliases, heirloom), else the dnd5e rarity tier through core's `quality()` (mundane → poor, veryRare → epic).
+ * The tooltip always shows a colour, so no rarity reads as poor here (the name colouring leaves those uncoloured).
  */
 export function qualityOf(item) {
-  const q = item?.flags?.["loot-ledger"]?.quality;
-  if (typeof q === "string" && QUALITY_KEYS.includes(q)) return q;
-  return quality(tierOf(item));
+  return normalizeQuality(item?.flags?.["loot-ledger"]?.quality) ?? quality(tierOf(item));
 }
 
 /** Read a label that may be a string or `{label}` and localize it. */
@@ -55,7 +55,7 @@ export function num(v) {
 
 /** Rarity tier of an item: Loot Ledger quality flag first, then dnd5e rarity (v6 `rarities` set or v5 `rarity`). */
 export function tierOf(item) {
-  const q = item?.flags?.["loot-ledger"]?.quality;
+  const q = normalizeQuality(item?.flags?.["loot-ledger"]?.quality);
   if (q && QUALITY_TIER[q]) return QUALITY_TIER[q];
   const sys = item?.system ?? {};
   const r = sys.rarity ?? keysOf(sys.rarities)[0] ?? "";

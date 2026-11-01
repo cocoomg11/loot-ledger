@@ -5,40 +5,28 @@
 .loot-ledger-sell { margin-top: 0.4em; opacity: 0.85; }
 
 /* ---------------- Quality colours ----------------
- * Light-theme values are darker variants (at least 4.5:1 on white and on light parchment); dark-theme values are
- * the bright classic colours (at least 4.5:1 on dark backgrounds). Foundry v13+ marks themes with .theme-light /
- * .theme-dark on the body or on each application.
+ * One colour source: wanderers-core's --wc-q-* tokens (vendored stylesheet, loaded first). A coloured element carries
+ * "ll-q ll-q-<key>" plus core's root classes (UI_CLASSES, added by quality-model.mjs qualityClass), so core defines the tokens on
+ * the element itself: bright on dark, darkened on light. paint() also copies the nearest window's theme-light / theme-dark class
+ * onto it, because core reads a window's own theme only from its root. Never write core's revision class here.
+ * Heirloom is the one tier core has no token for: --wc-q-heirloom below follows core's pattern (--wc-qs-heirloom base colour,
+ * darkened in the light theme). Core candidate; drop it here once a core release ships the token.
  */
-:root {
-  --ll-q-poor: #5e5e5e; --ll-q-common: #1f1f1f; --ll-q-uncommon: #166b00; --ll-q-rare: #0055aa;
-  --ll-q-epic: #7a22b8; --ll-q-legendary: #984300; --ll-q-artifact: #6f5716; --ll-q-heirloom: #006480;
+.ll-q.wc-ui, .loot-ledger-tooltip.wc-ui { --wc-q-heirloom: var(--wc-qs-heirloom, #33d1ff); }
+body.theme-light .ll-q.wc-ui, body.theme-light .loot-ledger-tooltip.wc-ui,
+body .ll-q.wc-ui.theme-light, body .loot-ledger-tooltip.wc-ui.theme-light {
+  --wc-q-heirloom: color-mix(in srgb, var(--wc-qs-heirloom, #33d1ff) 48%, black);
 }
-/* Body (interface) theme first, then an application's own theme (.themed.theme-*) wins by specificity. */
-.theme-dark .ll-q {
-  --ll-q-poor: #a5a5a5; --ll-q-common: #f2f2f2; --ll-q-uncommon: #3ee620; --ll-q-rare: #4ea6ff;
-  --ll-q-epic: #bf7af5; --ll-q-legendary: #ff8f26; --ll-q-artifact: #e6cc80; --ll-q-heirloom: #33d1ff;
-}
-.theme-light .ll-q {
-  --ll-q-poor: #5e5e5e; --ll-q-common: #1f1f1f; --ll-q-uncommon: #166b00; --ll-q-rare: #0055aa;
-  --ll-q-epic: #7a22b8; --ll-q-legendary: #984300; --ll-q-artifact: #6f5716; --ll-q-heirloom: #006480;
-}
-.themed.theme-dark .ll-q {
-  --ll-q-poor: #a5a5a5; --ll-q-common: #f2f2f2; --ll-q-uncommon: #3ee620; --ll-q-rare: #4ea6ff;
-  --ll-q-epic: #bf7af5; --ll-q-legendary: #ff8f26; --ll-q-artifact: #e6cc80; --ll-q-heirloom: #33d1ff;
-}
-.themed.theme-light .ll-q {
-  --ll-q-poor: #5e5e5e; --ll-q-common: #1f1f1f; --ll-q-uncommon: #166b00; --ll-q-rare: #0055aa;
-  --ll-q-epic: #7a22b8; --ll-q-legendary: #984300; --ll-q-artifact: #6f5716; --ll-q-heirloom: #006480;
-}
-/* "common" keeps the surrounding text colour (white on dark, near-black on light), like an uncoloured name. */
-.ll-q.ll-q-poor { color: var(--ll-q-poor) !important; }
-.ll-q.ll-q-common { color: inherit; }
-.ll-q.ll-q-uncommon { color: var(--ll-q-uncommon) !important; }
-.ll-q.ll-q-rare { color: var(--ll-q-rare) !important; }
-.ll-q.ll-q-epic { color: var(--ll-q-epic) !important; }
-.ll-q.ll-q-legendary { color: var(--ll-q-legendary) !important; }
-.ll-q.ll-q-artifact { color: var(--ll-q-artifact) !important; }
-.ll-q.ll-q-heirloom { color: var(--ll-q-heirloom) !important; }
+body .ll-q.wc-ui.theme-dark, body .loot-ledger-tooltip.wc-ui.theme-dark { --wc-q-heirloom: var(--wc-qs-heirloom, #33d1ff); }
+.loot-ledger-tooltip.wc-ui :is([data-quality="heirloom"], .wc-q-heirloom) { --wc-q: var(--wc-q-heirloom); }
+.ll-q.ll-q-poor { color: var(--wc-q-poor) !important; }
+.ll-q.ll-q-common { color: var(--wc-q-common) !important; }
+.ll-q.ll-q-uncommon { color: var(--wc-q-uncommon) !important; }
+.ll-q.ll-q-rare { color: var(--wc-q-rare) !important; }
+.ll-q.ll-q-epic { color: var(--wc-q-epic) !important; }
+.ll-q.ll-q-legendary { color: var(--wc-q-legendary) !important; }
+.ll-q.ll-q-artifact { color: var(--wc-q-artifact) !important; }
+.ll-q.ll-q-heirloom { color: var(--wc-q-heirloom) !important; }
 /* Item sheet name input */
 input.ll-q { -webkit-text-fill-color: currentColor; }
 /* Item Piles vault grid cells: a coloured inner border instead of text colour */

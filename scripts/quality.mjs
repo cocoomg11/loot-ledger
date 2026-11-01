@@ -6,6 +6,7 @@
  */
 import { MODULE_ID } from "./data.mjs";
 import * as Q from "./quality-model.mjs";
+import { UI_CLASSES } from "../vendor/wanderers-core/index.mjs";
 
 const fallbackOn = () => !!game.settings.get(MODULE_ID, "qualityRarityFallback");
 const qualityOf = item => Q.resolveQuality(item, { rarityFallback: fallbackOn(), moduleId: MODULE_ID });
@@ -13,9 +14,11 @@ const qualityOf = item => Q.resolveQuality(item, { rarityFallback: fallbackOn(),
 /** Put the quality class on an element (removing any stale one). */
 function paint(el, item) {
   if (!el) return;
-  el.classList.remove(...Q.ALL_CLASSES);
+  // Core's root classes come off only when we put them there (the element was painted before).
+  if (el.classList.contains("ll-q")) el.classList.remove(...Q.ALL_CLASSES, ...UI_CLASSES);
   const cls = Q.qualityClass(qualityOf(item));
   if (cls) el.classList.add(...cls.split(" "));
+  Q.syncTheme(el);
 }
 
 /** Synchronous lookup of an item (or compendium index entry) from a UUID, without loading documents. */
@@ -69,7 +72,7 @@ function onRenderItemSheet(app, element) {
   wrap.className = "loot-ledger-quality-picker";
   wrap.innerHTML = `<label>Quality <select>
       <option value="">${fallbackOn() ? "Auto (from rarity)" : "None"}</option>
-      ${Q.COLOUR_QUALITIES.map(q => `<option value="${q.key}" class="ll-q ll-q-${q.key}"${q.key === current ? " selected" : ""}>${q.label}</option>`).join("")}
+      ${Q.COLOUR_QUALITIES.map(q => `<option value="${q.key}" class="${Q.qualityClass(q.key)}"${q.key === current ? " selected" : ""}>${q.label}</option>`).join("")}
     </select></label>`;
   const select = wrap.querySelector("select");
   select.addEventListener("change", ev => {
@@ -209,7 +212,7 @@ export async function setQuality(items, quality) {
 async function askQuality(count, current = "") {
   const { DialogV2 } = foundry.applications.api;
   const opts = [`<option value="">${fallbackOn() ? "Auto (from rarity)" : "None"}</option>`,
-    ...Q.COLOUR_QUALITIES.map(q => `<option value="${q.key}" class="ll-q ll-q-${q.key}"${q.key === current ? " selected" : ""}>${q.label}</option>`)].join("");
+    ...Q.COLOUR_QUALITIES.map(q => `<option value="${q.key}" class="${Q.qualityClass(q.key)}"${q.key === current ? " selected" : ""}>${q.label}</option>`)].join("");
   return DialogV2.wait({
     window: { title: "Loot Ledger: set quality" },
     content: `<p>${count > 1 ? `${count} selected items` : "This item"}: pick the quality colour. An explicit quality always wins over the rarity colour.</p>

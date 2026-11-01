@@ -6,6 +6,7 @@
 import { MODULE_ID, QUALITIES, CATEGORIES } from "./data.mjs";
 import { CONVERTED_PACK } from "./build.mjs";
 import * as R from "./review-model.mjs";
+import * as Q from "./quality-model.mjs";
 
 const { ApplicationV2 } = foundry.applications.api;
 const esc = R.esc;
@@ -197,7 +198,7 @@ export class ReviewBoard extends ApplicationV2 {
 
     const list = queue.slice(0, LIST_LIMIT).map(e => `
       <li data-id="${e.id}" data-action="pick" class="${e.id === this.current ? "active" : ""}">
-        <span class="llrb-name ll-q ll-q-${esc(e.quality)}">${esc(e.name)}</span>
+        <span class="llrb-name ${Q.qualityClass(e.quality)}">${esc(e.name)}</span>
         <span class="llrb-st llrb-st-${e.status}">${STATUS_LABEL[e.status]}</span>
       </li>`).join("") + (queue.length > LIST_LIMIT ? `<li class="llrb-more">+${queue.length - LIST_LIMIT} more: narrow the filters</li>` : "");
 
@@ -215,7 +216,7 @@ export class ReviewBoard extends ApplicationV2 {
       ].filter(Boolean).join("");
       detail = `
         <header class="llrb-head">
-          <h2 class="ll-q ll-q-${esc(entry.quality)}">${esc(entry.name)}</h2>
+          <h2 class="${Q.qualityClass(entry.quality)}">${esc(entry.name)}</h2>
           <span class="llrb-meta">${esc(QUALITIES.find(q => q.key === entry.quality)?.label ?? entry.quality)}${entry.slot ? ` · ${esc(entry.slot)}` : ""}${entry.band ? ` · band ${entry.band}` : ""}</span>
           <span class="llrb-st llrb-st-${entry.status}">${STATUS_LABEL[entry.status]}</span>
           <button type="button" data-action="open" data-tooltip="Open the item sheet (no status change)"><i class="fa-solid fa-up-right-from-square"></i></button>
@@ -258,6 +259,7 @@ export class ReviewBoard extends ApplicationV2 {
   _onRender(context, options) {
     super._onRender?.(context, options);
     const root = this.element;
+    for (const el of root.querySelectorAll(".ll-q")) Q.syncTheme(el);
     for (const el of root.querySelectorAll(".llrb-filters select")) {
       el.addEventListener("change", () => { this.filters[el.name] = el.value; this.view = null; this.current = null; this.render(); });
     }
