@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.2.4 (2026-11-01)
+
+- Fix: the tooltip description no longer repeats the price. A trailing "Sell Price: ..." line from the item's own text is left
+  out of the tooltip (display only; the item is not changed). The footer still shows Price and Sells for.
+- Fix: chest armour now compares with what the character wears on the body. Armour of any weight, natural armour and clothing
+  count as one body slot, and so do items flagged as Chest, so a cloth vest compares with equipped leather armour or clothes.
+  Items flagged Finger compare with rings. Other slots (head, legs, trinket and so on) still compare only within their own slot.
+- Fix: for players, price and sells-for are hidden on unidentified items, like the stats. GMs still see them.
+- New: a one-time hint. Players who have the item tooltip off get a notification, once per browser, saying it exists and where
+  to turn it on (Configure Settings, hold Shift). A new world setting, **Tell players about the item tooltip** (on by default),
+  switches the hint off. The tooltip itself stays off by default and is never turned on for anyone.
+
+### Untested in Foundry
+- Everything here is covered by Node tests only. In a world: the Thick Cloth Vest tooltip shows a comparison with equipped
+  Leather Armor and with Clothes; a description ending "Sell Price: 1s" no longer shows it; an unidentified item shows no
+  price to a player; a player with the tooltip off sees the notification once after loading, and not again after a reload.
+
 ## 0.2.3 (2026-11-01)
 
 - Fix: tooltip prices were wrong in a world whose currency conversions differ from the **Coin ratio** setting (for example a
