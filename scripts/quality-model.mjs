@@ -1,7 +1,7 @@
 /**
  * Quality colours, pure logic (no Foundry calls; unit-tested in Node): which quality an item shows, and the classes that colour it.
  * One colour system: the colours are wanderers-core's `--wc-q-*` tokens (vendored stylesheet), the keys are core's `QUALITY_KEYS`.
- * This file is only the Loot Ledger normaliser on top: colour-name aliases, the extra `heirloom` tier, and "no quality" (null, no
+ * This file is only the Loot Ledger normaliser on top: colour-name aliases and "no quality" (null, no
  * colour) for an unknown value where core's `quality()` would answer common. An explicit quality (flags["loot-ledger"].quality,
  * written by Build or set by hand) always wins; otherwise, when the fallback is on, the dnd5e rarity picks a colour, and a physical
  * item below common (no rarity, "", "mundane", "none") is poor (grey).
@@ -13,17 +13,8 @@ const COLOUR_WORD = {
   poor: "grey", common: "white", uncommon: "green", rare: "blue", epic: "purple", legendary: "orange", artifact: "gold", heirloom: "light blue"
 };
 
-/**
- * Qualities Loot Ledger adds on top of core's seven. Each has its own `--wc-q-<key>` token in styles/loot-ledger.css.
- * Core 0.5.2 ships `heirloom` and `--wc-q-heirloom`: after vendoring it, drop the token from the module CSS and empty this list.
- */
-export const EXTRA_QUALITIES = ["heirloom"];
-
-/** Every quality that has a colour, low -> high: core's seven (same keys Build stores, data.mjs QUALITIES) plus heirloom. */
-export const COLOUR_QUALITIES = [
-  ...CORE_QUALITIES.map(q => ({ key: q.key, label: `${q.label} (${COLOUR_WORD[q.key]})` })),
-  ...EXTRA_QUALITIES.map(k => ({ key: k, label: `${k[0].toUpperCase()}${k.slice(1)} (${COLOUR_WORD[k]})` }))
-];
+/** Every quality that has a colour, low -> high: core's `QUALITIES` (same keys Build stores, data.mjs QUALITIES; heirloom last since core 0.5.2), labelled with their colour word. */
+export const COLOUR_QUALITIES = CORE_QUALITIES.map(q => ({ key: q.key, label: `${q.label} (${COLOUR_WORD[q.key]})` }));
 const KEYS = new Set(COLOUR_QUALITIES.map(q => q.key));
 
 /** Rarity spellings core understands (letters only, lower case); "mundane" reads as poor. */

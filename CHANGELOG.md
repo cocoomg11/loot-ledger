@@ -101,8 +101,7 @@
   would say poor) or an unknown value (core would say common). Later in 0.3.0: items below common are grey, see
   *Items below common are grey* below. The tooltip reads flags through the same normaliser,
   so aliases and heirloom colour it too. Coloured elements carry core's root classes and their window's theme class,
-  so light and dark themes follow core. Heirloom has no core token yet: one `--wc-q-heirloom` token in core's
-  pattern lives in `styles/loot-ledger.css` (core candidate; drop it when core ships one).
+  so light and dark themes follow core. Heirloom's token comes from core (0.5.2).
   Colour changes (core's values win where they differed): dark theme poor `#9d9d9d` (was `#a5a5a5`), uncommon
   `#2fd24a` (`#3ee620`), rare `#3d8bff` (`#4ea6ff`), epic `#b86cf0` (`#bf7af5`), legendary `#ff8a1f` (`#ff8f26`);
   light theme poor `#6e6e6e` (`#5e5e5e`), uncommon `#1b7a2b` (`#166b00`), rare `#285aa6` (`#0055aa`), epic
@@ -116,11 +115,7 @@
   may rank above common and grey would call it junk; items with no rarity field at all (spells, features, classes)
   stay uncoloured; with the fallback off nothing is coloured without a flag. Build is unaffected (it always writes
   the source quality flag, and poor items keep rarity common). The tooltip already showed these items grey.
-- **Heirloom token, later**: after a wanderers-core release with `--wc-q-heirloom` (0.5.2, pushed, not yet
-  published) run `NODE_USE_ENV_PROXY=1 NODE_EXTRA_CA_CERTS=/root/.ccr/ca-bundle.crt node vendor/wanderers-core/vendor.mjs update 0.5.2`,
-  then drop `--wc-q-heirloom` from `styles/loot-ledger.css`. Code then: `EXTRA_QUALITIES` can be empty (core's
-  `QUALITIES` will include heirloom, so `COLOUR_QUALITIES` must not add it twice; the order test expects
-  `[...QUALITY_KEYS, "heirloom"]`), and `CLAUDE.md` / the vendored-core version line updated.
+- Core 0.5.2: heirloom colour now comes from core (vendored; the module's own heirloom token is gone).
 - `module.json`: minimum Foundry 14 (verified 14); dnd5e verified 6.0.6; Item Piles and Wayfarer's Toolkit
   listed under `recommends` (neither is required).
 - Release workflow fails at once when the release tag is not `vMAJOR.MINOR.PATCH`.

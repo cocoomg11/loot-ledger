@@ -9,16 +9,7 @@
  * "ll-q ll-q-<key>" plus core's root classes (UI_CLASSES, added by quality-model.mjs qualityClass), so core defines the tokens on
  * the element itself: bright on dark, darkened on light. paint() also copies the nearest window's theme-light / theme-dark class
  * onto it, because core reads a window's own theme only from its root. Never write core's revision class here.
- * Heirloom is the one tier core has no token for: --wc-q-heirloom below follows core's pattern (--wc-qs-heirloom base colour,
- * darkened in the light theme). Core candidate; drop it here once a core release ships the token.
  */
-.ll-q.wc-ui, .loot-ledger-tooltip.wc-ui { --wc-q-heirloom: var(--wc-qs-heirloom, #33d1ff); }
-body.theme-light .ll-q.wc-ui, body.theme-light .loot-ledger-tooltip.wc-ui,
-body .ll-q.wc-ui.theme-light, body .loot-ledger-tooltip.wc-ui.theme-light {
-  --wc-q-heirloom: color-mix(in srgb, var(--wc-qs-heirloom, #33d1ff) 48%, black);
-}
-body .ll-q.wc-ui.theme-dark, body .loot-ledger-tooltip.wc-ui.theme-dark { --wc-q-heirloom: var(--wc-qs-heirloom, #33d1ff); }
-.loot-ledger-tooltip.wc-ui :is([data-quality="heirloom"], .wc-q-heirloom) { --wc-q: var(--wc-q-heirloom); }
 .ll-q.ll-q-poor { color: var(--wc-q-poor) !important; }
 .ll-q.ll-q-common { color: var(--wc-q-common) !important; }
 .ll-q.ll-q-uncommon { color: var(--wc-q-uncommon) !important; }

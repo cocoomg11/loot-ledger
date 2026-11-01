@@ -9,7 +9,7 @@ import {
   defineStore, storeEntries, rawData, storeCreateData, needsFiling, storeGet, storeWith, storeWithKey, storeDeletions, deletionKeys,
   storeSize, storeKeys, STORE_FILED_FLAG
 } from "../store-model.mjs";
-import { fileInDataFolder, ensureDataFolder, removeDataFolderIfEmpty } from "./data-folder.mjs";
+import { fileInDataFolder, ensureDataFolder, removeDataFolderIfEmpty, mergeDataFolders } from "./data-folder.mjs";
 
 /** @returns {any} */
 function game() { return /** @type {any} */ (globalThis).game; }
@@ -26,7 +26,9 @@ function game() { return /** @type {any} */ (globalThis).game; }
  * @property {(key: string, value: any) => Promise<any>} set GM only: one key (`undefined` removes it)
  * @property {(key: string, sub: string, value: any) => Promise<any>} setKey GM only: one entry of a keyed object (null removes it)
  * @property {() => Promise<any>} ensure GM only: the entry, created (and filed) when missing; null when it can't be made
- * @property {() => Promise<boolean>} file writer only: files a root-level entry in the "Module data" folder once (idempotent)
+ * @property {() => Promise<boolean>} file writer only: files a root-level entry in the "Module data" folder once (idempotent), and
+ *   (0.5.1) when several "Module data" folders exist, moves this module's own entries into the picked one and deletes emptied extras;
+ *   resolves to true only when a root-level entry was filed
  * @property {() => Promise<number>} remove GM only: deletes the store entry (all of them if there are several) and the "Module data"
  *   folder when nothing else is in it; resolves to how many entries were deleted
  * @property {() => { exists: boolean, count: number, name: string, id: string, bytes: number, playersCanSee: string[], keys: string[] }} status
@@ -95,6 +97,9 @@ export function createStore(moduleId, options) {
     try {
       if (!writer()) return false;
       const j = entry();
+      // Several "Module data" folders (modules created it at the same moment): move our own entries into the picked one and drop
+      // the extra folders once empty. Runs on every call (cheap when there is one folder), filed or not.
+      if (spec.dataFolder && j) await mergeDataFolders(moduleId, { entries: entries(), log });
       if (!needsFiling(j, moduleId, spec)) return false;
       const moved = await fileInDataFolder(moduleId, j, { log });
       // Marked once it sits in a folder (ours, or one the GM chose), so a GM moving it later keeps their choice; a failed move

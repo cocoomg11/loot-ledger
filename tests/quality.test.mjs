@@ -58,9 +58,10 @@ test("qualityClass and qualityUpdate", () => {
 
 /* ---------------- one quality source: the normaliser over core ---------------- */
 
-test("normaliser: core's seven keys plus heirloom, in core's order", () => {
-  assert.deepEqual(Q.COLOUR_QUALITIES.map(q => q.key), [...QUALITY_KEYS, "heirloom"]);
-  assert.deepEqual(Q.EXTRA_QUALITIES, ["heirloom"]);
+test("normaliser: core's keys in core's order (heirloom comes from core)", () => {
+  assert.deepEqual(Q.COLOUR_QUALITIES.map(q => q.key), [...QUALITY_KEYS]);
+  assert.equal(Q.EXTRA_QUALITIES, undefined);
+  assert.equal(QUALITY_KEYS.filter(k => k === "heirloom").length, 1);
   for (const k of QUALITY_KEYS) assert.equal(Q.normalizeQuality(k), k);
 });
 
