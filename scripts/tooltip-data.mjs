@@ -88,17 +88,30 @@ export function ratioOf(ratio) {
 }
 
 /**
- * Item price in copper for a coin ratio (1 gold = ratio² copper). The price's value in gold comes from the world's currency
- * conversions (relative to gp: gp 1, sp 10 or 100, cp 100 or 10000); missing conversions fall back to the ratio's own.
- * @returns {{copper:number, step:number}} step = the ratio used (coins per next denomination, 10 or 100)
+ * The coin ratio the world itself uses, read from its currency conversions (relative to gp: sp 10 or 100, cp 100 or 10000).
+ * Another module can change these independently of the Loot Ledger setting, so the world's conversions win. Returns 10 or 100,
+ * or null when the conversions are missing, unusual (not 10:1 or 100:1) or inconsistent (cp is not sp squared).
+ */
+export function worldStep(currencies) {
+  const sp = num(currencies?.sp?.conversion), cp = num(currencies?.cp?.conversion);
+  if (sp !== 10 && sp !== 100) return null;
+  if (cp && cp !== sp * sp) return null;
+  return sp;
+}
+
+/**
+ * Item price in copper (1 gold = step² copper). Everything is computed in one ratio, `step`: the world's own (see `worldStep`),
+ * else the Loot Ledger `coinRatio` setting when the world has no usable conversions. The price's value in gold comes from the
+ * same conversions, so the copper amount and the `step` used to format it always agree.
+ * @returns {{copper:number, step:number}} step = coins per next denomination (10 or 100)
  */
 export function priceCopper(price, currencies, ratio = "100") {
-  const step = ratioOf(ratio);
+  const step = worldStep(currencies) ?? ratioOf(ratio);
   const conv = k => num(currencies?.[k]?.conversion);
   const value = num(price?.value);
   const denom = price?.denomination || "gp";
   const fallback = { gp: 1, sp: step, cp: step * step };
-  const d = conv(denom) || fallback[denom] || 1;
+  const d = (worldStep(currencies) ? conv(denom) : 0) || fallback[denom] || 1;
   return { copper: value > 0 ? Math.round((value / d) * step * step) : 0, step };
 }
 
