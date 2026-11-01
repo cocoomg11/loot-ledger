@@ -109,7 +109,7 @@ Hooks.once("init", () => {
   });
   game.settings.register(MODULE_ID, "qualityRarityFallback", {
     name: "Colour by 5e rarity when no quality is set",
-    hint: "Items without a quality are coloured by their dnd5e rarity (common white, uncommon green, rare blue, very rare purple, legendary orange, artifact gold). An explicit quality always wins.",
+    hint: "Items without a quality are coloured by their dnd5e rarity (below common / no rarity grey, common white, uncommon green, rare blue, very rare purple, legendary orange, artifact gold). An explicit quality always wins.",
     scope: "world", config: true, type: Boolean, default: true
   });
   game.settings.register(MODULE_ID, "qualityPicker", {

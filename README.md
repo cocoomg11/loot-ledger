@@ -225,7 +225,9 @@ Actions: **Accept** (A), **Tweak** (T: opens the item sheet, marked tweaked on c
 
 Setting **Quality colours** (on by default): item names show in their quality colour on actor and item sheets,
 chat item cards, content links, roll tables, the Items sidebar, Item compendiums and Item Piles windows. Items
-with no quality are coloured by dnd5e rarity (setting, on by default). GMs can set a quality on any item, for
+with no quality are coloured by dnd5e rarity (setting, on by default); a physical item below common (no rarity, or
+"mundane") shows grey, like a poor item. An unknown (homebrew) rarity and items that have no rarity at all (spells,
+features) stay uncoloured. GMs can set a quality on any item, for
 example homebrew or book items: the **Quality** dropdown in the item sheet header, **Set quality** in the Items
 sidebar / compendium context menu, or:
 

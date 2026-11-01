@@ -29,8 +29,8 @@ test("rarity fallback: dnd5e 5 (system.rarity) and dnd5e 6 (system.rarities) sha
     assert.equal(Q.resolveQuality({ system: { rarities: [r] } }), q, `rarities [${r}]`);
     assert.equal(Q.resolveQuality({ system: { rarities: new Set([r]) } }), q, `rarities Set(${r})`);
   }
-  assert.equal(Q.resolveQuality({ system: { rarity: "" } }), null, "mundane item: no colour");
-  assert.equal(Q.resolveQuality({ system: {} }), null);
+  assert.equal(Q.resolveQuality({ system: { rarity: "" } }), "poor", "no rarity: grey");
+  assert.equal(Q.resolveQuality({ system: {} }), "poor");
   assert.equal(Q.resolveQuality(null), null);
 });
 
@@ -79,16 +79,31 @@ test("normaliser: heirloom and its aliases", () => {
   assert.deepEqual(Q.qualityUpdate("light blue"), { "flags.loot-ledger.quality": "heirloom" });
 });
 
-test("normaliser: no rarity means no colour (where core's quality() would say poor)", () => {
-  for (const s of [null, undefined, "", "   ", "none", "None", "auto", "mundane", "Mundane"]) assert.equal(Q.normalizeQuality(s), null, String(s));
-  assert.equal(Q.resolveQuality({ system: { rarity: "mundane" } }), null);
-  assert.equal(Q.resolveQuality({ system: { rarities: [] } }), null);
-  assert.equal(Q.resolveQuality({ flags: { "loot-ledger": { quality: "" } }, system: {} }), null);
+test("normaliser: empty / none / auto mean 'no quality set'; mundane is poor", () => {
+  for (const s of [null, undefined, "", "   ", "none", "None", "auto"]) assert.equal(Q.normalizeQuality(s), null, String(s));
+  for (const s of ["mundane", "Mundane"]) assert.equal(Q.normalizeQuality(s), "poor", s);
+});
+
+test("below common is grey: no rarity, '', mundane, none (fallback on, physical items)", () => {
+  for (const system of [{}, { rarity: "" }, { rarity: "mundane" }, { rarity: "Mundane" }, { rarity: "none" }, { rarities: [] }, { rarities: new Set() }, { rarities: ["mundane"] }]) {
+    assert.equal(Q.resolveQuality({ system }), "poor", JSON.stringify(system));
+  }
+  for (const type of ["weapon", "equipment", "consumable", "tool", "loot", "container"]) assert.equal(Q.resolveQuality({ type, system: {} }), "poor", type);
+  // empty / none / auto flags mean "not set", so the rarity decides
+  for (const quality of ["", "none", "auto"]) assert.equal(Q.resolveQuality({ flags: { "loot-ledger": { quality } }, system: {} }), "poor", quality);
+  // non-physical items have no rarity at all: no colour
+  for (const type of ["spell", "feat", "class", "subclass", "background", "race"]) assert.equal(Q.resolveQuality({ type, system: {} }), null, type);
+  // fallback off: nothing without a flag, the flag still wins
+  assert.equal(Q.resolveQuality({ system: { rarity: "" } }, { rarityFallback: false }), null);
+  assert.equal(Q.resolveQuality({ system: { rarity: "" }, flags: { "loot-ledger": { quality: "rare" } } }), "rare");
+  assert.equal(Q.resolveQuality({ system: { rarity: "mundane" }, flags: { "loot-ledger": { quality: "heirloom" } } }), "heirloom");
+  assert.equal(Q.qualityClass(Q.resolveQuality({ system: {} })), ["ll-q", "ll-q-poor", ...UI_CLASSES].join(" "));
 });
 
 test("normaliser: unknown values are null, never core's 'common' default, and never throw", () => {
   for (const s of ["mythic", "rare-ish", "123", "<b>", {}, 7, true]) assert.equal(Q.normalizeQuality(s), null, String(s));
-  assert.equal(Q.resolveQuality({ system: { rarity: "homebrew" } }), null);
+  assert.equal(Q.resolveQuality({ system: { rarity: "homebrew" } }), null, "unknown rarity: uncoloured, not grey");
+  assert.equal(Q.resolveQuality({ system: { rarity: "auto" } }), null, "'auto' as a rarity is unknown");
   assert.equal(Q.resolveQuality({ flags: { "loot-ledger": { quality: "mythic" } }, system: { rarity: "rare" } }), "rare");
 });
 

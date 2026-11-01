@@ -98,7 +98,8 @@
   ones the item tooltip uses; the module's own `--ll-q-*` colour set is gone. `quality-model.mjs` is now a thin
   normaliser over core's `QUALITIES` / `quality()`: colour-word and rarity aliases ("purple", "Very Rare",
   "light blue"), the extra heirloom tier, and no colour for an item with no quality or rarity (core's `quality()`
-  would say poor) or an unknown value (core would say common). The tooltip reads flags through the same normaliser,
+  would say poor) or an unknown value (core would say common). Later in 0.3.0: items below common are grey, see
+  *Items below common are grey* below. The tooltip reads flags through the same normaliser,
   so aliases and heirloom colour it too. Coloured elements carry core's root classes and their window's theme class,
   so light and dark themes follow core. Heirloom has no core token yet: one `--wc-q-heirloom` token in core's
   pattern lives in `styles/loot-ledger.css` (core candidate; drop it when core ships one).
@@ -108,6 +109,18 @@
   `#814ca8` (`#7a22b8`), legendary `#9e5613` (`#984300`), artifact `#615636` (`#6f5716`), heirloom `#18647a`
   (`#006480`). Common is now coloured (`#f2f2f2` dark, mid grey `#5c5c5c` light) instead of keeping the
   surrounding text colour. Dark artifact and dark heirloom are unchanged.
+- **Items below common are grey.** With *Colour by 5e rarity* on, a physical item (weapon, equipment, consumable,
+  tool, loot, container) with no rarity, `""`, `"mundane"` or `"none"` now shows as poor (grey) instead of no colour;
+  `normalizeQuality("mundane")` is now `"poor"`. Unchanged: an explicit quality flag still wins; empty / "none" /
+  "auto" flags still mean "not set" (the picker's *Auto*); an unknown (homebrew) rarity stays uncoloured, since it
+  may rank above common and grey would call it junk; items with no rarity field at all (spells, features, classes)
+  stay uncoloured; with the fallback off nothing is coloured without a flag. Build is unaffected (it always writes
+  the source quality flag, and poor items keep rarity common). The tooltip already showed these items grey.
+- **Heirloom token, later**: after a wanderers-core release with `--wc-q-heirloom` (0.5.2, pushed, not yet
+  published) run `NODE_USE_ENV_PROXY=1 NODE_EXTRA_CA_CERTS=/root/.ccr/ca-bundle.crt node vendor/wanderers-core/vendor.mjs update 0.5.2`,
+  then drop `--wc-q-heirloom` from `styles/loot-ledger.css`. Code then: `EXTRA_QUALITIES` can be empty (core's
+  `QUALITIES` will include heirloom, so `COLOUR_QUALITIES` must not add it twice; the order test expects
+  `[...QUALITY_KEYS, "heirloom"]`), and `CLAUDE.md` / the vendored-core version line updated.
 - `module.json`: minimum Foundry 14 (verified 14); dnd5e verified 6.0.6; Item Piles and Wayfarer's Toolkit
   listed under `recommends` (neither is required).
 - Release workflow fails at once when the release tag is not `vMAJOR.MINOR.PATCH`.
@@ -132,7 +145,8 @@
   the interface: actor inventory names, item sheet title and Quality picker options, chat item card, content link,
   roll table result, Items sidebar and compendium entry, Item Piles row and vault cell, review board list and header.
   Each tier reads as listed above; common is the near-white / mid-grey; heirloom is light blue; an item with no
-  rarity stays uncoloured. Switching the interface theme recolours open names without a reload.
+  rarity or "mundane" rarity is grey (a spell or feature without rarity stays uncoloured, so does a homebrew
+  rarity). Switching the interface theme recolours open names without a reload.
 - The Shift tooltip of an item whose quality flag is "heirloom" or an alias ("purple") shows that colour.
 
 ## 0.2.3 (2026-11-01)

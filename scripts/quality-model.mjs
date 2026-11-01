@@ -2,8 +2,9 @@
  * Quality colours, pure logic (no Foundry calls; unit-tested in Node): which quality an item shows, and the classes that colour it.
  * One colour system: the colours are wanderers-core's `--wc-q-*` tokens (vendored stylesheet), the keys are core's `QUALITY_KEYS`.
  * This file is only the Loot Ledger normaliser on top: colour-name aliases, the extra `heirloom` tier, and "no quality" (null, no
- * colour) where core's `quality()` would answer poor or common. An explicit quality (flags["loot-ledger"].quality, written by Build
- * or set by hand) always wins; otherwise, when the fallback is on, the dnd5e rarity picks a colour.
+ * colour) for an unknown value where core's `quality()` would answer common. An explicit quality (flags["loot-ledger"].quality,
+ * written by Build or set by hand) always wins; otherwise, when the fallback is on, the dnd5e rarity picks a colour, and a physical
+ * item below common (no rarity, "", "mundane", "none") is poor (grey).
  */
 import { QUALITIES as CORE_QUALITIES, UI_CLASSES, quality as coreQuality } from "../vendor/wanderers-core/index.mjs";
 
@@ -14,7 +15,7 @@ const COLOUR_WORD = {
 
 /**
  * Qualities Loot Ledger adds on top of core's seven. Each has its own `--wc-q-<key>` token in styles/loot-ledger.css.
- * Core candidate: when a core release ships `--wc-q-heirloom`, drop this list entry's token from the module CSS.
+ * Core 0.5.2 ships `heirloom` and `--wc-q-heirloom`: after vendoring it, drop the token from the module CSS and empty this list.
  */
 export const EXTRA_QUALITIES = ["heirloom"];
 
@@ -25,8 +26,8 @@ export const COLOUR_QUALITIES = [
 ];
 const KEYS = new Set(COLOUR_QUALITIES.map(q => q.key));
 
-/** Rarity spellings core understands (letters only, lower case), minus "mundane"/"none": those mean no quality here. */
-const CORE_SPELLINGS = new Set(CORE_QUALITIES.flatMap(q => [q.key, String(q.rarity ?? "").toLowerCase()]).filter(s => s && s !== "mundane"));
+/** Rarity spellings core understands (letters only, lower case); "mundane" reads as poor. */
+const CORE_SPELLINGS = new Set(CORE_QUALITIES.flatMap(q => [q.key, String(q.rarity ?? "").toLowerCase()]).filter(Boolean));
 
 /** Other names people (and other modules) use for the same qualities. */
 const ALIASES = {
@@ -41,8 +42,9 @@ const ALIASES = {
 };
 
 /**
- * A quality key from any accepted spelling, or null (empty / unknown / "none" / "auto" / "mundane"). Case, spaces and punctuation
- * are ignored ("Very Rare", "light-blue"). Core rarity spellings go through core's `quality()`; never throws.
+ * A quality key from any accepted spelling ("mundane" → poor), or null: empty / "none" / "auto" (the picker's and `qualityUpdate`'s
+ * "no quality set": the rarity fallback decides) and unknown values. Case, spaces and punctuation are ignored ("Very Rare",
+ * "light-blue"). Core rarity spellings go through core's `quality()`; never throws.
  */
 export function normalizeQuality(q) {
   if (q === null || q === undefined) return null;
@@ -56,8 +58,18 @@ export function normalizeQuality(q) {
   return null;
 }
 
-/** dnd5e rarity -> colour quality (core's mapping; very rare = epic). Mundane / no rarity has no colour. */
+/** dnd5e rarity -> colour quality (core's mapping; very rare = epic). Below common (no rarity, "", mundane, none) is `BELOW_COMMON`. */
 export const RARITY_QUALITY = Object.fromEntries(CORE_QUALITIES.filter(q => q.rarity && q.rarity !== "mundane").map(q => [q.rarity, q.key]));
+
+/** The quality of a physical item below common: grey, like core's `quality("")`. */
+export const BELOW_COMMON = "poor";
+/** Rarity values that mean "below common" (lower case): none set, dnd5e's "mundane", and the "none" some data uses. */
+const BELOW_COMMON_RARITIES = new Set(["", "mundane", "none"]);
+/**
+ * dnd5e item types that carry a rarity (the physical ones). Spells, features, classes and the like have no rarity and stay
+ * uncoloured. Data without a `type` (plain test data, an odd index entry) counts as physical.
+ */
+export const PHYSICAL_TYPES = new Set(["weapon", "equipment", "consumable", "tool", "loot", "container", "backpack"]);
 
 /** The dnd5e rarity of plain item data: `system.rarity` (dnd5e 5, or the derived getter) or the first of `system.rarities` (dnd5e 6). */
 export function rarityOf(system) {
@@ -74,14 +86,20 @@ export function rarityOf(system) {
  * @param {object} [o]
  * @param {boolean} [o.rarityFallback=true]  use the dnd5e rarity when no quality is set
  * @param {string}  [o.moduleId="loot-ledger"]
- * @returns {string|null} quality key, or null (no colour)
+ * @returns {string|null} quality key, or null (no colour: fallback off with no flag, a non-physical item without rarity, an
+ *   unknown rarity)
  */
 export function resolveQuality(item, { rarityFallback = true, moduleId = "loot-ledger" } = {}) {
   if (!item) return null;
   const explicit = normalizeQuality(item.flags?.[moduleId]?.quality);
   if (explicit) return explicit;
   if (!rarityFallback) return null;
-  return RARITY_QUALITY[rarityOf(item.system)] ?? null;
+  const r = rarityOf(item.system) ?? "";
+  if (Object.hasOwn(RARITY_QUALITY, r)) return RARITY_QUALITY[r];
+  // Below common: grey for physical items only. An unknown (homebrew) rarity stays uncoloured: it may rank above common, and
+  // grey would call it junk.
+  if (BELOW_COMMON_RARITIES.has(r.toLowerCase()) && (item.type === undefined || PHYSICAL_TYPES.has(item.type))) return BELOW_COMMON;
+  return null;
 }
 
 /**
