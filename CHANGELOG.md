@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.2.1
+## 0.2.1 (2026-11-01)
 
 **Untested in Foundry**: written and unit-tested in Node only; not yet run in a live world.
 
@@ -12,6 +12,6 @@
   tests for the tooltip's pure logic in `tests/tooltip-data.test.mjs`.
 - Removed an unused variable in the converter (no behaviour change).
 
-## 0.2.0
+## 0.2.0 (2026-10-30)
 
 - Released before this changelog existed; see the GitHub release notes.

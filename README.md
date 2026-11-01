@@ -16,10 +16,10 @@ There is also an optional, **off-by-default 5e conversion** that rewrites each s
 
 ## Contents
 
-- [Requirements](#requirements) · [Installation](#installation) · [Quick start](#quick-start)
+- [Requirements](#requirements) · [Install](#install) · [Quick start](#quick-start)
 - [Building the loot pools](#building-the-loot-pools) · [Prices](#prices) · [Rarity](#rarity) · [Level bands](#level-bands)
-- [Roll tables](#roll-tables) · [Item flags](#item-flags) · [API](#api)
-- [Item tooltip (hold Shift)](#item-tooltip-hold-shift) · [5e conversion (preview)](#5e-conversion-preview) · [Licence](#licence)
+- [Roll tables](#roll-tables) · [Item flags](#item-flags) · [Public API and hooks](#public-api-and-hooks)
+- [Item tooltip (hold Shift)](#item-tooltip-hold-shift) · [5e conversion (preview)](#5e-conversion-preview) · [License](#license)
 
 ## Requirements
 
@@ -29,7 +29,7 @@ There is also an optional, **off-by-default 5e conversion** that rewrites each s
 | System | dnd5e 5.x or 6.x |
 | Module | `wow-classic-items` (provides the source item compendium), enabled in the world |
 
-## Installation
+## Install
 
 Install with this manifest URL (Setup → Add-on Modules → Install Module):
 
@@ -46,7 +46,7 @@ Enable **Loot Ledger** and `wow-classic-items` in your world.
 3. **Build.** Click **Build loot pools** (under *Loot pools*) and confirm. A progress bar runs for a few minutes. Nothing outside the two Loot Ledger compendiums is touched.
 4. **Find your tables.** Open the **Compendium Packs** sidebar and look for **Loot Ledger · Tables**. Open one, for example `Loot · Band 2 (L3–5) · Drop (mixed)`, and click **Roll** or **Draw**. Each result links to an item.
 5. **Hand out the loot.** Drag an item from **Loot Ledger · Items** onto a character sheet or an NPC. Its price is already set so that selling it pays the original vendor amount.
-6. **Roll from a macro (optional).** Make a script macro with `game.modules.get("loot-ledger").api.roll({ level: 6, chat: true })` to draw a mixed drop for a level 6 party and post it to chat. See [API](#api) for more.
+6. **Roll from a macro (optional).** Make a script macro with `game.modules.get("loot-ledger").api.roll({ level: 6, chat: true })` to draw a mixed drop for a level 6 party and post it to chat. See [Public API and hooks](#public-api-and-hooks) for more.
 
 <!-- screenshot: the Loot Ledger settings page with Coin ratio and the Build loot pools button -->
 <!-- screenshot: the Loot Ledger · Tables compendium open on a mixed-drop table -->
@@ -173,7 +173,7 @@ Each copied item carries `flags["loot-ledger"]`:
 }
 ```
 
-## API
+## Public API and hooks
 
 ```js
 const ll = game.modules.get("loot-ledger").api;
@@ -259,7 +259,7 @@ await ll.convertToPack({ names: ["Some Item"], pack: { name: "my-test", label: "
 await ll.build({ convert: true });                         // full build with converted items
 ```
 
-## Licence
+## License
 
 Loot Ledger is unofficial fan content. It is not affiliated with, endorsed, sponsored or approved by Blizzard Entertainment or Wizards of the Coast. All trademarks belong to their respective owners.
 

@@ -24,6 +24,7 @@ Foundry VTT module (v13/v14, dnd5e) that copies the classic MMO item compendium 
 - `feat/item-tooltip` = 0.2.1 (item tooltip, test/lint setup), branched from main 83f9750, untested in Foundry. **It must later be merged into `v030-dev` too** (expect conflicts in `package.json`, `tests/`, `CHANGELOG.md`, `lang/en.json`, `main.mjs` settings and this file; keep both sides).
 
 ## Tests
+- CI: `.github/workflows/test.yml` (push/PR to main; actions pinned by SHA) runs `npm install --no-package-lock --ignore-scripts` (eslint is the only dependency, no lockfile), `npm run check`, `npm run lint`, `npm test`. Keep it green; the release workflow is separate.
 - `feat/item-tooltip` (0.2.1) adds `package.json`: `npm test` (`node --test tests/*.test.mjs`), `npm run check`, `npm run lint` (`eslint.config.mjs`, recommended rules inlined, no plugins). Only the tooltip's pure logic is tested; the DOM wiring needs a live world.
 - On main before 0.2.1 there was no test suite. On `v030-dev`: `npm test` (`node --test tests/*.test.mjs`), `npm run check`, `npm run calibrate`; pure logic (data, rules, ledger, replace list, build planning) is tested in Node with fixtures; `build()` and compendium writes need a live Foundry world and are untested there.
 
