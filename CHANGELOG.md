@@ -1,18 +1,5 @@
 # Changelog
 
-## Unreleased (0.3.0)
-
-### Security
-- **GM-only API.** `build`, `roll`, `findTable`, `convertToPack`, `auditHandWritten`, `replaceList`, `rollSuffix`, `removeData`, `reviewBoard` and `setQuality` now show "GM only" and return `undefined` for players. Pure helpers (`convert`, `rules`, `suffixes`, `qualityOf`, `auditHandAuthored`, `sellPrice`, `bandForLevel`, `formatCoins`, lookup lists) stay open. `auditHandWritten` checks for a GM itself before it can write the Build Report journal.
-- **Random suffixes only roll for items created by a GM user.** A player could put the suffix flag on an item they create on their own actor and trigger a roll (or a GM whisper). The hook now checks the creating user id; use the item's Roll suffix action or `api.rollSuffix` for a player's item.
-- **Chat card names are escaped.** The "GM picks" whisper put item and actor names into the message as raw HTML; they are now escaped.
-
-### Untested in Foundry
-- As a player, every gated `api.*` member shows "GM only" and returns `undefined`; `api.rules()` and `api.suffixes()` still work.
-- A player creates a flagged item on their own actor: nothing rolls and no whisper is sent. A GM drags a flagged item onto an actor: it rolls (Roll on drop) or whispers (GM picks).
-- Item Piles: loot moved from a pile to a player's actor still rolls (it is created by the GM's client); confirm.
-- An item named with HTML characters shows as plain text in the "GM picks" whisper.
-
 ## 0.3.0 (unreleased)
 
 ### Added
@@ -63,8 +50,8 @@
 - **Quality colours** (setting, on by default, needs a reload; off registers nothing): item names are shown in
   their quality colour on actor sheet inventories, item sheet titles, dnd5e chat item cards, content links (chat,
   journals), roll table results, the Items sidebar and Item compendium windows, and Item Piles pile / merchant /
-  vault windows when Item Piles is active. One CSS class per quality (`ll-q ll-q-<quality>`) with separate light-
-  and dark-theme colours (at least 4.5:1 contrast on both). Qualities: poor, common, uncommon, rare, epic,
+  vault windows when Item Piles is active. One CSS class per quality (`ll-q ll-q-<quality>`), coloured with the shared
+  `--wc-q-*` tokens (light- and dark-theme values). Qualities: poor, common, uncommon, rare, epic,
   legendary, artifact, heirloom.
   - "Colour by 5e rarity when no quality is set" (on by default): common white, uncommon green, rare blue, very
     rare purple, legendary orange, artifact gold. An explicit quality always wins.
@@ -96,11 +83,31 @@
 - Tests for the release tag check, manifest compatibility, the hook payload and its bail-outs, the cleanup plan,
   and converter-version bumps leaving accepted / tweaked items alone.
 
+### Security
+- **GM-only API.** `build`, `roll`, `findTable`, `convertToPack`, `auditHandWritten`, `replaceList`, `rollSuffix`, `removeData`, `reviewBoard` and `setQuality` now show "GM only" and return `undefined` for players. Pure helpers (`convert`, `rules`, `suffixes`, `qualityOf`, `auditHandAuthored`, `sellPrice`, `bandForLevel`, `formatCoins`, lookup lists) stay open. `auditHandWritten` checks for a GM itself before it can write the Build Report journal.
+- **Random suffixes only roll for items created by a GM user.** A player could put the suffix flag on an item they create on their own actor and trigger a roll (or a GM whisper). The hook now checks the creating user id; use the item's Roll suffix action or `api.rollSuffix` for a player's item.
+- **Chat card names are escaped.** The "GM picks" whisper put item and actor names into the message as raw HTML; they are now escaped.
+
 ### Merged 0.2.1-0.2.2
 - `main` merged into this branch: the Shift item tooltip with compare (0.2.1), and wanderers-core 0.5.0 vendored with the tooltip on core's shared quality tokens / `formatCoins` and the Item Piles row fix (0.2.2). Also from main: ESLint (`npm run lint`), the pinned CI and Release workflows with the core pin check. Entries for 0.2.2 and 0.2.1 are below. The version stays 0.3.0 (unreleased).
-- The tooltip's quality colours come from core's `--wc-q-*` tokens; the quality-colour feature on this branch (`ll-q` classes, `quality-model.mjs`) is separate and unchanged.
+- The tooltip's quality colours come from core's `--wc-q-*` tokens; since the unification below, so do the name colours.
 
 ### Changed
+- **One quality colour system.** Quality colours (names, item sheet title, pickers, chat cards, links, tables,
+  sidebar, Item Piles, review board) now use the shared `--wc-q-*` tokens of the vendored wanderers-core, the same
+  ones the item tooltip uses; the module's own `--ll-q-*` colour set is gone. `quality-model.mjs` is now a thin
+  normaliser over core's `QUALITIES` / `quality()`: colour-word and rarity aliases ("purple", "Very Rare",
+  "light blue"), the extra heirloom tier, and no colour for an item with no quality or rarity (core's `quality()`
+  would say poor) or an unknown value (core would say common). The tooltip reads flags through the same normaliser,
+  so aliases and heirloom colour it too. Coloured elements carry core's root classes and their window's theme class,
+  so light and dark themes follow core. Heirloom has no core token yet: one `--wc-q-heirloom` token in core's
+  pattern lives in `styles/loot-ledger.css` (core candidate; drop it when core ships one).
+  Colour changes (core's values win where they differed): dark theme poor `#9d9d9d` (was `#a5a5a5`), uncommon
+  `#2fd24a` (`#3ee620`), rare `#3d8bff` (`#4ea6ff`), epic `#b86cf0` (`#bf7af5`), legendary `#ff8a1f` (`#ff8f26`);
+  light theme poor `#6e6e6e` (`#5e5e5e`), uncommon `#1b7a2b` (`#166b00`), rare `#285aa6` (`#0055aa`), epic
+  `#814ca8` (`#7a22b8`), legendary `#9e5613` (`#984300`), artifact `#615636` (`#6f5716`), heirloom `#18647a`
+  (`#006480`). Common is now coloured (`#f2f2f2` dark, mid grey `#5c5c5c` light) instead of keeping the
+  surrounding text colour. Dark artifact and dark heirloom are unchanged.
 - `module.json`: minimum Foundry 14 (verified 14); dnd5e verified 6.0.6; Item Piles and Wayfarer's Toolkit
   listed under `recommends` (neither is required).
 - Release workflow fails at once when the release tag is not `vMAJOR.MINOR.PATCH`.
@@ -115,6 +122,18 @@
   threshold, the Strength carry multiplier). Values are unchanged from 0.2.0 and the converter output is identical.
   `convert.mjs` re-exports them under the same names.
 - Build no longer clears the item compendium before copying; it updates it in place.
+
+### Untested in Foundry
+- As a player, every gated `api.*` member shows "GM only" and returns `undefined`; `api.rules()` and `api.suffixes()` still work.
+- A player creates a flagged item on their own actor: nothing rolls and no whisper is sent. A GM drags a flagged item onto an actor: it rolls (Roll on drop) or whispers (GM picks).
+- Item Piles: loot moved from a pile to a player's actor still rolls (it is created by the GM's client); confirm.
+- An item named with HTML characters shows as plain text in the "GM picks" whisper.
+- Quality colours after the unification, light and dark interface theme, and a sheet whose own theme differs from
+  the interface: actor inventory names, item sheet title and Quality picker options, chat item card, content link,
+  roll table result, Items sidebar and compendium entry, Item Piles row and vault cell, review board list and header.
+  Each tier reads as listed above; common is the near-white / mid-grey; heirloom is light blue; an item with no
+  rarity stays uncoloured. Switching the interface theme recolours open names without a reload.
+- The Shift tooltip of an item whose quality flag is "heirloom" or an alias ("purple") shows that colour.
 
 ## 0.2.3 (2026-11-01)
 
