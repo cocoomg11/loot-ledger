@@ -116,6 +116,18 @@
   `convert.mjs` re-exports them under the same names.
 - Build no longer clears the item compendium before copying; it updates it in place.
 
+## 0.2.3 (2026-11-01)
+
+- Fix: tooltip prices were wrong in a world whose currency conversions differ from the **Coin ratio** setting (for example a
+  100:1 three-coin world with the setting at 10:1: 2 sp showed "2c", 1 cp showed nothing, 15 sp showed "1s 5c"). The price
+  mixed the world's conversions with the setting. It now reads the ratio from the world's own conversions (sp 10 or 100, cp the
+  square) and uses the setting only when the world has no usable conversions. Worlds where both agree are unchanged.
+  (Prices written into items at build time are not affected: they are stored as a value and a denomination.)
+
+### Untested in Foundry
+- In a 100:1 world with the setting at 10:1, an item priced 2 sp shows "2s", 1 cp shows "1c", 15 sp shows "15s", 123 cp shows
+  "1s 23c"; in a standard 10:1 world they show "2s", "1c", "1g 5s", "1g 2s 3c".
+
 ## 0.2.2 (2026-11-01)
 
 - Fix: the Shift item tooltip now works in **Item Piles** windows (item piles, merchants, vaults; checked against Item Piles

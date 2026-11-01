@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-  tierOf, qualityOf, ratioOf, excerpt, priceCopper, formatPrice, damageOf, acOf, magicalBonusOf, slotOf, equippedInSlot, compare, buildModel, renderModel, esc
+  tierOf, qualityOf, ratioOf, excerpt, priceCopper, formatPrice, damageOf, acOf, magicalBonusOf, slotOf, equippedInSlot, compare, buildModel, renderModel, esc, worldStep
 } from "../scripts/tooltip-data.mjs";
 
 /** Small slice of CONFIG.DND5E in the shapes dnd5e 6 uses. */
@@ -155,4 +155,39 @@ test("renderModel escapes item text", () => {
   assert.ok(!html.includes("<img"));
   assert.ok(!html.includes("<b>"));
   assert.equal(esc(`a"b'`), "a&quot;b&#39;");
+});
+
+test("priceCopper follows the world's conversions, whatever the coinRatio setting says", () => {
+  const std = { gp: { conversion: 1 }, sp: { conversion: 10 }, cp: { conversion: 100 } };
+  const wide = { gp: { conversion: 1 }, sp: { conversion: 100 }, cp: { conversion: 10000 } };
+  const show = (price, cfg, setting) => { const p = priceCopper(price, cfg, setting); return formatPrice(p.copper, p.step); };
+  for (const setting of ["10", "100"]) {
+    // 100:1 world (three-coin system), setting at either value
+    assert.equal(show({ value: 2, denomination: "sp" }, wide, setting), "2s", `2 sp, wide, ${setting}`);
+    assert.equal(show({ value: 1, denomination: "cp" }, wide, setting), "1c", `1 cp, wide, ${setting}`);
+    assert.equal(show({ value: 15, denomination: "sp" }, wide, setting), "15s", `15 sp, wide, ${setting}`);
+    assert.equal(show({ value: 123, denomination: "cp" }, wide, setting), "1s 23c", `123 cp, wide, ${setting}`);
+    assert.equal(show({ value: 1.4672, denomination: "gp" }, wide, setting), "1g 46s 72c");
+    // 10:1 world (standard 5e), setting at either value
+    assert.equal(show({ value: 2, denomination: "sp" }, std, setting), "2s", `2 sp, std, ${setting}`);
+    assert.equal(show({ value: 1, denomination: "cp" }, std, setting), "1c", `1 cp, std, ${setting}`);
+    assert.equal(show({ value: 15, denomination: "sp" }, std, setting), "1g 5s", `15 sp, std, ${setting}`);
+    assert.equal(show({ value: 123, denomination: "cp" }, std, setting), "1g 2s 3c", `123 cp, std, ${setting}`);
+  }
+  // the reported repro
+  assert.deepEqual(priceCopper({ value: 2, denomination: "sp" }, wide, "10"), { copper: 200, step: 100 });
+  // no usable conversions: the setting decides
+  assert.deepEqual(priceCopper({ value: 2, denomination: "sp" }, {}, "10"), { copper: 20, step: 10 });
+  assert.deepEqual(priceCopper({ value: 2, denomination: "sp" }, { sp: { conversion: 7 } }, "100"), { copper: 200, step: 100 });
+  assert.equal(worldStep(wide), 100);
+  assert.equal(worldStep(std), 10);
+  assert.equal(worldStep({ sp: { conversion: 10 }, cp: { conversion: 10000 } }), null);
+  assert.equal(worldStep(undefined), null);
+});
+
+test("buildModel price follows the world's conversions over the setting and the item flag", () => {
+  const wide = { gp: { conversion: 1 }, sp: { conversion: 100 }, cp: { conversion: 10000 } };
+  const item = { type: "loot", name: "X", system: { price: { value: 15, denomination: "sp" } }, flags: { "loot-ledger": { coinRatio: "10" } } };
+  assert.equal(buildModel(item, { dnd5e: { currencies: wide }, ratio: "10" }).price, "15s");
+  assert.equal(buildModel(item, { dnd5e: {}, ratio: "10" }).price, "1g 5s");
 });
