@@ -1,5 +1,18 @@
 # Changelog
 
+## Unreleased (0.3.0)
+
+### Security
+- **GM-only API.** `build`, `roll`, `findTable`, `convertToPack`, `auditHandWritten`, `replaceList`, `rollSuffix`, `removeData`, `reviewBoard` and `setQuality` now show "GM only" and return `undefined` for players. Pure helpers (`convert`, `rules`, `suffixes`, `qualityOf`, `auditHandAuthored`, `sellPrice`, `bandForLevel`, `formatCoins`, lookup lists) stay open. `auditHandWritten` checks for a GM itself before it can write the Build Report journal.
+- **Random suffixes only roll for items created by a GM user.** A player could put the suffix flag on an item they create on their own actor and trigger a roll (or a GM whisper). The hook now checks the creating user id; use the item's Roll suffix action or `api.rollSuffix` for a player's item.
+- **Chat card names are escaped.** The "GM picks" whisper put item and actor names into the message as raw HTML; they are now escaped.
+
+### Untested in Foundry
+- As a player, every gated `api.*` member shows "GM only" and returns `undefined`; `api.rules()` and `api.suffixes()` still work.
+- A player creates a flagged item on their own actor: nothing rolls and no whisper is sent. A GM drags a flagged item onto an actor: it rolls (Roll on drop) or whispers (GM picks).
+- Item Piles: loot moved from a pile to a player's actor still rolls (it is created by the GM's client); confirm.
+- An item named with HTML characters shows as plain text in the "GM picks" whisper.
+
 ## 0.3.0 (unreleased)
 
 ### Added

@@ -10,9 +10,18 @@ import { convertItem, parseSource, auditHandAuthored } from "./convert.mjs";
 import { rollSuffix, listSuffixes } from "./suffix-hooks.mjs";
 import { announceDrop } from "./events.mjs";
 import { removeModuleData } from "./cleanup.mjs";
+import { gateMembers, requireGM } from "./gate.mjs";
+
+/**
+ * API members that return world documents or touch world data: GM only. The rest are pure helpers (no world data) and stay
+ * open. tests/gate.test.mjs requires every function member to be in exactly one of these two lists.
+ */
+export const GM_ONLY_MEMBERS = ["reviewBoard", "setQuality", "build", "convertToPack", "auditHandWritten", "replaceList", "roll", "findTable", "rollSuffix", "removeData"];
+export const OPEN_MEMBERS = ["qualityOf", "convert", "auditHandAuthored", "rules", "suffixes", "sellPrice", "bandForLevel", "formatCoins"];
 
 /** Find the generated table matching a query. */
 export async function findTable({ band = null, level = null, quality = null, type = null, creature = null, pack = TABLES_PACK.name } = {}) {
+  if (!requireGM()) return undefined;
   const tables = game.packs.get(`world.${pack}`);
   if (!tables) throw new Error("Loot Ledger: no tables compendium yet. Run Build loot pools first.");
   if (band === null || band === undefined) band = level ? bandForLevel(level) : 1;
@@ -84,6 +93,7 @@ export function sellPrice(item) {
  * @returns {Promise<object>} handWrittenAudit() result plus `snippet` (lines to paste into scripts/replace-list.mjs)
  */
 export async function auditHandWritten({ journal = false, add = [], log = true } = {}) {
+  if (!requireGM()) return undefined; // also guards the Build Report journal write below
   const pack = game.packs.get(SOURCE_PACK);
   if (!pack) throw new Error(`Loot Ledger: source compendium ${SOURCE_PACK} not found.`);
   const docs = await pack.getDocuments();
@@ -113,7 +123,7 @@ export async function auditHandWritten({ journal = false, add = [], log = true }
 
 export function createApi() {
   const on = key => { try { return !!game.settings.get(MODULE_ID, key); } catch { return false; } };
-  return {
+  return gateMembers({
     /** Open the GM review board (undefined when the "Review board" setting is off). */
     reviewBoard: on("reviewBoard") ? async () => (await import("./review.mjs")).ReviewBoard.open() : undefined,
     /** Set (or clear with null) the quality of items or UUIDs (undefined when "Quality colours" is off). */
@@ -142,5 +152,5 @@ export function createApi() {
     QUALITIES: QUALITIES.map(q => q.key),
     TYPES: CATEGORIES.map(c => c.key),
     CREATURES: CREATURES.map(c => c.key)
-  };
+  }, GM_ONLY_MEMBERS);
 }

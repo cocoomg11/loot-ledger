@@ -245,7 +245,7 @@ the module's scripts or read its settings directly. **Stable** = kept compatible
 
 | Name | Status | What it does |
 | --- | --- | --- |
-| `api.build(options)`, `api.roll(query)`, `api.findTable(query)` | stable | Build the pools; roll loot; find a generated table. |
+| `api.build(options)`, `api.roll(query)`, `api.findTable(query)` | stable | Build the pools; roll loot; find a generated table. GM only. |
 | `api.sellPrice(item)`, `api.bandForLevel(level)`, `api.formatCoins(copper)` | stable | Price and band helpers. |
 | `api.BANDS`, `api.QUALITIES`, `api.TYPES`, `api.CREATURES` | stable | Lookup lists. |
 | `api.setQuality(items, quality)`, `api.qualityOf(item)` | stable | Quality colours (undefined `setQuality` while the setting is off). |
@@ -254,6 +254,8 @@ the module's scripts or read its settings directly. **Stable** = kept compatible
 | `api.removeData({ dryRun, confirm, itemFlags })` | experimental | GM: remove Loot Ledger's data (see below). |
 | Hook `loot-ledger.ready` (argument: the API) | stable | Fires on `ready`. |
 | Hook `loot-ledger.itemDropped` | experimental | Fires when a Loot Ledger item is rolled or lands on an actor. |
+
+**GM only (0.3.0):** `build`, `roll`, `findTable`, `convertToPack`, `auditHandWritten`, `replaceList`, `rollSuffix`, `removeData`, `reviewBoard` and `setQuality` show a "GM only" notice and return `undefined` for players. The pure helpers (`convert`, `rules`, `suffixes`, `qualityOf`, `auditHandAuthored`, `sellPrice`, `bandForLevel`, `formatCoins` and the lookup lists) stay open. Random suffixes are rolled only for items created by a GM user.
 
 ```js
 // source "roll": api.roll() drew the item from a table.

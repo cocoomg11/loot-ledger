@@ -7,9 +7,14 @@
  * - Only the active GM's client writes: when an item flagged `randomSuffix` and not yet rolled is created on
  *   an actor (a character, an NPC, or an Item Piles pile / merchant, which are actors too), it either rolls
  *   a suffix ("roll on drop") or whispers the GMs that one is waiting ("GM picks").
+ * - Only items created by a GM user roll (the createItem userId): an item a player creates on their own actor never does, even
+ *   with the flag. A player's own item can still be
+ *   rolled by a GM with the item's "Roll suffix" action or api.rollSuffix.
  * - Items keep `flags.loot-ledger.suffix` when moved between actors, so a rolled item never rolls again.
  */
 import { MODULE_ID } from "./data.mjs";
+import { esc } from "./review-model.mjs";
+import { isGmUser } from "./gate.mjs";
 import { suffixUpdate, canRoll, isRolled, suffixTable, SUFFIX_GROUPS } from "./suffix.mjs";
 
 /** Pure active-GM pick: the lowest-id active GM. */
@@ -76,13 +81,22 @@ export function listSuffixes() {
   return suffixTable();
 }
 
-async function onCreateItem(item) {
+/** The GM whisper for "GM picks" mode. Item and actor names are user data, so they are escaped. */
+export function pickWhisperHtml(itemName, actorName) {
+  return `<p><strong>Loot Ledger:</strong> ${esc(itemName)} on ${esc(actorName)} can take a random suffix. Use the item's <em>Reroll suffix</em> action, or <code>api.rollSuffix(item, { suffixId })</code> (ids: <code>api.suffixes()</code>).</p>`;
+}
+
+/**
+ * createItem(item, options, userId). Only items created by a GM user roll or whisper: the flag `randomSuffix` is plain item
+ * data that a player can put on any item they create on their own actor, but the userId is set by the server.
+ */
+async function onCreateItem(item, options, userId) {
   // createItem fires for every item anywhere: cheapest checks first.
-  if (!(item.parent instanceof Actor) || !canRoll(item) || isRolled(item) || !isActiveGM()) return;
+  if (!(item.parent instanceof Actor) || !canRoll(item) || isRolled(item) || !isActiveGM() || !isGmUser(userId, game.users)) return;
   try {
     if (game.settings.get(MODULE_ID, "suffixMode") === "gm") {
       await ChatMessage.create({
-        content: `<p><strong>Loot Ledger:</strong> ${item.name} on ${item.parent.name} can take a random suffix. Use the item's <em>Reroll suffix</em> action, or <code>api.rollSuffix(item, { suffixId })</code> (ids: <code>api.suffixes()</code>).</p>`,
+        content: pickWhisperHtml(item.name, item.parent.name),
         whisper: game.users.filter(u => u.isGM).map(u => u.id), speaker: { alias: "Loot Ledger" }
       });
       return;
