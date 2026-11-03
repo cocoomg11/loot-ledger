@@ -38,13 +38,15 @@
  * levels bandForLevel() maps to the band; levels: the label shown on tables.
  */
 export const LEVEL_BANDS = [
-  { band: 1, min: 1,  max: 10,       levels: "L1–3",   charMin: 1,  charMax: 2 },
-  { band: 2, min: 11, max: 20,       levels: "L3–5",   charMin: 3,  charMax: 4 },
-  { band: 3, min: 21, max: 30,       levels: "L5–7",   charMin: 5,  charMax: 6 },
-  { band: 4, min: 31, max: 40,       levels: "L7–9",   charMin: 7,  charMax: 8 },
-  { band: 5, min: 41, max: 50,       levels: "L9–11",  charMin: 9,  charMax: 10 },
-  { band: 6, min: 51, max: 60,       levels: "L11–14", charMin: 11, charMax: 14 },
-  { band: 7, min: 61, max: Infinity, levels: "L15+",   charMin: 15, charMax: 20 }
+  // Seven bands re-split so item levels line up with the official character-level bands 1-4, 5-10, 11-16 and 17-20:
+  // item level 1-28 suits levels 1-4, 29-46 suits 5-10, 47-65 suits 11-16 and 66+ suits 17-20.
+  { band: 1, min: 1,  max: 14,       levels: "L1–2",   charMin: 1,  charMax: 2 },
+  { band: 2, min: 15, max: 28,       levels: "L3–4",   charMin: 3,  charMax: 4 },
+  { band: 3, min: 29, max: 37,       levels: "L5–7",   charMin: 5,  charMax: 7 },
+  { band: 4, min: 38, max: 46,       levels: "L8–10",  charMin: 8,  charMax: 10 },
+  { band: 5, min: 47, max: 56,       levels: "L11–13", charMin: 11, charMax: 13 },
+  { band: 6, min: 57, max: 65,       levels: "L14–16", charMin: 14, charMax: 16 },
+  { band: 7, min: 66, max: Infinity, levels: "L17–20", charMin: 17, charMax: 20 }
 ];
 
 /**
@@ -182,8 +184,10 @@ export const GEAR_BONUS = {
  * alongside their effects. Shields use GEAR_BONUS (the official +1 / +2 / +3 shield is Uncommon / Rare / Very Rare).
  */
 export const ARMOR_BONUS = {
-  0: { plain: 0, withEffect: 0 }, 1: { plain: 0, withEffect: 0 }, 2: { plain: 1, withEffect: 1 },
-  3: { plain: 2, withEffect: 2 }, 4: { plain: 3, withEffect: 3 }
+  // Armour that has features of its own carries a smaller bonus than plain armour: Rare +0, Very Rare +1, Legendary +2.
+  // Plain armour (no feature lines) is unchanged: Rare +1, Very Rare +2, Legendary +3.
+  0: { plain: 0, withEffect: 0 }, 1: { plain: 0, withEffect: 0 }, 2: { plain: 1, withEffect: 0 },
+  3: { plain: 2, withEffect: 1 }, 4: { plain: 3, withEffect: 2 }
 };
 
 /**
@@ -211,7 +215,7 @@ export const GREEN_RULE = {
 };
 
 /** Quality tier from which every item requires attunement (Very Rare and Legendary). */
-export const ATTUNE_TIER = 3;
+export const ATTUNE_TIER = 4; // only Legendary always attunes; below that, attunement comes from ATTUNE_RIDERS (or a caster restriction)
 /** Rider types that require attunement on their own, as their SRD counterparts do. */
 export const ATTUNE_RIDERS = new Set(["resistance", "attackBonus", "spellBonus", "healBonus", "extraAttack", "burstDamage", "acBonus"]);
 
@@ -246,7 +250,7 @@ export const ATTUNE_RIDERS = new Set(["resistance", "attackBonus", "spellBonus",
 export const STAT_RULE = { minTier: 1, minValue: 4, perItemLevel: 7 };
 export const STAT_PASSIVE = {
   str: { name: "Might", carryMultiplier: 2, athleticsFrom: 2 },
-  dex: { name: "Quickness", initiative: { 1: 1, 2: 1, 3: 2, 4: 3 } },
+  dex: { name: "Quickness", initiative: { 1: 2, 2: 2, 3: 3, 4: 4 } }, // +2 Initiative at the lowest tiers
   con: { name: "Vigor", hpPerLevel: { 1: 0.5, 2: 0.5, 3: 1, 4: 1 } },
   int: { name: "Arcane Acuity", dc: { 1: 1, 2: 1, 3: 2, 4: 2 }, uses: { 1: 1, 2: 2, 3: 1, 4: 2 } },
   wis: { name: "Renewal", perDie: { 1: "1", 2: "1", 3: "2", 4: "@prof" } }
@@ -294,7 +298,7 @@ export const SPELL_RULE = { minValue: 4, perItemLevel: 6, bonus: { 0: 1, 1: 1, 2
  * "+N <School> Resistance": full 5e Resistance only when the line is large for the item level
  * (N >= max(minValue, item level x perItemLevel)); smaller lines are listed as "Not converted".
  */
-export const RESIST_RULE = { minValue: 15, perItemLevel: 0.3 };
+export const RESIST_RULE = { minValue: 15, perItemLevel: 0.3, minTier: 3 }; // full Resistance only from Very Rare (tier 3) up; smaller items list the line as not converted
 
 /** Classic damage school -> 5e damage type. Nature becomes Lightning when the line mentions lightning or storms. */
 export const SCHOOL_MAP = { Fire: "Fire", Frost: "Cold", Nature: "Poison", Shadow: "Necrotic", Arcane: "Force", Holy: "Radiant" };
@@ -315,7 +319,7 @@ export const PROC_RULE = {
   burstDice: { 0: "2d6", 1: "3d6", 2: "4d6", 3: "6d6", 4: "8d6" }
 };
 /** A weapon's own "+ X - Y <School> Damage" line (every hit in the classic game): once-per-turn extra dice. */
-export const WEAPON_EXTRA_DICE = { 0: "1d4", 1: "1d4", 2: "1d4", 3: "1d6", 4: "1d8" };
+export const WEAPON_EXTRA_DICE = { 0: "1d4", 1: "1d4", 2: "1d6", 3: "1d8", 4: "1d10" }; // weapon rider dice: Rare 1d6, Very Rare 1d8, Legendary 1d10
 
 /* -------------------------------------------- */
 /*  6. Limited uses (Flurry, Blast, ...)        */
@@ -327,7 +331,7 @@ export const WEAPON_EXTRA_DICE = { 0: "1d4", 1: "1d4", 2: "1d4", 3: "1d6", 4: "1
  * Uses per Long Rest by quality:  common 1 | uncommon (green) 2 | rare (blue) 3 | epic (purple) 4 | legendary (orange) 6.
  * "Once per turn" limits are separate and unchanged.
  */
-export const DAILY_USES = { 0: 1, 1: 2, 2: 3, 3: 4, 4: 6 };
+export const DAILY_USES = { 0: 1, 1: 1, 2: 2, 3: 3, 4: 3 }; // uses per Long Rest: 1 / 1 / 2 / 3 / 3 (common, uncommon, rare, very rare, legendary)
 /** Big chance-on-hit blasts (PROC_RULE burst) are capped lower (decided by the user): 1 / 1 / 2 / 3 per Long Rest
  * (green / blue / purple / orange), so even a Legendary blast is at most 3 a day. Flurry keeps DAILY_USES. */
 export const BLAST_USES = { 0: 1, 1: 1, 2: 1, 3: 2, 4: 3 };
@@ -348,7 +352,8 @@ export const POTION_HEALING = [
 ];
 /** Mana potions: regain one expended spell slot of this level or lower. */
 export const MANA_POTION_SLOT = [
-  { maxIlvl: 15, level: 1 }, { maxIlvl: 30, level: 2 }, { maxIlvl: 45, level: 3 }, { maxIlvl: Infinity, level: 4 }
+  // Slot level restored by item level: up to level 1, up to level 3, up to level 5.
+  { maxIlvl: 25, level: 1 }, { maxIlvl: 45, level: 3 }, { maxIlvl: Infinity, level: 5 }
 ];
 /** Food: extra hit points when eaten during a Short Rest. */
 export const FOOD_HEALING = [

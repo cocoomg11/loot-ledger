@@ -41,7 +41,7 @@ export {
 
 /** Bump when the rules (rules.mjs) or the conversion logic change: it is part of every item's source hash, so
  * Build re-converts items converted under an older version. */
-export const CONVERTER_VERSION = 3;
+export const CONVERTER_VERSION = 4;
 
 /* -------------------------------------------- */
 /*  SRD 5.2 reference data                      */
@@ -196,7 +196,7 @@ function officialRef(entry) {
 }
 
 /** Wands: their damage school decides the cantrip they let you cast (SRD 5.2 cantrips). Missing school -> GM review. */
-export const WAND_CANTRIP = { Fire: "Fire Bolt", Frost: "Ray of Frost", Arcane: "Eldritch Blast", Nature: "Poison Spray", Holy: "Sacred Flame" };
+export const WAND_CANTRIP = { Fire: "Fire Bolt", Frost: "Ray of Frost", Arcane: "Eldritch Blast", Nature: "Poison Spray", Holy: "Sacred Flame", Shadow: "Chill Touch" };
 
 
 /**
@@ -501,7 +501,7 @@ export function convertItem(src, options = {}) {
 
   const data = {
     _id: base._id, name: base.name, type: itemType, img: base.img, system,
-    effects: kept ? (base.effects ?? []) : [], flags, sort: 0
+    effects: kept ? (base.effects ?? []) : riderEffects(ctx.riders, base), flags, sort: 0
   };
 
   const sys = system;
@@ -602,6 +602,35 @@ function itemNoun(ctx) {
   if (p.wowType === "Wand") return "wand";
   if (ctx.extras.armor) return "armor";
   return SLOT_NOUN[p.slot] ?? "item";
+}
+
+/**
+ * Flat riders become one transferred Active Effect so equipping/attuning the item changes the
+ * sheet. Riders with no flat dnd5e key (per-use DC bump, Hit Dice healing, procs) stay text + uses.
+ */
+const AE = { ADD: 2, MULTIPLY: 1 };
+const ch = (key, value, mode = AE.ADD) => ({ key, mode, value: String(value) });
+export function riderChanges(r) {
+  if (r.type === "resistance") return [ch("system.traits.dr.value", r.damageType)];
+  if (r.type === "acBonus") return [ch("system.attributes.ac.bonus", `+ ${r.value}`)];
+  if (r.type === "saveBonus") return [ch(`system.abilities.${r.ability}.bonuses.save`, `+ ${r.value}`)];
+  if (r.type === "checkBonus") return [ch(`system.abilities.${r.ability}.bonuses.check`, `+ ${r.value}`)];
+  if (r.type === "spellBonus" && !r.damageType) return [
+    ch("system.bonuses.msak.attack", `+ ${r.value}`), ch("system.bonuses.rsak.attack", `+ ${r.value}`),
+    ...(r.scope === "attackAndDC" ? [ch("system.bonuses.spell.dc", r.value)] : [])];
+  if (r.type === "attackBonus" && r.value) return [ch("system.bonuses.mwak.attack", `+ ${r.value}`), ch("system.bonuses.rwak.attack", `+ ${r.value}`)];
+  if (r.type === "statPassive") {
+    if (r.effect === "initiative") return [ch("system.attributes.init.bonus", `+ ${r.value}`)];
+    if (r.effect === "hpMax") return [ch("system.attributes.hp.bonuses.overall", `+ ${r.formula}`)];
+    if (r.effect === "carryingCapacity") return [ch("system.attributes.encumbrance.multipliers.overall", r.multiplier, AE.MULTIPLY),
+      ...(r.advantage === "skill:ath" ? [ch("system.skills.ath.roll.mode", 1)] : [])];
+  }
+  return [];
+}
+function riderEffects(riders, base) {
+  const changes = riders.flatMap(riderChanges);
+  return changes.length ? [{ name: `${base.name} (equipped)`, img: base.img ?? "icons/svg/aura.svg", transfer: true, disabled: false, changes,
+    flags: { [MODULE_ID]: { converted: true } } }] : [];
 }
 
 function addFeature(ctx, f) {
@@ -763,7 +792,9 @@ function applyResistances(ctx) {
     const line = school === "All" ? `+${value} All Resistances` : `+${value} ${school} Resistance`;
     if (school === "All") { notConverted(ctx, line, "a small bonus to every resistance has no proportionate 5e rule", "small"); continue; }
     const min = Math.max(RESIST_RULE.minValue, Math.ceil((p.itemLevel ?? 1) * RESIST_RULE.perItemLevel));
-    if (value >= min) {
+    if (value >= min && ctx.tier < (RESIST_RULE.minTier ?? 0)) {
+      notConverted(ctx, line, `5e Resistance is a Very Rare-level benefit (a Resistance is worth one rarity step)`, "below Very Rare");
+    } else if (value >= min) {
       const type = SCHOOL_MAP[school];
       addFeature(ctx, {
         name: `${type} Resistance`, sourceLine: line,
@@ -1059,7 +1090,7 @@ function buildSystem(shape, ctx) {
     if (t === "clothing") return clothing(ctx, sys, `Worn item (${p.slot.toLowerCase()}${p.wowType ? `, ${p.wowType.toLowerCase()}` : ""}, no AC)`,
       `${p.slot}${p.wowType ? ` (${p.wowType})` : ""} → worn item with no AC; only an Equip line that raises armour or defence gives AC.`);
     Object.assign(sys, { type: { value: t, baseItem: "" }, weight: { value: t === "ring" ? 0 : 1, units: "lb" } });
-    if (p.slot === "Relic") sys.properties.push("foc");
+    if (p.slot === "Relic" || (/Off-?hand/i.test(p.slot ?? "") && isCasterGear(p))) sys.properties.push("foc"); // caster off-hand orbs and tomes are spellcasting foci
     ctx.basis = `${p.slot} → ${{ ring: "ring", trinket: p.slot === "Neck" ? "amulet" : "trinket" }[t] ?? "wondrous item"}.`;
     applyLinesCommon(ctx);
     ctx.summary = { ring: "Ring", trinket: p.slot === "Neck" ? "Amulet" : p.slot === "Trinket" ? "Trinket" : "Held item" }[t] ?? "Wondrous item";
