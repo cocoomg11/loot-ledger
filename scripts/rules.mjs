@@ -26,6 +26,8 @@
  *   6. Limited uses                                        (Flurry, Blast, other per-Long-Rest features)
  *   7. Consumables                                         (potions, food, gear healing)
  *   8. Review thresholds                                   (when an item is sent to GM review)
+ *   9. Random suffix enchantments                          (rolled on drop)
+ *  10. Official bases                                      (matching a converted item to an official base item)
  */
 
 /* -------------------------------------------- */
@@ -170,8 +172,8 @@ export const TIER = { poor: 0, common: 0, uncommon: 1, rare: 2, epic: 3, legenda
  * "Effect" means a feature from one of the item's own Equip / Use / Chance-on-hit / resistance / bonus-damage
  * lines, or the main-stat passive (STAT_PASSIVE; on trinkets the check / save bonus) (see EFFECT_RIDERS).
  * Effects are never invented to fill a tier: an item with no convertible line just gets its plain bonus.
- * Ability SCORE increases are never given by the converter (only check / save bonuses); an official item used as
- * a reflavour (REFLAVOUR) that raises a score keeps its own rules.
+ * Ability SCORE increases are never given by the converter's own rules (only check / save bonuses); an official
+ * base item that raises a score (section 10, OFFICIAL_BASES.scoreItems) keeps its own rules.
  */
 export const GEAR_BONUS = {
   0: { plain: 0, withEffect: 0 }, 1: { plain: 1, withEffect: 0 }, 2: { plain: 1, withEffect: 1 },
@@ -180,8 +182,8 @@ export const GEAR_BONUS = {
 /**
  * Chest armour (leather / mail / plate) follows the official armour curve (decided by the user): +1 Armor is
  * Rare, +2 Very Rare, +3 Legendary. So green chest armour gets NO +1: its one benefit is its stat passive or a
- * traceable effect line, and with neither it is just the base armour. Blue +1, purple +2, orange +3, always
- * alongside their effects. Shields use GEAR_BONUS (the official +1 / +2 / +3 shield is Uncommon / Rare / Very Rare).
+ * traceable effect line, and with neither it is just the base armour. Plain chest armour: blue +1, purple +2,
+ * orange +3; chest armour with features of its own: blue +0, purple +1, orange +2 (withEffect). Shields use GEAR_BONUS (the official +1 / +2 / +3 shield is Uncommon / Rare / Very Rare).
  */
 export const ARMOR_BONUS = {
   // Armour that has features of its own carries a smaller bonus than plain armour: Rare +0, Very Rare +1, Legendary +2.
@@ -214,8 +216,9 @@ export const GREEN_RULE = {
   }
 };
 
-/** Quality tier from which every item requires attunement (Very Rare and Legendary). */
-export const ATTUNE_TIER = 4; // only Legendary always attunes; below that, attunement comes from ATTUNE_RIDERS (or a caster restriction)
+/** Quality tier from which every item requires attunement (Legendary only); below it, attunement comes from
+ * ATTUNE_RIDERS, a caster restriction, or an official base's own attunement. */
+export const ATTUNE_TIER = 4;
 /** Rider types that require attunement on their own, as their SRD counterparts do. */
 export const ATTUNE_RIDERS = new Set(["resistance", "attackBonus", "spellBonus", "healBonus", "extraAttack", "burstDamage", "acBonus"]);
 
@@ -234,7 +237,7 @@ export const ATTUNE_RIDERS = new Set(["resistance", "attackBonus", "spellBonus",
  *
  *               Uncommon (green)       Rare (blue)            Very Rare (purple)     Legendary (orange)
  *   Strength    carry x2               carry x2 + Adv. Athl.  carry x2 + Adv. Athl.  carry x2 + Adv. Athl.
- *   Agility     +1 Initiative          +1 Initiative          +2 Initiative          +3 Initiative
+ *   Agility     +2 Initiative          +2 Initiative          +3 Initiative          +4 Initiative
  *   Stamina     +1 max HP / 2 levels   +1 max HP / 2 levels   +1 max HP / level      +1 max HP / level
  *   Intellect   +1 spell save DC, 1/LR +1 DC, 2/LR            +2 DC, 1/LR            +2 DC, 2/LR
  *   Spirit      +1 HP per Hit Die      +1 HP per Hit Die      +2 HP per Hit Die      +PB HP per Hit Die
@@ -250,7 +253,7 @@ export const ATTUNE_RIDERS = new Set(["resistance", "attackBonus", "spellBonus",
 export const STAT_RULE = { minTier: 1, minValue: 4, perItemLevel: 7 };
 export const STAT_PASSIVE = {
   str: { name: "Might", carryMultiplier: 2, athleticsFrom: 2 },
-  dex: { name: "Quickness", initiative: { 1: 2, 2: 2, 3: 3, 4: 4 } }, // +2 Initiative at the lowest tiers
+  dex: { name: "Quickness", initiative: { 1: 2, 2: 2, 3: 3, 4: 4 } },
   con: { name: "Vigor", hpPerLevel: { 1: 0.5, 2: 0.5, 3: 1, 4: 1 } },
   int: { name: "Arcane Acuity", dc: { 1: 1, 2: 1, 3: 2, 4: 2 }, uses: { 1: 1, 2: 2, 3: 1, 4: 2 } },
   wis: { name: "Renewal", perDie: { 1: "1", 2: "1", 3: "2", 4: "@prof" } }
@@ -296,9 +299,10 @@ export const SPELL_RULE = { minValue: 4, perItemLevel: 6, bonus: { 0: 1, 1: 1, 2
 
 /**
  * "+N <School> Resistance": full 5e Resistance only when the line is large for the item level
- * (N >= max(minValue, item level x perItemLevel)); smaller lines are listed as "Not converted".
+ * (N >= max(minValue, item level x perItemLevel)) and the item is at least minTier (Very Rare: a Resistance is
+ * worth about one rarity step); other lines are listed as "Not converted".
  */
-export const RESIST_RULE = { minValue: 15, perItemLevel: 0.3, minTier: 3 }; // full Resistance only from Very Rare (tier 3) up; smaller items list the line as not converted
+export const RESIST_RULE = { minValue: 15, perItemLevel: 0.3, minTier: 3 };
 
 /** Classic damage school -> 5e damage type. Nature becomes Lightning when the line mentions lightning or storms. */
 export const SCHOOL_MAP = { Fire: "Fire", Frost: "Cold", Nature: "Poison", Shadow: "Necrotic", Arcane: "Force", Holy: "Radiant" };
@@ -319,7 +323,7 @@ export const PROC_RULE = {
   burstDice: { 0: "2d6", 1: "3d6", 2: "4d6", 3: "6d6", 4: "8d6" }
 };
 /** A weapon's own "+ X - Y <School> Damage" line (every hit in the classic game): once-per-turn extra dice. */
-export const WEAPON_EXTRA_DICE = { 0: "1d4", 1: "1d4", 2: "1d6", 3: "1d8", 4: "1d10" }; // weapon rider dice: Rare 1d6, Very Rare 1d8, Legendary 1d10
+export const WEAPON_EXTRA_DICE = { 0: "1d4", 1: "1d4", 2: "1d6", 3: "1d8", 4: "1d10" };
 
 /* -------------------------------------------- */
 /*  6. Limited uses (Flurry, Blast, ...)        */
@@ -328,10 +332,10 @@ export const WEAPON_EXTRA_DICE = { 0: "1d4", 1: "1d4", 2: "1d6", 3: "1d8", 4: "1
 /**
  * Limited-use features (Flurry, Blast and any other per-rest feature) recharge daily, as official items do:
  * all expended uses return when the wielder finishes a Long Rest (dnd5e system.uses, recovery period "lr").
- * Uses per Long Rest by quality:  common 1 | uncommon (green) 2 | rare (blue) 3 | epic (purple) 4 | legendary (orange) 6.
+ * Uses per Long Rest by quality:  common 1 | uncommon (green) 1 | rare (blue) 2 | epic (purple) 3 | legendary (orange) 3.
  * "Once per turn" limits are separate and unchanged.
  */
-export const DAILY_USES = { 0: 1, 1: 1, 2: 2, 3: 3, 4: 3 }; // uses per Long Rest: 1 / 1 / 2 / 3 / 3 (common, uncommon, rare, very rare, legendary)
+export const DAILY_USES = { 0: 1, 1: 1, 2: 2, 3: 3, 4: 3 };
 /** Big chance-on-hit blasts (PROC_RULE burst) are capped lower (decided by the user): 1 / 1 / 2 / 3 per Long Rest
  * (green / blue / purple / orange), so even a Legendary blast is at most 3 a day. Flurry keeps DAILY_USES. */
 export const BLAST_USES = { 0: 1, 1: 1, 2: 1, 3: 2, 4: 3 };
@@ -394,7 +398,7 @@ export const EMPTY_REVIEW_TIER = 3;
  * Power 1-4: the item's quality tier (TIER, Common/Poor count as 1), +bandBoost when the item's level band is
  * highBandFrom or higher, capped at maxPower.
  *   minPower / maxPower   power range.
- *   highBandFrom          level band from which the power gets +bandBoost (band 5 = character levels 9-11).
+ *   highBandFrom          level band from which the power gets +bandBoost (band 5 = character levels 11-13).
  *   comboDrop             two-stat suffixes: each stat passive is sized at power - comboDrop (at least 1), so a
  *                         two-stat suffix is two smaller effects rather than two full ones.
  *   resistFrom            resistance suffixes: full Resistance from this power; below it, Advantage on saving
@@ -466,3 +470,81 @@ export const SUFFIX_WEIGHTS = {
              strength: 0.25, bear: 0.25, tiger: 0.25, monkey: 0.5, agility: 0.5, power: 0.25 },
   jewelry: {}
 };
+
+/* -------------------------------------------- */
+/*  10. Official bases                          */
+/* -------------------------------------------- */
+
+/**
+ * Official-base matcher (scripts/base-match.mjs). A converted item can be re-based on an official item from the
+ * user's installed compendiums: it keeps its own name, icon, tooltip, price and quality, and takes the base's
+ * system data and effects. Mechanics are read from the compendium at build time; Loot Ledger stores no official
+ * text, only the names in the tables below and short tags derived in memory during a build.
+ *
+ *   defaultSources   compendiums searched when the baseSources setting is empty, in priority order (the book pack,
+ *                    when set, always comes first). The 2014 SRD (srd2014) is only used when listed by hand.
+ *   confidence       accept: re-base the item; suggest: record the base for review, keep the tooltip conversion.
+ *   score            score = covered - gap x needs not covered - excess x base features not needed
+ *                    - rarityStep x rarity steps below the item - sourcePriority x the source's position.
+ *   penalty          confidence = covered / (covered + gaps + excessShare x excess), x unfilledNeeded per needed
+ *                    line the base leaves open, x farBelow when the base is farBelowSteps or more rarities lower.
+ *   template         the +N weapon / armour / shield template (no compendium item needed): fixed confidence, lower
+ *                    when manyGapsFrom or more lines are left for gap-fills.
+ *   tableConfidence  confidence of a hit in VARIANT_BASES (a decided rule, not a guess).
+ *   weights          how much each kind of line counts (main stat, secondary stat, resistance, small resistance,
+ *                    effect line, minor line, the +N backbone).
+ *   scoreRule        ability-score bases only for a main stat of at least max(minValue, item level / perItemLevel),
+ *                    and only on items stepsUp rarities above the base's own rarity.
+ *   beltScore        belts that set Strength: the score the item's tier uses (purple 23, orange 25; see VARIANT_BASES).
+ *   guard            specific-base strength guard: a base whose extra damage rides far more often (rank) or is far
+ *                    bigger (average dice ratio) than the item's own line is never picked; the +N template is used.
+ *   exclude          official items never used as a base (theme-breaking: wishes, flight, summoning, decks ...).
+ *                    Cursed, sentient and artifact items are excluded by tag.
+ */
+export const OFFICIAL_BASES = {
+  defaultSources: ["dnd-dungeon-masters-guide.equipment", "dnd-players-handbook.equipment", "dnd5e.equipment24", "dnd-arcana-unleashed.items"],
+  srd2014: "dnd5e.items",
+  confidence: { accept: 0.6, suggest: 0.4 },
+  score: { gap: 0.6, excess: 0.25, rarityStep: 0.12, sourcePriority: 0.02 },
+  penalty: { excessShare: 0.5, unfilledNeeded: 0.8, farBelow: 0.8, farBelowSteps: 2 },
+  template: { confidence: 0.75, manyGaps: 0.6, manyGapsFrom: 2 },
+  tableConfidence: 0.8,
+  weights: { mainStat: 2, secondaryStat: 0.5, resist: 1.5, smallResist: 0.5, effect: 1.5, minor: 1, plus: 1 },
+  scoreRule: { minValue: 8, perItemLevel: 5, stepsUp: 1 },
+  beltScore: { 3: 23, 4: 25 },
+  guard: { rank: { crit: 1, perTurn: 2, limited: 2, always: 3 }, maxRankGap: 1, maxDiceRatio: 2 },
+  exclude: ["Ring of Three Wishes", "Deck of Many Things", "Carpet of Flying", "Broom of Flying", "Winged Boots",
+    "Figurine of Wondrous Power", "Bag of Tricks", "Sphere of Annihilation", "Cubic Gate", "Well of Many Worlds"]
+};
+
+/**
+ * Variant -> official base (decided rules, checked in order; first hit wins). Keyed by the official item's NAME:
+ * the matcher looks the name up in the indexed compendiums and reads rarity and mechanics from there; nothing else
+ * about the item is stored here. A rule only applies when the base's rarity is at most the item's (score bases:
+ * stepsUp below it), so e.g. a green fire wand never becomes a Rare wand.
+ *   kind "variant"     the item's stat variant (phase 2 of the conversion rework) or an explicit line asks for it.
+ *   kind "need"        a line of this need kind (slot recovery, health regeneration); maxTier / minTier by quality.
+ *                      pattern: true = not a re-base; the line follows that item's shape as a gap-fill.
+ *   kind "protection"  minSchools or more small resistances to different schools, on the listed slot.
+ *   kind "wand"        a wand whose only line is its damage line, by damage school.
+ *   kind "armorName"   chest armour by name: armorBase (SRD armour key) with the normal +N (no compendium item).
+ *   kind "score"       ability-score base for a big main stat (setting scoreItems); belt: chosen by beltScore.
+ *   kind "potion"      healing potions by item level (POTION_REFLAVOUR names).
+ */
+export const VARIANT_BASES = [
+  { name: "Cloak of Elvenkind", kind: "variant", variant: "stealth", slot: "Back" },
+  { name: "Boots of Elvenkind", kind: "variant", variant: "stealth", slot: "Feet" },
+  { name: "Pearl of Power", kind: "need", need: "slotRecovery", maxTier: 2 },
+  { name: "Periapt of Wound Closure", kind: "need", need: "hpRegen", maxTier: 2 },
+  { name: "Ring of Regeneration", kind: "need", need: "hpRegen", minTier: 3, pattern: true },
+  { name: "Ring of Protection", kind: "protection", slot: "Finger", minSchools: 3 },
+  { name: "Cloak of Protection", kind: "protection", slot: "Back", minSchools: 3 },
+  { name: "Wand of Magic Missiles", kind: "wand", school: "Arcane" },
+  { name: "Wand of Fireballs", kind: "wand", school: "Fire" },
+  { name: "Wand of Lightning Bolts", kind: "wand", school: "Nature" },
+  { name: "Breastplate", kind: "armorName", slot: "Chest", nameRx: /breastplate/i, armorBase: "breastplate" },
+  { name: "Gauntlets of Ogre Power", kind: "score", ability: "str", slot: "Hands" },
+  { name: "Headband of Intellect", kind: "score", ability: "int", slot: "Head" },
+  { name: "Amulet of Health", kind: "score", ability: "con", slot: "Neck" },
+  { name: "Belt of Giant Strength", kind: "score", ability: "str", slot: "Waist", belt: true }
+];

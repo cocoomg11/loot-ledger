@@ -17,7 +17,8 @@ test("canonical JSON ignores key order and handles Sets, RegExps, Infinity", () 
 
 test("source hash is stable for identical input", () => {
   const o = { mode: "convert", ratio: "100", converterVersion: 2, rules: rulesFingerprint(), replace: false, officialPacks: ["b", "a"], dnd5eMajor: 6 };
-  assert.equal(sourceHash(base(), o), sourceHash(base(), { ...o, officialPacks: ["a", "b"] }));
+  assert.equal(sourceHash(base(), o), sourceHash(base(), { ...o, officialPacks: ["b", "a"] }));
+  assert.notEqual(sourceHash(base(), o), sourceHash(base(), { ...o, officialPacks: ["a", "b"] }), "base source order decides duplicates");
   assert.equal(sourceHash(base(), { mode: "copy", ratio: "100" }), sourceHash(base(), { mode: "copy", ratio: "100" }));
 });
 
@@ -32,6 +33,7 @@ test("source hash changes with the source, ratio, rules, converter version and r
   assert.notEqual(sourceHash(base(), { ...o, converterVersion: 3 }), h, "converter version");
   assert.notEqual(sourceHash(base(), { ...o, replace: true }), h, "replace list");
   assert.notEqual(sourceHash(base(), { ...o, officialPacks: ["dnd5e.items"] }), h, "official packs installed");
+  assert.notEqual(sourceHash(base(), { ...o, bases: "x" }), h, "base settings / base modifiedTime fingerprint");
   assert.notEqual(sourceHash(base(), { ...o, mode: "copy" }), h, "copy vs convert");
 });
 

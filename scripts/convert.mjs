@@ -31,6 +31,7 @@
  */
 import { MODULE_ID, SOURCE_MODULE, QUALITY_BY_KEY, analyse, tooltipLines, priceFor, formatCoins } from "./data.mjs";
 import { suffixGroup } from "./suffix.mjs";
+import { matchBase, variantStep, uncoveredRiders, MATCHER_VERSION } from "./base-match.mjs";
 // Every tunable number lives in rules.mjs (book-day calibration edits values there, not logic here).
 import {
   WEAPON_RULES, CHEST_RULES, CLOTH_CHEST, SLOT_EQUIPMENT, TIER, GEAR_BONUS, ARMOR_BONUS, GREEN_RULE, ATTUNE_TIER, ATTUNE_RIDERS, STAT_RULE, STAT_PASSIVE, STAT_PASSIVE_NOTE, TRINKET_RULE, HIT_RULE, DEFENSE_RULE, SPELL_RULE, RESIST_RULE, SCHOOL_MAP, PROC_RULE, WEAPON_EXTRA_DICE, DAILY_USES, BLAST_USES, EXTRA_ATTACK_RULE, POTION_HEALING, MANA_POTION_SLOT, FOOD_HEALING, GEAR_HEALING, POTION_REFLAVOUR, EMPTY_REVIEW_TIER
@@ -41,7 +42,7 @@ export {
 
 /** Bump when the rules (rules.mjs) or the conversion logic change: it is part of every item's source hash, so
  * Build re-converts items converted under an older version. */
-export const CONVERTER_VERSION = 4;
+export const CONVERTER_VERSION = 5;
 
 /* -------------------------------------------- */
 /*  SRD 5.2 reference data                      */
@@ -139,61 +140,10 @@ const usesText = n => n === 1
   : `This property has ${n} uses. You regain all expended uses when you finish a Long Rest.`;
 
 /**
- * Reflavoured official items (first mapping, to be revisited). An Uncommon-or-better worn item whose lines give
- * no 5e feature at all keeps its WoW name, icon and flavour text but takes the system data and rules text of an
- * official magic item of the same slot and rarity. This table holds NAMES and compendium ids only: the data is
- * copied at build time from the user's own installed compendium (OFFICIAL_PACKS), falling back to the SRD by
- * name (SRD_PACKS). Excluded: cursed, artifact, sentient, and theme-breaking items (flight, wishes, summoning).
- * The pick is deterministic: hash(WoW item id) mod candidates. No candidate -> the normal tier rules.
- * D = dnd-dungeon-masters-guide.equipment, A = dnd-arcana-unleashed.items.
+ * Official bases: the matcher (base-match.mjs) picks them from the user's installed compendiums at build time; the
+ * repo stores names only (rules.mjs section 10). The 2024 SRD is always a candidate source when installed.
  */
-export const OFFICIAL_PACKS = { D: "dnd-dungeon-masters-guide.equipment", A: "dnd-arcana-unleashed.items" };
-export const SRD_PACKS = ["dnd5e.equipment24", "dnd5e.items"];
-export const REFLAVOUR_SLOT = { Feet: "boots", Back: "cloak", Hands: "gloves", Waist: "belt", Wrist: "bracers", Head: "helm", Finger: "ring", Neck: "amulet", Chest: "robe" };
-export const REFLAVOUR = {
-  boots: {
-    uncommon: ["D:Boots of Elvenkind#dmgBootsOfElvenk", "D:Boots of Striding and Springing#dmgBootsOfStridi", "D:Boots of the Winterlands#dmgBootsOfTheWin", "D:Slippers of Spider Climbing#dmgSlippersOfSpi"],
-    rare: ["D:Boots of Levitation#dmgBootsOfLevita"]
-  },
-  cloak: {
-    uncommon: ["D:Cloak of Elvenkind#dmgCloakOfElvenk", "D:Cloak of Protection#dmgCloakOfProtec", "D:Cloak of the Manta Ray#dmgCloakOfTheMan", "D:Nature's Mantle#dmgNaturesMantle"],
-    rare: ["D:Cape of the Mountebank#dmgCapeOfTheMoun", "D:Cloak of Displacement#dmgCloakOfDispla", "D:Cloak of the Bat#dmgCloakOfTheBat", "D:Mantle of Spell Resistance#dmgMantleOfSpell"],
-    veryRare: ["D:Cloak of Arachnida#dmgCloakOfArachn"],
-    legendary: ["D:Cloak of Invisibility#dmgCloakOfInvisi"]
-  },
-  gloves: {
-    uncommon: ["D:Gauntlets of Ogre Power#dmgGauntletsOfOg", "D:Gloves of Missile Snaring#dmgGlovesOfMissi", "D:Gloves of Swimming and Climbing#dmgGlovesOfSwimm", "D:Gloves of Thievery#dmgGlovesOfThiev", "A:Magewright's Gloves#aunMagewrightsJC"]
-  },
-  belt: {
-    rare: ["D:Belt of Dwarvenkind#dmgBeltOfDwarven", "D:Belt of Giant Strength (hill)#dmghilBeltofGian"],
-    veryRare: ["D:Belt of Giant Strength (fire)#dmgfirBeltofGian", "D:Belt of Giant Strength (frost)#dmgfroBeltofGian", "D:Belt of Giant Strength (stone)#dmgstoBeltofGian"],
-    legendary: ["D:Belt of Giant Strength (cloud)#dmgcloBeltofGian", "D:Belt of Giant Strength (storm)#dmgstmBeltofGian"]
-  },
-  bracers: { uncommon: ["D:Bracers of Archery#dmgBracersOfArch"], rare: ["D:Bracers of Defense#dmgBracersOfDefe"] },
-  helm: {
-    uncommon: ["D:Cap of Water Breathing#dmgCapOfWaterBre", "D:Circlet of Blasting#dmgCircletOfBlas", "D:Hat of Disguise#dmgHatOfDisguise", "D:Headband of Intellect#dmgHeadbandOfInt", "D:Helm of Comprehending Languages#dmgHelmOfCompreh", "D:Helm of Telepathy#dmgHelmOfTelepat"],
-    rare: ["D:Helm of Teleportation#dmgHelmOfTelepor", "A:Secret Keeper's Circlet#aunSecretKeepeVE"],
-    veryRare: ["D:Helm of Brilliance#dmgHelmOfBrillia"]
-  },
-  ring: {
-    uncommon: ["D:Ring of Jumping#dmgRingOfJumping", "D:Ring of Mind Shielding#dmgRingOfMindShi", "D:Ring of Swimming#dmgRingOfSwimmin", "D:Ring of Warmth#dmgRingOfWarmth0", "D:Ring of Water Walking#dmgRingOfWaterWa", "A:Ring of Dedicated Focus#aunRingofDediccN"],
-    rare: ["D:Ring of Animal Influence#dmgRingOfAnimalI", "D:Ring of Evasion#dmgRingOfEvasion", "D:Ring of Feather Falling#dmgRingOfFeather", "D:Ring of Free Action#dmgRingOfFreeAct", "D:Ring of Protection#dmgRingOfProtect", "D:Ring of Resistance#dmgRingOfResista", "D:Ring of Spell Storing#dmgRingOfSpellSt", "D:Ring of the Ram#dmgRingOfTheRam0", "D:Ring of X-ray Vision#dmgRingOfXrayVis"],
-    veryRare: ["D:Ring of Regeneration#dmgRingOfRegener", "D:Ring of Shooting Stars#dmgRingOfShootin", "D:Ring of Telekinesis#dmgRingOfTelekin"],
-    legendary: ["D:Ring of Invisibility#dmgRingOfInvisib", "D:Ring of Spell Turning#dmgRingOfSpellTu"]
-  },
-  amulet: {
-    uncommon: ["D:Amulet of Proof against Detection and Location#dmgAmuletOfProof", "D:Medallion of Thoughts#dmgMedallionOfTh", "D:Necklace of Adaptation#dmgNecklaceOfAda", "D:Periapt of Health#dmgPeriaptOfHeal", "D:Periapt of Wound Closure#dmgPeriaptOfWoun", "A:Necklace of the Beastly Familiar (Azurite)#aunNecklaceoftdK"],
-    rare: ["D:Amulet of Health#dmgAmuletOfHealt", "D:Necklace of Fireballs#dmgNecklaceOfFir", "D:Necklace of Prayer Beads#dmgNecklaceOfPra", "D:Periapt of Proof against Poison#dmgPeriaptOfProo", "A:Blood Amulet#aunBloodAmuletFw"],
-    veryRare: ["D:Amulet of the Planes#dmgAmuletOfThePl"]
-  },
-  robe: { uncommon: ["D:Robe of Useful Items#dmgRobeOfUsefulI"], veryRare: ["D:Robe of Scintillating Colors#dmgRobeOfScintil", "D:Robe of Stars#dmgRobeOfStars00"] }
-};
-function hashStr(s) { let h = 2166136261; for (const c of String(s)) h = Math.imul(h ^ c.charCodeAt(0), 16777619); return h >>> 0; }
-/** Official item reference for a mapping entry: {name, pack, id}. */
-function officialRef(entry) {
-  const [, k, name, id] = entry.match(/^(\w):(.+)#(\w+)$/);
-  return { name, pack: OFFICIAL_PACKS[k], id };
-}
+export const SRD_PACKS = ["dnd5e.equipment24"];
 
 /** Wands: their damage school decides the cantrip they let you cast (SRD 5.2 cantrips). Missing school -> GM review. */
 export const WAND_CANTRIP = { Fire: "Fire Bolt", Frost: "Ray of Frost", Arcane: "Eldritch Blast", Nature: "Poison Spray", Holy: "Sacred Flame", Shadow: "Chill Touch" };
@@ -426,11 +376,19 @@ const short = (s, n = 70) => (s.length > n ? `${s.slice(0, n - 1)}…` : s);
  * @param {boolean} [options.forceReplace=false]   the item is on the replace list (replace-list.mjs): its
  *                                                  hand-written rules are replaced by Loot Ledger's conversion
  *                                                  even when they pass the audit
- * @returns {{data: object, result: object, parsed: object}}
+ * @param {boolean} [options.officialBases=true]   run the official-base matcher (base-match.mjs)
+ * @param {object}  [options.bases]                base index from indexBases() (build time); without it only the
+ *                                                  +N template can match
+ * @param {object}  [options.baseConfidence]       {accept, suggest} thresholds (setting baseConfidence)
+ * @param {boolean} [options.scoreItems=true]      allow ability-score bases (setting scoreItems)
+ * @param {boolean} [options.gapFills=true]        re-based items get one extra effect for lines the base lacks
+ * @returns {{data: object, result: object, parsed: object, match: object|null, basedOn: object|null}}
+ *   basedOn: the compendium base to apply with applyOfficial() (accepted matches only), else null.
  */
 export function convertItem(src, options = {}) {
   const {
-    ratio = "100", keepHandAuthored = true, forceReplace = false,
+    ratio = "100", keepHandAuthored = true, forceReplace = false, officialBases = true, bases = null,
+    baseConfidence = undefined, scoreItems = true, gapFills = true,
     dnd5eMajor = Number(String(globalThis.game?.system?.version ?? "6").split(".")[0])
   } = options;
   const p = parseSource(src);
@@ -445,7 +403,6 @@ export function convertItem(src, options = {}) {
   const auto = buildSystem(shape, ctx);
   let system = auto.system ?? clone(base.system);
   let itemType = auto.type;
-  const basedOn = pickOfficial(p, shape, ctx, src);
 
   // The source module's own hand-written rules: kept only when every mechanic in them traces to a line.
   let hand = null;
@@ -464,6 +421,21 @@ export function convertItem(src, options = {}) {
     }
   }
 
+  // Source always wins: a kept hand-written rule is used as is (only the +N backbone is added when it lacks one).
+  if (hand?.kept && ctx.bonus && ["weapon", "chest", "shield"].includes(shape)) {
+    if (itemType === "weapon" && !Number(system.magicalBonus)) system.magicalBonus = ctx.bonus;
+    else if (itemType === "equipment" && system.armor && !Number(system.armor.magicalBonus) && ["light", "medium", "heavy", "shield"].includes(system.type?.value)) system.armor.magicalBonus = ctx.bonus;
+  }
+
+  // Official base (base-match.mjs): not for kept hand-written rules, baseline gear, loot or containers.
+  let match = null;
+  if (officialBases && !hand?.kept && ctx.tier >= 1 && !["loot", "container"].includes(shape)) {
+    const armorKey = system.type?.baseItem || null;
+    match = variantStep(matchBase({ p, shape, tier: ctx.tier, bonus: ctx.bonus, riders: ctx.riders, extras: ctx.extras, armorKey },
+      bases, { thresholds: baseConfidence, scoreItems }), { p, shape }, ctx);
+  }
+  const basedOn = match?.status === "accept" && match.base?.source === "compendium" ? match.base : null;
+
   const sourceHtml = base.system?.description?.value ?? "";
   const price = priceFor(p.vendorSellCopper, ratio);
   system.description = { value: sourceHtml + rulesBlock(ctx, hand, shape), chat: "" };
@@ -480,6 +452,9 @@ export function convertItem(src, options = {}) {
   const daily = dailies.find(r => r.type !== "statPassive") ?? dailies[0];
   if (daily) system.uses = { spent: 0, max: String(daily.uses), recovery: [{ period: "lr", type: "recoverAll" }] };
   const needsReview = !kept && ctx.review.length > 0;
+  const matched = match?.status === "accept";
+  const route = ctx.tier === 0 && !kept ? "baseline" : matched ? "base"
+    : (needsReview || kept || match?.status === "suggest") ? "convert-review" : "convert-auto";
   const flags = clone(base.flags ?? {});
   flags[MODULE_ID] = {
     sourceUuid: src.uuid ?? null, quality: p.quality, itemLevel: p.itemLevel,
@@ -489,8 +464,13 @@ export function convertItem(src, options = {}) {
     riders: kept ? [] : ctx.riders,
     // "<Random enchantment>": the item can roll a random suffix when it drops (suffix.mjs, suffix-hooks.mjs).
     ...(p.randomEnchant ? { randomSuffix: true, suffixGroup: suffixGroup(p, shape) } : {}),
+    ...(match?.base ? { base: baseFlag(match) } : {}),
     converted: {
-      version: CONVERTER_VERSION, shape, needsReview,
+      version: CONVERTER_VERSION, shape, needsReview, route,
+      ...(kept ? { sourceText: true } : {}),
+      ...(hand && !kept ? { sourceTextConflict: true } : {}),
+      ...(match?.pattern ? { pattern: match.pattern } : {}),
+      ...(match?.armorBase ? { armorBase: match.armorBase } : {}),
       handAuthored: !!p.handAuthored, handAuthoredKept: !!kept,
       ...(hand && !kept ? { handAuthoredReplaced: replacedWhy(hand).map(x => `${x.claim}: ${x.text}`) } : {}),
       ...(hand?.forced ? { replaceList: true } : {}),
@@ -499,10 +479,16 @@ export function convertItem(src, options = {}) {
     }
   };
 
-  const data = {
-    _id: base._id, name: base.name, type: itemType, img: base.img, system,
-    effects: kept ? (base.effects ?? []) : riderEffects(ctx.riders, base), flags, sort: 0
-  };
+  // Active Effects: kept hand-written items keep their own; matched items get only gap-fills (applyOfficial adds
+  // the base's own effects); unmatched items get one effect built from their flat riders.
+  let effects;
+  if (kept) effects = base.effects ?? [];
+  else if (matched) {
+    const gaps = gapFills ? uncoveredRiders(ctx.riders, match.base) : [];
+    effects = gapFillEffects(gaps, base);
+    flags[MODULE_ID].gapFills = gapFillList(gaps);
+  } else effects = riderEffects(ctx.riders, base);
+  const data = { _id: base._id, name: base.name, type: itemType, img: base.img, system, effects, flags, sort: 0 };
 
   const sys = system;
   const features = kept
@@ -520,57 +506,102 @@ export function convertItem(src, options = {}) {
     features,
     notConverted: kept ? [] : ctx.notConverted.map(r => `${short(r.line, 50)} (${r.short ?? r.why})`),
     basedOn: basedOn?.name ?? "",
+    route, officialBase: match?.base ? `${match.base.name} (${match.status}, ${match.base.confidence})` : "",
     needsReview,
     reviewReason: needsReview ? ctx.review.map(r => `${short(r.line, 60)}: ${r.why}`).join(" | ") : "",
     price: `${price.value} ${price.denomination}`,
     ...(hand ? { handAuthored: kept ? "kept (passes audit)" : `replaced: ${replacedWhy(hand).map(x => x.text).join("; ")}` } : {})
   };
-  return { data, result, parsed: p, basedOn, sourceHtml };
+  return { data, result, parsed: p, basedOn, match, sourceHtml };
+}
+
+/** Converted-item routes (flags.loot-ledger.converted.route). "handmade" items are skipped by Build. */
+export const ROUTES = ["base", "convert-auto", "convert-review", "baseline", "book", "handmade"];
+
+/** flags.loot-ledger.base for a match. */
+function baseFlag(match) {
+  const b = match.base;
+  return {
+    uuid: b.uuid ?? null, name: b.name, pack: b.pack ?? null, source: b.source, confidence: b.confidence,
+    status: match.status, covered: b.covered ?? [], excess: b.excess ?? 0, plus: b.plus ?? 0,
+    matcherVersion: MATCHER_VERSION,
+    candidates: (match.candidates ?? []).map(c => ({ uuid: c.uuid ?? null, name: c.name, confidence: c.confidence }))
+  };
 }
 
 /**
- * Reflavour pick (see REFLAVOUR): returns an official item ref {name, pack, id} or null.
- * Gear with no feature from any line, Uncommon or better, in a mapped slot; healing potions by item level.
- */
-export function pickOfficial(p, shape, ctx, src = {}) {
-  if (shape === "consumable") {
-    if (!p.effects.some(e => e.kind === "use" && /^Restores \d+ to \d+ health/i.test(e.text))) return null;
-    return { name: byLevel(POTION_REFLAVOUR, p.itemLevel).name, pack: OFFICIAL_PACKS.D, id: null };
-  }
-  if (ctx.tier < 1 || ctx.features.length || ctx.review.length || p.handAuthored) return null;
-  if (!["gear", "chest"].includes(shape) || ctx.extras.armor) return null;
-  const slot = REFLAVOUR_SLOT[p.slot];
-  const rarity = QUALITY_BY_KEY[p.quality]?.rarity;
-  const list = REFLAVOUR[slot]?.[rarity];
-  if (!list?.length) return null;
-  const key = src.flags?.[SOURCE_MODULE]?.itemId ?? src.flags?.[SOURCE_MODULE]?.id ?? src._id ?? p.name;
-  return officialRef(list[hashStr(key) % list.length]);
-}
-
-/**
- * Apply an official item's data to a conversion: keep the WoW name, icon, tooltip/flavour and Loot Ledger flags;
- * take type, system data, effects and rules text from the official document (passed in, read at build time
- * from the user's compendium). Adds "Based on: <name>".
+ * Apply an accepted official base (the full document, loaded at build time from the user's compendium): the item
+ * keeps its own name, icon, tooltip, price, quality and rarity, and takes the base's type, system data and own
+ * effects, plus the one gap-fill effect the conversion already built. Attunement: the base's own, or required when
+ * a gap-fill needs it. The base's rules text is copied from the user's compendium at build time, never stored.
  */
 export function applyOfficial(conv, official) {
   const o = typeof official.toObject === "function" ? official.toObject() : clone(official);
   const { data } = conv;
+  const f = data.flags[MODULE_ID];
+  const rarity = conv.result.rarity;
   const sys = clone(o.system);
-  const note = `<section class="loot-ledger-5e"><p><strong>5e:</strong> reflavoured official item. <em>Based on: ${esc(o.name)}.</em> No line of this item converts, so it uses that item's rules (from your installed compendium).</p></section>`;
+  const gapFills = data.effects.filter(e => e.flags?.[MODULE_ID]?.gapFill);
+  const gapAttune = (f.gapFills ?? []).some(g => ATTUNE_RIDERS.has(g.kind));
+  const note = `<section class="loot-ledger-5e"><p><strong>5e:</strong> uses the rules of an official item from your installed compendium. <em>Based on: ${esc(o.name)}.</em>${gapFills.length ? ` Lines it does not cover are added as one extra effect (${esc(gapFills[0].name)}).` : ""}</p></section>`;
   sys.description = { ...(sys.description ?? {}), value: conv.sourceHtml + note + (o.system?.description?.value ?? "") };
   sys.price = data.system.price;
   sys.identified = true;
-  data.type = o.type; data.system = sys; data.effects = o.effects ?? [];
-  const c = data.flags[MODULE_ID].converted;
-  c.basedOn = { name: o.name, uuid: official.uuid ?? null }; c.notConverted = []; c.summary = `Reflavoured ${o.name}`;
+  if (Array.isArray(sys.rarities) || sys.rarities instanceof Set || data.system.rarities) { sys.rarities = [rarity]; delete sys.rarity; }
+  else sys.rarity = rarity;
+  if (gapAttune) sys.attunement = "required";
+  if (data.system.properties?.includes?.("foc") && ["weapon", "equipment", "tool"].includes(o.type)) sys.properties = [...new Set([...(sys.properties ?? []), "foc"])];
+  data.type = o.type; data.system = sys;
+  data.effects = [...(o.effects ?? []).map(e => { const x = clone(e); delete x._id; return x; }), ...gapFills];
+  const c = f.converted;
+  c.basedOn = { name: o.name, uuid: official.uuid ?? null }; c.summary = `Based on ${o.name}`;
+  f.basedOn = c.basedOn; // alias of flags.loot-ledger.base for one version
+  f.base = { ...(f.base ?? {}), uuid: official.uuid ?? f.base?.uuid ?? null, name: o.name, modified: o._stats?.modifiedTime ?? null };
   Object.assign(conv.result, {
     type: o.type + (sys.type?.value ? `:${sys.type.value}` : ""), base: sys.type?.baseItem ?? "",
-    rarity: sys.rarity ?? sys.rarities?.[0] ?? conv.result.rarity, bonus: 0,
+    rarity, bonus: Number(sys.magicalBonus ?? sys.armor?.magicalBonus ?? 0) || 0,
     attunement: sys.attunement === "required" || sys.attunement === true, damage: "", ac: "",
-    properties: [...(sys.properties ?? [])].join(","), features: [{ text: `Based on: ${o.name}. Official rules text and data copied from the compendium.`, source: "reflavour (no convertible lines)" }],
-    notConverted: [], basedOn: o.name
+    properties: [...(sys.properties ?? [])].join(","),
+    features: [{ text: `Based on: ${o.name}. Official rules and data copied from your compendium.`, source: "official base" },
+      ...(f.gapFills ?? []).map(g => ({ text: `Gap-fill: ${g.kind}${g.ability ? ` (${g.ability})` : ""}`, source: g.from }))],
+    basedOn: o.name
   });
   return conv;
+}
+
+/**
+ * Book route: a book item with the same name as the source item is used as is (its mechanics and text). Only the
+ * price (2x vendor sell), the quality flag and the focus tag are added; no re-base, no gap-fill.
+ * @param {object} src   source item
+ * @param {object} book  the book item document or data (from the bookPack setting's compendium)
+ * @param {object} [o]   {ratio}
+ */
+export function bookItem(src, book, { ratio = "100" } = {}) {
+  const p = parseSource(src);
+  const b = typeof book.toObject === "function" ? book.toObject() : clone(book);
+  const data = { ...b };
+  delete data._stats; delete data.folder; delete data.ownership;
+  data._id = src._id ?? src.id;
+  data.sort = 0;
+  data.system = { ...(b.system ?? {}), price: priceFor(p.vendorSellCopper, ratio) };
+  const focus = isFocusLike(p) && ["weapon", "equipment", "tool"].includes(b.type);
+  if (focus) data.system.properties = [...new Set([...(b.system?.properties ?? []), "foc"])];
+  const flags = clone(b.flags ?? {});
+  flags[MODULE_ID] = {
+    sourceUuid: src.uuid ?? null, quality: p.quality, itemLevel: p.itemLevel,
+    vendorSellCopper: p.vendorSellCopper, vendorSell: formatCoins(p.vendorSellCopper), noSell: p.noSell,
+    slot: p.slot, category: p.category, band: p.band, coinRatio: ratio, riders: [],
+    base: { uuid: book.uuid ?? null, name: b.name, pack: book.pack ?? null, source: "book", confidence: 1, status: "exact", covered: [], excess: 0, plus: 0, matcherVersion: MATCHER_VERSION },
+    converted: { version: CONVERTER_VERSION, shape: classify(p), needsReview: false, route: "book", summary: `Book item ${b.name}`, review: [], notConverted: [] }
+  };
+  data.flags = flags;
+  return data;
+}
+
+/** Staves, wands, totems, orbs and held caster items read as spellcasting foci. */
+function isFocusLike(p) {
+  return p.wowType === "Staff" || p.wowType === "Wand" || p.wowType === "Totem" || p.slot === "Relic"
+    || (/Off-?hand/i.test(p.slot ?? "") && isCasterGear(p));
 }
 
 /** Why a hand-written rule was replaced: the audit's problems, plus the replace list when it was on it. */
@@ -612,7 +643,8 @@ const AE = { ADD: 2, MULTIPLY: 1 };
 const ch = (key, value, mode = AE.ADD) => ({ key, mode, value: String(value) });
 export function riderChanges(r) {
   if (r.type === "resistance") return [ch("system.traits.dr.value", r.damageType)];
-  if (r.type === "acBonus") return [ch("system.attributes.ac.bonus", `+ ${r.value}`)];
+  // No AC change from riders (the per-item AC rider was dropped; AC comes from an official base or the chest / shield
+  // curve). TODO(phase 2): the trinket "+Defense" line rule (+1 AC with attunement) gets its own effect.
   if (r.type === "saveBonus") return [ch(`system.abilities.${r.ability}.bonuses.save`, `+ ${r.value}`)];
   if (r.type === "checkBonus") return [ch(`system.abilities.${r.ability}.bonuses.check`, `+ ${r.value}`)];
   if (r.type === "spellBonus" && !r.damageType) return [
@@ -627,10 +659,17 @@ export function riderChanges(r) {
   }
   return [];
 }
-function riderEffects(riders, base) {
+/** Unmatched items: one transferred effect "<item> (Loot Ledger)" from their flat riders. */
+function riderEffects(riders, base, extra = {}) {
   const changes = riders.flatMap(riderChanges);
-  return changes.length ? [{ name: `${base.name} (equipped)`, img: base.img ?? "icons/svg/aura.svg", transfer: true, disabled: false, changes,
-    flags: { [MODULE_ID]: { converted: true } } }] : [];
+  return changes.length ? [{ name: `${base.name} (Loot Ledger)`, img: base.img ?? "icons/svg/aura.svg", transfer: true, disabled: false, changes,
+    flags: { [MODULE_ID]: { converted: true, ...extra } } }] : [];
+}
+/** Re-based items: the single gap-fill effect (flags.loot-ledger.gapFill) for the lines the base does not cover. */
+function gapFillEffects(riders, base) { return riderEffects(riders, base, { gapFill: true }); }
+/** flags.loot-ledger.gapFills: one entry per uncovered rider. */
+function gapFillList(riders) {
+  return riders.map(r => ({ kind: r.type, ability: r.ability ?? null, from: r.source ?? null, ae: riderChanges(r).length > 0 }));
 }
 
 function addFeature(ctx, f) {

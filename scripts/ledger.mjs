@@ -58,14 +58,16 @@ function sourcePart(src) {
  * Hash of everything that decides one item's output. Equal hash => the stored item is current and Build skips it.
  * @param {object} src  source item (plain data or document)
  * @param {object} opts {mode: "copy"|"convert", ratio, converterVersion, rules (fingerprint), replace (bool),
- *                       officialPacks (sorted list of installed official / SRD pack ids), dnd5eMajor}
+ *                       officialPacks (base source pack ids in priority order: order decides duplicates),
+ *                       bases (fingerprint of the base settings and every indexed base's id + _stats.modifiedTime),
+ *                       dnd5eMajor}
  */
 export function sourceHash(src, opts = {}) {
   const o = {
     mode: opts.mode ?? "copy", ratio: opts.ratio ?? "100",
     ...(opts.mode === "convert"
       ? { v: opts.converterVersion ?? 0, rules: opts.rules ?? rulesFingerprint(), replace: !!opts.replace,
-          official: [...(opts.officialPacks ?? [])].sort(), dnd5e: opts.dnd5eMajor ?? null }
+          official: [...(opts.officialPacks ?? [])], bases: opts.bases ?? null, dnd5e: opts.dnd5eMajor ?? null }
       : { v: COPY_VERSION, rarity: RULES.RARITY_BY_QUALITY, price: RULES.PRICE_RULE, dnd5e: opts.dnd5eMajor ?? null })
   };
   return hashString(canonical({ src: sourcePart(src), o }));
