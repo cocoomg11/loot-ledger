@@ -28,6 +28,7 @@
  *   8. Review thresholds                                   (when an item is sent to GM review)
  *   9. Random suffix enchantments                          (rolled on drop)
  *  10. Official bases                                      (matching a converted item to an official base item)
+ *  11. Stat variants and line budget                       (one variant per main stat, by slot; lines per tier)
  */
 
 /* -------------------------------------------- */
@@ -90,6 +91,8 @@ export const PRICE_RULE = { sellMultiplier: 2, tenToOneMinCp: 1 };
  * same weapon family, never adds features).
  */
 export const WEAPON_RULES = [
+  // Name rules come before speed rules: curved one-handed blades are scimitars whatever their speed.
+  { wow: ["Sword", "Axe", "Dagger"], hands: "one", name: /machete|cutlass|scimitar/i, base: "scimitar" },
   { wow: "Sword",       hands: "two",                     base: "greatsword" },
   { wow: "Sword",       hands: "one", slot: "Off Hand",   base: "shortsword" },
   { wow: "Sword",       hands: "one", name: /rapier|foil|epee|short ?sword|dirk|gladius/i, base: "shortsword" },
@@ -185,6 +188,12 @@ export const GEAR_BONUS = {
  * traceable effect line, and with neither it is just the base armour. Plain chest armour: blue +1, purple +2,
  * orange +3; chest armour with features of its own: blue +0, purple +1, orange +2 (withEffect). Shields use GEAR_BONUS (the official +1 / +2 / +3 shield is Uncommon / Rare / Very Rare).
  */
+/**
+ * Weapons (reading A, decided by the user): the official +1 / +2 / +3 weapon backbone at every tier from green up
+ * (green +1, blue +1, purple +2, orange +3). The +1 always wins on weapons: a green weapon keeps its +1 AND gets its
+ * one effect (GEAR_BONUS.withEffect no longer applies to weapons; shields still use GEAR_BONUS).
+ */
+export const WEAPON_BONUS = { 0: 0, 1: 1, 2: 1, 3: 2, 4: 3 };
 export const ARMOR_BONUS = {
   // Armour that has features of its own carries a smaller bonus than plain armour: Rare +0, Very Rare +1, Legendary +2.
   // Plain armour (no feature lines) is unchanged: Rare +1, Very Rare +2, Legendary +3.
@@ -193,6 +202,10 @@ export const ARMOR_BONUS = {
 };
 
 /**
+ * Since the stat-variant rework (section 11) the converter no longer reads GREEN_RULE: green non-weapons keep their
+ * variant as their one benefit (LINE_BUDGET) and green weapons always keep their +1 (WEAPON_BONUS). The suffix list
+ * is kept for the open question on identity-only items.
+ *
  * Uncommon (green) items get ONE benefit (decided by the user: "+1 OR an effect"; the stat passive is an effect).
  *   Weapons and shields: a convertible effect line (proc, bonus damage, resistance, ...) replaces the +1.
  *     Otherwise the +1 enhancement is the default and the main-stat passive is listed as not converted, EXCEPT when
@@ -220,17 +233,21 @@ export const GREEN_RULE = {
  * ATTUNE_RIDERS, a caster restriction, or an official base's own attunement. */
 export const ATTUNE_TIER = 4;
 /** Rider types that require attunement on their own, as their SRD counterparts do. */
-export const ATTUNE_RIDERS = new Set(["resistance", "attackBonus", "spellBonus", "healBonus", "extraAttack", "burstDamage", "acBonus"]);
+export const ATTUNE_RIDERS = new Set(["resistance", "attackBonus", "spellBonus", "healBonus", "extraAttack", "burstDamage", "acBonus",
+  "spellSurge", "slotRecovery", "regeneration", "woundClosure"]);
 
 /* -------------------------------------------- */
 /*  4. Stat passives and trinkets               */
 /* -------------------------------------------- */
 
 /**
+ * STAT_RULE: the main-stat threshold, max(minValue, item level / perItemLevel). The converter turns the main stat
+ * into a stat VARIANT (section 11). STAT_PASSIVE below is the older "WoW-style passive" table; since the variant
+ * rework only the random suffixes (section 9) read it.
+ *
  * Primary stat lines (decided by the user: "WoW-style passive", option C). Only the item's highest primary stat
  * counts, and only when it is a real part of the item: at least max(minValue, item level / perItemLevel). It
- * gives ONE passive in the spirit of what that stat does in the classic game, sized by quality. On a green item
- * the passive is the item's one benefit (GREEN_RULE); from blue up it comes on top of the enhancement bonus.
+ * gives ONE passive in the spirit of what that stat does in the classic game, sized by quality.
  * The other stat lines are listed as "Not converted". Never an ability SCORE increase.
  * All of these are provisional (rider flag `provisional: true`, rules text "WoW stat passive (provisional)"),
  * to be revised against the official book.
@@ -260,34 +277,26 @@ export const STAT_PASSIVE = {
 };
 export const STAT_PASSIVE_NOTE = "WoW stat passive (provisional)";
 
-/**
- * Trinket slot only (decided by the user). The trinket's main stat (highest primary stat, no size threshold)
- * gives +1 / +2 / +2 / +2 (Uncommon / Rare / Epic / Legendary) to ability checks OR saving throws with the
- * matching ability. Capped at +2 from the official-item survey: no official 2024 item gives more than +2 to checks
- * or saves (the largest is +2 to all saves at Very Rare), and none gives a flat bonus tied to a single ability:
- *   saving throws when the trinket reads as defensive: its main stat is Stamina, or it has a resistance line,
- *   or an Equip line about armour, defence, dodge, parry or block;
- *   ability checks otherwise (offensive or utility trinkets).
- * Trinkets with convertible effect lines use the normal effect rules; at Uncommon the effect replaces the
- * stat bonus (+1 OR an effect), from Rare up they get both. No stat and no convertible line -> GM review.
- */
+/** Trinket main stat: +1 / +2 / +2 / +2 to checks or saves with that ability (saves when defensive). Kept for the
+ * converter until the variant step replaces it. */
 export const TRINKET_RULE = { minTier: 1, bonus: { 1: 1, 2: 2, 3: 2, 4: 2 }, defensive: /Armor|Defense|dodge|parry|block/i };
+
 
 /* -------------------------------------------- */
 /*  5. Line rules                               */
 /* -------------------------------------------- */
 
-/** "Improves your chance to hit by N%" on a non-weapon item (Uncommon or better): +1 to weapon attack rolls,
- * or +1 to spell attack rolls on caster gear. */
-export const HIT_RULE = { minTier: 1, bonus: 1 };
+/** "Improves your chance to hit by N%" on a non-weapon item: +1 to weapon attack rolls (or spell attack rolls on
+ * caster gear), only from Very Rare (purple) up and with attunement; below that it is not converted. */
+export const HIT_RULE = { minTier: 3, bonus: 1 };
 
 /**
- * "Equip: Increased Defense +N" or "Equip: +N Armor." on an item that has no AC of its own (anything but chest
- * armour and shields, including cloth chests): +1 AC at most, like an SRD ring of protection, and it requires
- * attunement. The item's plain armour value never counts (decided by the user). On chest armour and shields
- * these lines are covered by the base AC and listed as not converted.
+ * "Equip: Increased Defense +N" or "Equip: +N Armor." on a TRINKET (slots): +1 AC, applied by the item's own Active
+ * Effect (or its gap-fill effect when re-based), and it requires attunement. Elsewhere AC comes only from an
+ * official base or the chest / shield curve, so the line is not converted (no AC gap-fill). The item's plain armour
+ * value never counts (decided by the user).
  */
-export const DEFENSE_RULE = { minTier: 1, ac: 1 };
+export const DEFENSE_RULE = { minTier: 1, ac: 1, slots: ["Trinket"] };
 
 /**
  * "Increases damage (and healing) done by spells by up to N": a spellcasting bonus, like the SRD's +1 / +2 /
@@ -317,13 +326,77 @@ export const SCHOOL_MAP = { Fire: "Fire", Frost: "Cold", Nature: "Poison", Shado
  * Dice grow with the item's tier.
  */
 export const PROC_RULE = {
-  critBelow: 1, burstFrom: 2.5,
+  // burstFrom is the default of the blastThreshold setting.
+  critBelow: 1, burstFrom: 2,
   critDice:  { 0: "1d6", 1: "1d6", 2: "2d6", 3: "3d6", 4: "4d6" },
   onHitDice: { 0: "1d4", 1: "1d4", 2: "1d6", 3: "2d6", 4: "3d6" },
   burstDice: { 0: "2d6", 1: "3d6", 2: "4d6", 3: "6d6", 4: "8d6" }
 };
 /** A weapon's own "+ X - Y <School> Damage" line (every hit in the classic game): once-per-turn extra dice. */
 export const WEAPON_EXTRA_DICE = { 0: "1d4", 1: "1d4", 2: "1d6", 3: "1d8", 4: "1d10" };
+
+/**
+ * "+N% critical strike" (setting critDice): extra dice on a Critical Hit, not doubled. The spell version adds the
+ * same dice to spell attacks that score a Critical Hit. No 19-20 range (unless the source's hand text says so).
+ */
+export const CRIT_RULE = { dice: { 1: "1d6", 2: "1d6", 3: "2d6", 4: "3d6" } };
+
+/** "+N% dodge / parry" (setting parryReaction): a Reaction, +ac AC against one attack, once per Short Rest. */
+export const PARRY_RULE = { ac: { 1: 2, 2: 2, 3: "@prof", 4: "@prof" }, uses: 1, recovery: "sr" };
+
+/**
+ * "Restores N mana per 5 sec." (setting manaRegen), by slot:
+ *   slot recovery (slotRecoverySlots): once per Long Rest, during a Short Rest, regain one expended
+ *     spell slot of level slotLevel or lower; attunement. Green / blue may route to an official base (VARIANT_BASES).
+ *   concentration (every other slot): +N to Constitution saving throws to keep Concentration (passive).
+ */
+export const MANA_REGEN = {
+  slotLevel: { 1: 1, 2: 3, 3: 4, 4: 5 }, concentration: { 1: 1, 2: 1, 3: 2, 4: 2 },
+  slotRecoverySlots: ["Head", "Chest", "Neck", "Finger", "Trinket", "Held In Off-hand", "Relic"]
+};
+
+/**
+ * "Restores N health per 5 sec.": green / blue route to an official base (VARIANT_BASES, need hpRegen; without it the
+ * line goes to GM review); purple / orange follow the regeneration pattern: regain `dice` Hit Points every
+ * `minutes` minutes while you have at least 1 Hit Point (attunement).
+ */
+export const HEALTH_REGEN = { patternFrom: 3, dice: "1d6", minutes: 10 };
+
+/**
+ * Resistance on jewellery and cloaks (identity test): from minTier, a resistance line that is the item's largest
+ * number (ties allowed) on one of `slots` gives full Resistance to that school even below RESIST_RULE's size,
+ * following the official resistance-ring pattern (no re-base). maxSchools: Resistances one item may give, by tier
+ * (only Legendary items keep two, and only when both lines are full size). 3+ small resistances to different schools
+ * on a ring or cloak (protection) go to the protection base (VARIANT_BASES); without that base the item goes to GM
+ * review (AC never comes from our own riders outside the trinket line).
+ */
+export const RESIST_RING = { minTier: 2, slots: ["Finger", "Neck", "Back"], maxSchools: { 1: 1, 2: 1, 3: 1, 4: 2 },
+  protection: { slots: ["Finger", "Back"], minSchools: 3 } };
+
+/** "When struck" lines that damage the attacker: passive, the attacker takes these dice of the line's school. */
+export const THORNS_DICE = { 1: "1d4", 2: "1d4", 3: "1d6", 4: "1d6" };
+
+/**
+ * Flavour / profession lines (setting flavourBonuses): a small situational bonus (+small, or +big when the line's
+ * value is at least bigFrom) to checks with the matching skill or tool, in context. Free: not counted in the line
+ * budget. `map`: profession -> what the bonus applies to.
+ */
+export const FLAVOUR_RULE = {
+  small: 1, big: 2, bigFrom: 5,
+  map: {
+    Mining: "checks to find, judge or dig out ore and stone", Herbalism: "checks with an Herbalism Kit and to find herbs",
+    Skinning: "Wisdom (Survival) checks to skin and harvest a creature", Fishing: "Wisdom (Survival) checks to fish",
+    Lockpicking: "checks with Thieves' Tools to pick a lock", Engineering: "checks with Tinker's Tools",
+    Enchanting: "Intelligence (Arcana) checks to identify or study magic items", Alchemy: "checks with Alchemist's Supplies",
+    Blacksmithing: "checks with Smith's Tools", Leatherworking: "checks with Leatherworker's Tools",
+    Tailoring: "checks with Weaver's Tools", Cooking: "checks with Cook's Utensils", "First Aid": "Wisdom (Medicine) checks"
+  }
+};
+
+/** "Use: Increases damage and healing done by spells ... for N sec.": a limited-use surge (DAILY_USES per Long Rest,
+ * attunement): for `minutes` minute(s), +SPELL_RULE.bonus to spell attack rolls and save DCs, and once per turn
+ * WEAPON_EXTRA_DICE extra damage on one spell's damage roll. */
+export const SPELL_SURGE = { minutes: 1 };
 
 /* -------------------------------------------- */
 /*  6. Limited uses (Flurry, Blast, ...)        */
@@ -548,3 +621,86 @@ export const VARIANT_BASES = [
   { name: "Amulet of Health", kind: "score", ability: "con", slot: "Neck" },
   { name: "Belt of Giant Strength", kind: "score", ability: "str", slot: "Waist", belt: true }
 ];
+
+/* -------------------------------------------- */
+/*  11. Stat variants and line budget           */
+/* -------------------------------------------- */
+
+/**
+ * Stat variants (scripts/variants.mjs). The item's main stat (highest primary stat at or above STAT_RULE's threshold)
+ * becomes exactly ONE variant, chosen by slot (VARIANT_SLOTS, first matching row wins; deterministic). Flat bonuses
+ * only, never an ability score, never weapon attack or damage. Sizes by tier (green / blue / purple / orange):
+ *   bonus       checks, saves, skills, the Grapple / Shove DC, spell save DC, Concentration saves: +1 / +1 / +2 / +2
+ *   initiative  +1 / +2 / +2 / +3
+ *   hpPerLevel  max HP +1 per two levels (green / blue), +1 per level (purple / orange)
+ *   hitDice     extra HP per Hit Point Die spent: +1 / +1 / +2 / +Proficiency Bonus
+ * advantageFrom: an Advantage swap (Advantage on the roll instead of the flat bonus) is possible from this tier, but
+ * only when the item or its group opts in on the review board (flags.loot-ledger.overrides.advantage); never by
+ * default. Main-stat ties: stats with a slot rule here first (not a fallback row), then the armour type's stats
+ * (armorStats), then stat order (str, dex, con, int, wis).
+ */
+export const VARIANT_RULE = {
+  bonus: { 1: 1, 2: 1, 3: 2, 4: 2 }, initiative: { 1: 1, 2: 2, 3: 2, 4: 3 },
+  hpPerLevel: { 1: 0.5, 2: 0.5, 3: 1, 4: 1 }, hitDice: { 1: "1", 2: "1", 3: "2", 4: "@prof" },
+  advantageFrom: 3,
+  armorStats: { Plate: ["str", "con"], Mail: ["str", "con"], Leather: ["dex"], Cloth: ["int", "wis"] }
+};
+
+/**
+ * Slot -> variant, per main stat. Row keys (all must match): slots (classic slot), armor (classic armour type),
+ * shape (converter shape), held (weapons, wands, shields, off-hand and relic items), caster (cloth armour or a held
+ * item), minTier. A row with fallback: true is the stat's default (no slot rule).
+ * Variants: grapple (Grapple / Shove DC), athletics, moveSaves (saving throws to avoid being moved or knocked
+ * Prone), initiative, stealth, acrobatics, hpMax, conSaves, concentration, spellDC, arcana, investigation,
+ * hitDice (Hit Point Dice healing), wisSaves, perception.
+ */
+export const VARIANT_SLOTS = {
+  str: [
+    { slots: ["Hands", "Wrist"], variant: "grapple" },
+    { slots: ["Feet", "Legs"], variant: "athletics" },
+    { armor: ["Plate"], variant: "moveSaves" }, { shape: ["shield"], variant: "moveSaves" }, { slots: ["Waist"], variant: "moveSaves" },
+    { fallback: true, variant: "athletics" }
+  ],
+  dex: [
+    { slots: ["Feet", "Legs"], variant: "acrobatics" },
+    { slots: ["Back"], variant: "stealth" }, { slots: ["Chest"], armor: ["Leather"], variant: "stealth" },
+    { fallback: true, variant: "initiative" }
+  ],
+  con: [
+    { slots: ["Chest", "Legs", "Waist"], variant: "hpMax" },
+    { slots: ["Head", "Neck", "Finger", "Back"], variant: "conSaves" },
+    { caster: true, variant: "concentration" },
+    { fallback: true, variant: "conSaves" }
+  ],
+  int: [
+    { slots: ["Finger", "Neck", "Trinket"], minTier: 3, variant: "spellDC" },
+    { slots: ["Head"], variant: "arcana" },
+    { slots: ["Finger", "Neck", "Hands"], variant: "investigation" },
+    { caster: true, variant: "spellDC" },
+    { fallback: true, variant: "investigation" }
+  ],
+  wis: [
+    { held: true, variant: "wisSaves" },
+    { slots: ["Finger", "Neck", "Trinket"], minTier: 3, variant: "spellDC" },
+    { slots: ["Head", "Neck"], variant: "wisSaves" },
+    { slots: ["Chest", "Legs"], variant: "hitDice" },
+    { slots: ["Finger", "Back"], variant: "perception" },
+    { armor: ["Cloth"], variant: "hitDice" },
+    { fallback: true, variant: "perception" }
+  ]
+};
+
+/**
+ * Line budget: benefits an item keeps beyond its +N backbone, counting the stat variant as one and two Resistances
+ * as two (green 1, blue 2, purple / orange 3). Non-weapons keep the variant first (on green it is the item's one
+ * benefit); weapons keep their lines first and the variant only fills a free slot (reading A: the +N is the
+ * backbone, never counted). Lines beyond the budget are dropped weakest first (LINE_WEIGHT, ties: the later line is
+ * dropped first) and listed as "Not converted".
+ * Free (never counted): flavour / profession bonuses, wand cantrips, passive "when struck" / "protects" riders.
+ */
+export const LINE_BUDGET = { 1: 1, 2: 2, 3: 3, 4: 3 };
+export const FREE_RIDERS = new Set(["flavour", "cantrip", "thorns", "ward"]);
+export const LINE_WEIGHT = {
+  resistance: 6, burstDamage: 5, extraAttack: 5, spellBonus: 5, spellSurge: 5, slotRecovery: 4, regeneration: 4,
+  extraDamage: 3, attackBonus: 3, acBonus: 3, heal: 3, healBonus: 3, parry: 2, critDice: 2, concentration: 2
+};

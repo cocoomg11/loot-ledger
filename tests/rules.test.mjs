@@ -60,13 +60,13 @@ test("stat passives and trinket bonuses", () => {
 });
 
 test("line rules", () => {
-  assert.deepEqual(R.HIT_RULE, { minTier: 1, bonus: 1 });
-  assert.deepEqual(R.DEFENSE_RULE, { minTier: 1, ac: 1 });
+  assert.deepEqual(R.HIT_RULE, { minTier: 3, bonus: 1 }, "+hit on non-weapons: purple+ and attuned");
+  assert.deepEqual(R.DEFENSE_RULE, { minTier: 1, ac: 1, slots: ["Trinket"] });
   assert.deepEqual(R.SPELL_RULE.bonus, { 0: 1, 1: 1, 2: 1, 3: 2, 4: 3 });
   assert.deepEqual(R.RESIST_RULE, { minValue: 15, perItemLevel: 0.3, minTier: 3 });
   assert.deepEqual(R.WEAPON_EXTRA_DICE, { 0: "1d4", 1: "1d4", 2: "1d6", 3: "1d8", 4: "1d10" });
   assert.equal(R.PROC_RULE.critBelow, 1);
-  assert.equal(R.PROC_RULE.burstFrom, 2.5);
+  assert.equal(R.PROC_RULE.burstFrom, 2, "blast threshold default (setting blastThreshold)");
   assert.deepEqual(R.PROC_RULE.burstDice, { 0: "2d6", 1: "3d6", 2: "4d6", 3: "6d6", 4: "8d6" });
 });
 

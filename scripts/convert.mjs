@@ -76,6 +76,7 @@ export const WEAPON_BASES = {
   longbow:       { label: "Longbow",        type: "martialR", dmg: [1, 8, "piercing"],     props: ["amm", "hvy", "two"],       mastery: "slow",   weight: 2,  range: [150, 600] },
   musket:        { label: "Musket",         type: "martialR", dmg: [1, 12, "piercing"],    props: ["amm", "lod", "two"],       mastery: "slow",   weight: 10, range: [40, 120] },
   pistol:        { label: "Pistol",         type: "martialR", dmg: [1, 10, "piercing"],    props: ["amm", "lod"],              mastery: "vex",    weight: 3,  range: [30, 90] },
+  scimitar:      { label: "Scimitar",       type: "martialM", dmg: [1, 6, "slashing"],     props: ["fin", "lgt"],              mastery: "nick",   weight: 3 },
   /** Not an SRD weapon: Loot Ledger's stand-in for claw / knuckle weapons (simple, light, finesse). */
   fist:          { label: "Fist Weapon",    type: "simpleM",  dmg: [1, 4, "slashing"],     props: ["fin", "lgt"],              mastery: "nick",   weight: 1, custom: true }
 };
@@ -215,7 +216,7 @@ export function parseSource(src) {
 function byLevel(table, ilvl) { return table.find(r => (ilvl ?? 1) <= r.maxIlvl) ?? table.at(-1); }
 
 function matchRule(rules, p) {
-  return rules.find(r => (!r.wow || r.wow === p.wowType)
+  return rules.find(r => (!r.wow || [r.wow].flat().includes(p.wowType))
     && (!r.hands || r.hands === p.hands)
     && (!r.slot || r.slot === p.slot)
     && (r.maxSpeed === undefined || (p.speed ?? 0) <= r.maxSpeed)
@@ -228,7 +229,7 @@ export function classify(p) {
   if (p.sourceType === "container") return "container";
   if (p.wowType === "Wand") return "wand";
   if (p.wowType === "Shield") return "shield";
-  if (p.hands && WEAPON_RULES.some(r => r.wow === p.wowType)) return "weapon";
+  if (p.hands && WEAPON_RULES.some(r => [r.wow].flat().includes(p.wowType))) return "weapon";
   if (p.slot === "Chest") return "chest";
   if (p.slot && SLOT_EQUIPMENT[p.slot]) return "gear";
   if (p.sourceType === "consumable") return "consumable";
