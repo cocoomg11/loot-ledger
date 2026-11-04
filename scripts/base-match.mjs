@@ -12,6 +12,7 @@
  * Nothing here reads Foundry: build.mjs passes plain index entries (`indexBases`), convert.mjs passes the parsed
  * item and its riders (`matchBase`).
  */
+import { VARIANT_TAGS } from "./variants.mjs";
 import { OFFICIAL_BASES, VARIANT_BASES, SCHOOL_MAP, PROC_RULE, RESIST_RULE, STAT_RULE, SPELL_RULE, POTION_REFLAVOUR } from "./rules.mjs";
 
 /** Bump when matching logic changes (stored on every matched item as base.matcherVersion; part of the hash). */
@@ -319,6 +320,8 @@ export function tableBase(item, index, { scoreItems = true, variant = null } = {
       if (variant === rule.variant || needs.has(rule.variant)) { const hit = fits(rule, lookup(rule.name)); if (hit) return hit; }
     } else if (rule.kind === "need") {
       if (!needs.has(rule.need) || tier < (rule.minTier ?? 1) || tier > (rule.maxTier ?? 4)) continue;
+      // Mana lines route to a slot-recovery base only when they became slot recovery (not the Concentration variant).
+      if (rule.need === "slotRecovery" && item.riders && !item.riders.some(r => r.type === "slotRecovery")) continue;
       if (rule.pattern) return { rule, entry: null };
       const hit = fits(rule, lookup(rule.name)); if (hit) return hit;
     } else if (rule.kind === "protection") {
@@ -438,19 +441,24 @@ export function riderTags(r) {
     case "spellBonus": case "healBonus": return ["spell"];
     case "attackBonus": return ["attack"];
     case "statPassive": return STAT_TAGS[r.ability] ?? [];
+    case "variant": return [VARIANT_TAGS[r.variant] ?? r.variant];
+    case "regeneration": return ["hpRegen"];
+    case "critDice": return ["crit"];
+    case "flavour": return ["minor"];
     case "extraDamage": case "burstDamage": return [`damage:${r.damageType}`];
     default: return [r.type];
   }
 }
 
 /**
- * Phase-2 hook: the stat-variant and line-rule step that runs after base selection. Today it returns the match
- * unchanged.
- * TODO(phase 2): stat variants (one per main stat, by slot), line rules (crit dice, parry reaction, mana regen,
- * resistance identity test, flavour lines) and collapse keys; it gets the parsed item, the chosen base and the
- * converter context and may add gap-fills.
+ * Hook after base selection. The stat variant and the line rules run in the converter before matching (the variant
+ * is passed in as item.variant, so tableBase can route it); here a match is only annotated: a protection item with no
+ * protection base found goes to GM review. Collapse keys (phase 3) use variants.gapFillSignature().
  */
-export function variantStep(match /* , item, ctx */) {
+export function variantStep(match, item = {}, ctx = null) {
+  if (ctx?.extras?.protection && !(match?.base?.rule === "protection" && match.status === "accept")) {
+    ctx.review.push({ line: "Resistances", why: "several small resistances on a ring or cloak use the protection base; none was found in your compendiums" });
+  }
   return match;
 }
 

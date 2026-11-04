@@ -6,7 +6,7 @@ import {
   MODULE_ID, SOURCE_PACK, QUALITY_BY_KEY, DROP_QUALITIES, BANDS, CATEGORIES, CREATURES,
   analyse, priceFor, formatCoins, bandLabel, creatureRegex
 } from "./data.mjs";
-import { convertItem, reviewRow, applyOfficial, bookItem, CONVERTER_VERSION } from "./convert.mjs";
+import { convertItem, reviewRow, applyOfficial, bookItem, CONVERTER_VERSION, RULE_OPTIONS } from "./convert.mjs";
 import { INDEX_FIELDS, MATCHER_VERSION, indexBases, bookEntry, parseConfidence, parseList, isHandmade } from "./base-match.mjs";
 import { OFFICIAL_BASES } from "./rules.mjs";
 import {
@@ -221,7 +221,18 @@ export function baseSettings() {
     confidence: parseConfidence(get("baseConfidence", "")),
     scoreItems: get("scoreItems", true) !== false,
     gapFills: get("gapFills", true) !== false,
-    handmade: parseList(get("handmadeExclude", ""))
+    handmade: parseList(get("handmadeExclude", "")),
+    rules: ruleSettings(get)
+  };
+}
+
+/** The rule-family settings as converter options (convert.mjs RULE_OPTIONS). */
+export function ruleSettings(get) {
+  const t = Number(String(get("blastThreshold", "") ?? "").trim());
+  return {
+    critDice: get("critDice", true) !== false, flavourBonuses: get("flavourBonuses", true) !== false,
+    manaRegen: get("manaRegen", true) !== false, parryReaction: get("parryReaction", true) !== false,
+    blastThreshold: Number.isFinite(t) && t > 1 ? t : RULE_OPTIONS.blastThreshold
   };
 }
 
@@ -247,7 +258,7 @@ export async function loadBases(bs) {
   const docs = new Map();
   return {
     book, index, order,
-    options: { officialBases: bs.on, bases: index, baseConfidence: bs.confidence, scoreItems: bs.scoreItems, gapFills: bs.gapFills },
+    options: { officialBases: bs.on, bases: index, baseConfidence: bs.confidence, scoreItems: bs.scoreItems, gapFills: bs.gapFills, rules: bs.rules },
     fingerprint: canonicalBases(bs, order, index),
     /** Load one base / book document (cached for the build). */
     async doc(uuid, pack, id) {
@@ -258,7 +269,7 @@ export async function loadBases(bs) {
 }
 
 function canonicalBases(bs, order, index) {
-  return JSON.stringify({ on: bs.on, order, book: bs.book, c: bs.confidence, s: bs.scoreItems, g: bs.gapFills, m: MATCHER_VERSION, fp: index?.fingerprint ?? "" });
+  return JSON.stringify({ on: bs.on, order, book: bs.book, c: bs.confidence, s: bs.scoreItems, g: bs.gapFills, r: bs.rules ?? null, m: MATCHER_VERSION, fp: index?.fingerprint ?? "" });
 }
 
 /** Convert one source item: book route, else the converter plus an accepted official base. */

@@ -156,6 +156,17 @@ Hooks.once("init", () => {
     scope: "world", config: true, type: String, default: ""
   });
 
+  // Conversion rule families (read by build.mjs baseSettings(); each can be turned off).
+  game.settings.register(MODULE_ID, "critDice", { name: "Critical-hit dice", hint: "Critical-strike lines become extra dice on a Critical Hit (not doubled). Off: listed as not converted.", scope: "world", config: true, type: Boolean, default: true });
+  game.settings.register(MODULE_ID, "flavourBonuses", { name: "Profession bonuses", hint: "Profession and flavour lines (mining, fishing, lockpicking, ...) become a small situational bonus. Off: listed as not converted.", scope: "world", config: true, type: Boolean, default: true });
+  game.settings.register(MODULE_ID, "manaRegen", { name: "Mana regeneration", hint: "Mana-over-time lines become spell-slot recovery (head, chest, jewellery, held items) or a Concentration bonus (other slots). Off: listed as not converted.", scope: "world", config: true, type: Boolean, default: true });
+  game.settings.register(MODULE_ID, "parryReaction", { name: "Parry reaction", hint: "Dodge and parry lines become a Reaction that adds to AC against one attack. Off: listed as not converted.", scope: "world", config: true, type: Boolean, default: true });
+  game.settings.register(MODULE_ID, "blastThreshold", {
+    name: "Blast threshold",
+    hint: "A weapon proc at least this many times one normal hit becomes a limited-use blast; smaller procs deal extra damage once per turn (or on a Critical Hit below 1).",
+    scope: "world", config: true, type: String, default: "2"
+  });
+
   if (game.settings.get(MODULE_ID, "reviewBoard")) registerReviewBoard();
   if (game.settings.get(MODULE_ID, "qualityColours")) registerQualityColours();
   // The picker without the colours would be invisible; it is part of the colours feature.

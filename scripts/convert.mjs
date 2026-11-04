@@ -32,9 +32,11 @@
 import { MODULE_ID, SOURCE_MODULE, QUALITY_BY_KEY, analyse, tooltipLines, priceFor, formatCoins } from "./data.mjs";
 import { suffixGroup } from "./suffix.mjs";
 import { matchBase, variantStep, uncoveredRiders, MATCHER_VERSION } from "./base-match.mjs";
+import { slotFacts, slotRule, mainStat, statThreshold, variantFeature, variantKeys, overBudget, lineWeight, isFree, STAT_ORDER } from "./variants.mjs";
 // Every tunable number lives in rules.mjs (book-day calibration edits values there, not logic here).
 import {
-  WEAPON_RULES, CHEST_RULES, CLOTH_CHEST, SLOT_EQUIPMENT, TIER, GEAR_BONUS, ARMOR_BONUS, GREEN_RULE, ATTUNE_TIER, ATTUNE_RIDERS, STAT_RULE, STAT_PASSIVE, STAT_PASSIVE_NOTE, TRINKET_RULE, HIT_RULE, DEFENSE_RULE, SPELL_RULE, RESIST_RULE, SCHOOL_MAP, PROC_RULE, WEAPON_EXTRA_DICE, DAILY_USES, BLAST_USES, EXTRA_ATTACK_RULE, POTION_HEALING, MANA_POTION_SLOT, FOOD_HEALING, GEAR_HEALING, POTION_REFLAVOUR, EMPTY_REVIEW_TIER
+  WEAPON_RULES, CHEST_RULES, CLOTH_CHEST, SLOT_EQUIPMENT, TIER, GEAR_BONUS, ARMOR_BONUS, GREEN_RULE, ATTUNE_TIER, ATTUNE_RIDERS, STAT_RULE, STAT_PASSIVE, STAT_PASSIVE_NOTE, TRINKET_RULE, HIT_RULE, DEFENSE_RULE, SPELL_RULE, RESIST_RULE, SCHOOL_MAP, PROC_RULE, WEAPON_EXTRA_DICE, DAILY_USES, BLAST_USES, EXTRA_ATTACK_RULE, POTION_HEALING, MANA_POTION_SLOT, FOOD_HEALING, GEAR_HEALING, POTION_REFLAVOUR, EMPTY_REVIEW_TIER,
+  WEAPON_BONUS, CRIT_RULE, PARRY_RULE, MANA_REGEN, HEALTH_REGEN, RESIST_RING, THORNS_DICE, FLAVOUR_RULE, SPELL_SURGE, LINE_BUDGET
 } from "./rules.mjs";
 export {
   WEAPON_RULES, CHEST_RULES, CLOTH_CHEST, SLOT_EQUIPMENT, TIER, GEAR_BONUS, ARMOR_BONUS, GREEN_RULE, ATTUNE_TIER, ATTUNE_RIDERS, STAT_RULE, STAT_PASSIVE, STAT_PASSIVE_NOTE, TRINKET_RULE, HIT_RULE, DEFENSE_RULE, SPELL_RULE, RESIST_RULE, SCHOOL_MAP, PROC_RULE, WEAPON_EXTRA_DICE, DAILY_USES, BLAST_USES, EXTRA_ATTACK_RULE, POTION_HEALING, MANA_POTION_SLOT, FOOD_HEALING, GEAR_HEALING, POTION_REFLAVOUR, EMPTY_REVIEW_TIER
@@ -42,7 +44,7 @@ export {
 
 /** Bump when the rules (rules.mjs) or the conversion logic change: it is part of every item's source hash, so
  * Build re-converts items converted under an older version. */
-export const CONVERTER_VERSION = 5;
+export const CONVERTER_VERSION = 6;
 
 /* -------------------------------------------- */
 /*  SRD 5.2 reference data                      */
@@ -112,23 +114,15 @@ const TIER_NAME = { 0: "Common", 1: "Uncommon", 2: "Rare", 3: "Very Rare", 4: "L
 const QUALITY_NAME = { poor: "Poor", common: "Common", uncommon: "Uncommon", rare: "Rare", epic: "Epic", legendary: "Legendary", artifact: "Artifact" };
 
 /** Rider types that count as an "effect" for GEAR_BONUS. */
-export const EFFECT_RIDERS = new Set(["extraDamage", "burstDamage", "extraAttack", "heal", "attackBonus", "spellBonus", "healBonus", "resistance", "acBonus", "cantrip", "statPassive", "checkBonus", "saveBonus"]);
-/** Rider types that come from the main stat line (statPassive; checkBonus / saveBonus on trinkets). */
-const STAT_RIDERS = new Set(["statPassive", "checkBonus", "saveBonus"]);
+export const EFFECT_RIDERS = new Set(["extraDamage", "burstDamage", "extraAttack", "heal", "attackBonus", "spellBonus", "healBonus", "resistance", "acBonus", "cantrip",
+  "variant", "critDice", "parry", "slotRecovery", "concentration", "regeneration", "thorns", "ward", "flavour", "spellSurge"]);
 
-/** True when the item's name carries a stat suffix that includes `ability`. */
-function statIsIdentity(name, ability) {
-  const m = String(name).match(/\bof (Strength|Agility|Stamina|Intellect|Spirit|the \w+)$/i);
-  if (!m) return false;
-  const key = Object.keys(GREEN_RULE.identitySuffix).find(k => k.toLowerCase() === m[1].toLowerCase());
-  return !!key && GREEN_RULE.identitySuffix[key].includes(ability);
-}
+/** Rule-family settings read by the converter (all default on; blastThreshold default PROC_RULE.burstFrom). */
+export const RULE_OPTIONS = { critDice: true, flavourBonuses: true, manaRegen: true, parryReaction: true, blastThreshold: PROC_RULE.burstFrom };
 
 /** Classic stat -> 5e ability. Charisma has no classic counterpart. */
 export const STAT_MAP = { Strength: "str", Agility: "dex", Stamina: "con", Intellect: "int", Spirit: "wis" };
 export const ABILITY_LABEL = { str: "Strength", dex: "Dexterity", con: "Constitution", int: "Intelligence", wis: "Wisdom", cha: "Charisma" };
-const STAT_ORDER = ["str", "dex", "con", "int", "wis"];
-const ABILITY_STAT = { str: "Strength", dex: "Agility", con: "Stamina", int: "Intellect", wis: "Spirit" };
 
 /** Reason listed for every stat / effect line of a Common or Poor item. */
 const BASELINE_WHY = "common item, baseline gear";
@@ -389,18 +383,21 @@ const short = (s, n = 70) => (s.length > n ? `${s.slice(0, n - 1)}…` : s);
 export function convertItem(src, options = {}) {
   const {
     ratio = "100", keepHandAuthored = true, forceReplace = false, officialBases = true, bases = null,
-    baseConfidence = undefined, scoreItems = true, gapFills = true,
+    baseConfidence = undefined, scoreItems = true, gapFills = true, rules: ruleOpts = {}, overrides = null,
     dnd5eMajor = Number(String(globalThis.game?.system?.version ?? "6").split(".")[0])
   } = options;
   const p = parseSource(src);
   const base = typeof src.toObject === "function" ? src.toObject() : structuredClone(src);
   const rarity = QUALITY_BY_KEY[p.quality]?.rarity ?? "common";
+  const shape = classify(p);
   const ctx = {
-    p, tier: TIER[p.quality] ?? 0, features: [], notConverted: [], review: [], riders: [],
-    bonus: 0, attune: false, attuneBy: "", magic: false, summary: "", basis: "", extras: {}
+    p, shape, tier: TIER[p.quality] ?? 0, features: [], notConverted: [], review: [], riders: [],
+    bonus: 0, attune: false, attuneBy: "", magic: false, summary: "", basis: "", extras: {},
+    opts: { ...RULE_OPTIONS, ...ruleOpts },
+    // Review-board overrides (flags.loot-ledger.overrides on the source or converted item): advantage swap, +1 step.
+    overrides: overrides ?? src.flags?.[MODULE_ID]?.overrides ?? {}
   };
 
-  const shape = classify(p);
   const auto = buildSystem(shape, ctx);
   let system = auto.system ?? clone(base.system);
   let itemType = auto.type;
@@ -432,7 +429,7 @@ export function convertItem(src, options = {}) {
   let match = null;
   if (officialBases && !hand?.kept && ctx.tier >= 1 && !["loot", "container"].includes(shape)) {
     const armorKey = system.type?.baseItem || null;
-    match = variantStep(matchBase({ p, shape, tier: ctx.tier, bonus: ctx.bonus, riders: ctx.riders, extras: ctx.extras, armorKey },
+    match = variantStep(matchBase({ p, shape, tier: ctx.tier, bonus: ctx.bonus, riders: ctx.riders, extras: ctx.extras, armorKey, variant: ctx.extras.variant ?? null },
       bases, { thresholds: baseConfidence, scoreItems }), { p, shape }, ctx);
   }
   const basedOn = match?.status === "accept" && match.base?.source === "compendium" ? match.base : null;
@@ -450,7 +447,7 @@ export function convertItem(src, options = {}) {
   // Daily-recharge features carry their uses on the item itself (dnd5e system.uses, recovered on a Long Rest).
   // One system.uses per item: an effect line's uses win over the stat passive's (the other stays in text / riders).
   const dailies = kept ? [] : ctx.riders.filter(r => r.recovery === "lr" && r.uses >= 1);
-  const daily = dailies.find(r => r.type !== "statPassive") ?? dailies[0];
+  const daily = dailies[0];
   if (daily) system.uses = { spent: 0, max: String(daily.uses), recovery: [{ period: "lr", type: "recoverAll" }] };
   const needsReview = !kept && ctx.review.length > 0;
   const matched = match?.status === "accept";
@@ -644,19 +641,25 @@ const AE = { ADD: 2, MULTIPLY: 1 };
 const ch = (key, value, mode = AE.ADD) => ({ key, mode, value: String(value) });
 export function riderChanges(r) {
   if (r.type === "resistance") return [ch("system.traits.dr.value", r.damageType)];
-  // No AC change from riders (the per-item AC rider was dropped; AC comes from an official base or the chest / shield
-  // curve). TODO(phase 2): the trinket "+Defense" line rule (+1 AC with attunement) gets its own effect.
+  // AC from riders: only the trinket "+Defense" line (+1 AC with attunement); otherwise AC comes from an official
+  // base or the chest / shield curve.
+  if (r.type === "acBonus") return [ch("system.attributes.ac.bonus", `+ ${r.value}`)];
   if (r.type === "saveBonus") return [ch(`system.abilities.${r.ability}.bonuses.save`, `+ ${r.value}`)];
   if (r.type === "checkBonus") return [ch(`system.abilities.${r.ability}.bonuses.check`, `+ ${r.value}`)];
   if (r.type === "spellBonus" && !r.damageType) return [
     ch("system.bonuses.msak.attack", `+ ${r.value}`), ch("system.bonuses.rsak.attack", `+ ${r.value}`),
     ...(r.scope === "attackAndDC" ? [ch("system.bonuses.spell.dc", r.value)] : [])];
-  if (r.type === "attackBonus" && r.value) return [ch("system.bonuses.mwak.attack", `+ ${r.value}`), ch("system.bonuses.rwak.attack", `+ ${r.value}`)];
-  if (r.type === "statPassive") {
-    if (r.effect === "initiative") return [ch("system.attributes.init.bonus", `+ ${r.value}`)];
-    if (r.effect === "hpMax") return [ch("system.attributes.hp.bonuses.overall", `+ ${r.formula}`)];
-    if (r.effect === "carryingCapacity") return [ch("system.attributes.encumbrance.multipliers.overall", r.multiplier, AE.MULTIPLY),
-      ...(r.advantage === "skill:ath" ? [ch("system.skills.ath.roll.mode", 1)] : [])];
+  if (r.type === "attackBonus" && r.value) return r.scope === "spell"
+    ? [ch("system.bonuses.msak.attack", `+ ${r.value}`), ch("system.bonuses.rsak.attack", `+ ${r.value}`)]
+    : [ch("system.bonuses.mwak.attack", `+ ${r.value}`), ch("system.bonuses.rwak.attack", `+ ${r.value}`)];
+  if (r.type === "concentration") return [ch("system.attributes.concentration.bonuses.save", `+ ${r.value}`)];
+  if (r.type === "variant") {
+    const k = variantKeys(r.variant);
+    if (!k) return []; // grapple DC, Hit Point Dice healing: text only
+    if (r.advantage && k.adv) return [ch(k.adv, 1)];
+    if (r.variant === "hpMax") return [ch(k.flat, `+ ${r.formula}`)];
+    if (r.variant === "spellDC") return [ch(k.flat, r.value)];
+    return [ch(k.flat, `+ ${r.value}`)];
   }
   return [];
 }
@@ -670,7 +673,7 @@ function riderEffects(riders, base, extra = {}) {
 function gapFillEffects(riders, base) { return riderEffects(riders, base, { gapFill: true }); }
 /** flags.loot-ledger.gapFills: one entry per uncovered rider. */
 function gapFillList(riders) {
-  return riders.map(r => ({ kind: r.type, ability: r.ability ?? null, from: r.source ?? null, ae: riderChanges(r).length > 0 }));
+  return riders.map(r => ({ kind: r.type, ability: r.ability ?? null, detail: r.variant ?? r.damageType ?? r.skill ?? null, from: r.source ?? null, ae: riderChanges(r).length > 0 }));
 }
 
 function addFeature(ctx, f) {
@@ -692,12 +695,14 @@ function damageType(school, text = "") {
 /** Enhancement bonus from quality (weapons, chest armour, shields). Run after the lines, see GEAR_BONUS. */
 function enhancement(ctx, kind) {
   const { tier, p } = ctx;
-  const effect = ctx.features.find(f => f.rider && EFFECT_RIDERS.has(f.rider.type));
+  const effect = ctx.features.find(f => f.rider && EFFECT_RIDERS.has(f.rider.type) && !isFree(f.rider.type));
   const table = kind === "armor" ? ARMOR_BONUS : GEAR_BONUS;
-  const row = table[tier] ?? table[0];
+  const row = kind === "weapon" ? { plain: WEAPON_BONUS[tier] ?? 0, withEffect: WEAPON_BONUS[tier] ?? 0 } : table[tier] ?? table[0];
   ctx.bonus = effect ? row.withEffect : row.plain;
+  // Endgame raise: a review-board override (+1 step), never by name. Capped at +3.
+  if (kind === "weapon" && ctx.bonus && ctx.overrides.raise) ctx.bonus = Math.min(3, ctx.bonus + 1);
   if (!ctx.bonus) return;
-  const why = row.plain !== row.withEffect ? " with no effect line" : "";
+  const why = row.plain !== row.withEffect ? " with no effect line" : ctx.overrides.raise && kind === "weapon" ? "; endgame raise (review override)" : "";
   const text = kind === "weapon"
     ? `You have a +${ctx.bonus} bonus to attack rolls and damage rolls made with this magic weapon.`
     : kind === "shield"
@@ -707,52 +712,49 @@ function enhancement(ctx, kind) {
   ctx.magic = true;
 }
 
-/** The WoW stat passive (STAT_PASSIVE) for `ability` at `tier`: {name, text, rider}. */
-export function statPassive(ability, tier, ctx) {
-  const P = STAT_PASSIVE[ability];
-  const hold = `While ${verb(ctx)} this ${itemNoun(ctx)}`;
-  const base = { type: "statPassive", stat: ABILITY_STAT[ability], ability, trigger: "equipped", provisional: true, note: STAT_PASSIVE_NOTE };
-  if (ability === "str") {
-    const adv = tier >= P.athleticsFrom;
-    return { name: P.name, rider: { ...base, effect: "carryingCapacity", multiplier: P.carryMultiplier, ...(adv ? { advantage: "skill:ath" } : {}) },
-      text: `${hold}, your carrying capacity (the weight you can carry, push, drag, or lift) is ${P.carryMultiplier === 2 ? "doubled" : `multiplied by ${P.carryMultiplier}`}${adv ? ", and you have Advantage on Strength (Athletics) checks" : ""}.` };
+/** Benefit riders that count toward the line budget (the +N enhancement has no rider and never counts). */
+function benefitFeatures(ctx) { return ctx.features.filter(f => f.rider && EFFECT_RIDERS.has(f.rider.type)); }
+
+/**
+ * The stat variant (variants.mjs): the main stat becomes exactly one variant, by slot. Sub-threshold main stats only
+ * when the item would otherwise be blank. A caster weapon that already has a spell line turns an Intelligence
+ * spell-DC variant into Concentration (no double DC). Runs after the lines; the budget then decides what stays.
+ */
+function applyVariant(ctx) {
+  const { p, tier } = ctx;
+  const facts = slotFacts(p, ctx.shape);
+  const main = mainStat(p, facts, tier);
+  if (!main) return;
+  const rest = STAT_ORDER.filter(k => p.stats[k] && k !== main.ability);
+  const blank = !benefitFeatures(ctx).length && !ctx.bonus && !ctx.extras.weapon && ctx.shape !== "wand";
+  if (main.sub && !blank) {
+    for (const k of STAT_ORDER.filter(x => p.stats[x])) notConverted(ctx, p.statLines[k], `main stat below the conversion threshold (${statThreshold(p.itemLevel)} at item level ${p.itemLevel ?? "?"})`, "below threshold");
+    return;
   }
-  if (ability === "dex") {
-    const n = P.initiative[tier];
-    return { name: P.name, rider: { ...base, effect: "initiative", value: n }, text: `${hold}, you have a +${n} bonus to Initiative rolls.` };
-  }
-  if (ability === "con") {
-    const half = P.hpPerLevel[tier] < 1;
-    return { name: P.name, rider: { ...base, effect: "hpMax", formula: half ? "floor(@details.level / 2)" : "@details.level" },
-      text: `${hold}, your Hit Point maximum increases by ${half ? "1 for every two levels you have (rounded down)" : "an amount equal to your level"}.` };
-  }
-  if (ability === "int") {
-    const n = P.dc[tier], uses = P.uses[tier];
-    return { name: P.name, rider: { ...base, effect: "spellDC", value: n, uses, recovery: "lr" },
-      text: `${hold}, when you cast a spell that forces a saving throw, you can increase that spell's save DC by ${n} for that casting. ${usesText(uses)}` };
-  }
-  const per = P.perDie[tier];
-  return { name: P.name, rider: { ...base, effect: "hitDiceHealing", formula: per },
-    text: `${hold}, whenever you spend Hit Point Dice during a Short Rest, you regain ${per === "@prof" ? "extra Hit Points equal to your Proficiency Bonus" : `an extra ${per} Hit Point${per === "1" ? "" : "s"}`} for each die you spend.` };
+  let variant = slotRule(main.ability, facts, tier)?.variant;
+  if (!variant) return;
+  if (variant === "spellDC" && ctx.extras.weapon && ctx.extras.spell) variant = "concentration";
+  ctx.extras.variant = variant;
+  const f = variantFeature(variant, main.ability, tier, { hold: `While ${verb(ctx)} this ${itemNoun(ctx)}`, advantage: !!ctx.overrides.advantage });
+  addFeature(ctx, { ...f, sourceLine: main.line, source: `${main.line} (the item's main stat; stat variant${main.sub ? ", below the threshold but the item would otherwise be blank" : ""})` });
+  for (const k of rest) notConverted(ctx, p.statLines[k], "only the item's main stat becomes a 5e rule", "secondary stat");
 }
 
-/** The single highest primary stat, when large enough, becomes a WoW stat passive; the rest are not converted. */
-function applyStats(ctx) {
-  const { p, tier } = ctx;
-  const keys = STAT_ORDER.filter(k => p.stats[k]);
-  if (!keys.length) return;
-  let top = null;
-  for (const k of keys) if (top === null || p.stats[k] > p.stats[top]) top = k;
-  const min = Math.max(STAT_RULE.minValue, Math.ceil((p.itemLevel ?? 1) / STAT_RULE.perItemLevel));
-  const value = p.stats[top];
-  if (tier >= STAT_RULE.minTier && value >= min) {
-    const line = p.statLines[top];
-    const f = statPassive(top, tier, ctx);
-    addFeature(ctx, { ...f, sourceLine: line, source: `${line} (the item's main stat; ${STAT_PASSIVE_NOTE})` });
-    for (const k of keys) if (k !== top) notConverted(ctx, p.statLines[k], "only the item's main stat becomes a 5e rule", "secondary stat");
-  } else {
-    for (const k of keys) notConverted(ctx, p.statLines[k], `main stat below the conversion threshold (${min} at item level ${p.itemLevel ?? "?"})`, `below ${min}`);
-  }
+/**
+ * Line budget (LINE_BUDGET): green 1, blue 2, purple / orange 3 benefits beyond the +N, the variant counting as one;
+ * the weakest lines beyond it are listed as not converted. Then the variant's attunement: the spell-DC variant needs
+ * attunement, except on green / blue items whose only benefit is the variant (those never require attunement).
+ */
+function applyBudget(ctx) {
+  const { tier } = ctx;
+  const feats = benefitFeatures(ctx);
+  const benefits = feats.map((f, i) => ({ key: i, weight: lineWeight(f.rider.type), variant: f.rider.type === "variant", free: isFree(f.rider.type) }));
+  for (const i of overBudget(benefits, tier, { weapon: !!ctx.extras.weapon })) dropFeature(ctx, feats[i], `over the line budget for its rarity (${LINE_BUDGET[tier]} benefit${LINE_BUDGET[tier] === 1 ? "" : "s"}); the weakest line is dropped`, "over budget");
+  const left = benefitFeatures(ctx).filter(f => !isFree(f.rider.type));
+  const v = left.find(f => f.rider.type === "variant");
+  if (!v) { ctx.extras.variant = null; return; }
+  const onlyVariant = left.length === 1 && !ctx.extras.weapon && ctx.shape !== "shield";
+  if (v.rider.attune && !(onlyVariant && tier <= 2)) ctx.attune = true;
 }
 
 /** Common and Poor items are baseline gear: every stat, resistance and effect line is listed as not converted. */
@@ -765,40 +767,6 @@ function applyBaseline(ctx) {
   ];
   for (const l of lines) notConverted(ctx, l, BASELINE_WHY, BASELINE_WHY);
 }
-
-/** Trinket main stat -> check or save bonus (TRINKET_RULE). Runs after the effect lines. */
-function applyTrinketStat(ctx) {
-  const { p, tier } = ctx;
-  const keys = STAT_ORDER.filter(k => p.stats[k]);
-  const effect = ctx.features.find(f => f.rider && EFFECT_RIDERS.has(f.rider.type));
-  if (!keys.length) {
-    if (!ctx.features.length && !ctx.review.length) review(ctx, "Trinket", "trinket with no stat and no convertible line; decide whether it needs a feature");
-    return;
-  }
-  let top = null;
-  for (const k of keys) if (top === null || p.stats[k] > p.stats[top]) top = k;
-  const rest = keys.filter(k => k !== top);
-  if (tier < TRINKET_RULE.minTier) { for (const k of keys) notConverted(ctx, p.statLines[k], "stats on Common and Poor items have no 5e rule", "common item stat"); return; }
-  if (tier === 1 && effect) {
-    for (const k of keys) notConverted(ctx, p.statLines[k], `an Uncommon trinket gets its effect (${effect.name}) instead of a stat bonus`, "effect instead");
-    return;
-  }
-  const defensive = top === "con" || Object.keys(p.resist).length > 0 || p.effects.some(e => e.kind === "equip" && TRINKET_RULE.defensive.test(e.text));
-  const n = TRINKET_RULE.bonus[tier];
-  const line = p.statLines[top];
-  const why = top === "con" ? "Stamina is its main stat" : defensive ? "its lines are defensive" : "its lines are offensive or utility";
-  addFeature(ctx, defensive ? {
-    name: "Steadfast", sourceLine: line, source: `${line} (main stat; saving throws because ${why})`,
-    text: `While carrying this trinket, you have a +${n} bonus to ${ABILITY_LABEL[top]} saving throws.`,
-    rider: { type: "saveBonus", ability: top, value: n, trigger: "equipped" }
-  } : {
-    name: "Knack", sourceLine: line, source: `${line} (main stat; ability checks because ${why})`,
-    text: `While carrying this trinket, you have a +${n} bonus to ability checks that use ${ABILITY_LABEL[top]} (including skill checks based on ${ABILITY_LABEL[top]}).`,
-    rider: { type: "checkBonus", ability: top, value: n, trigger: "equipped" }
-  });
-  for (const k of rest) notConverted(ctx, p.statLines[k], "only the trinket's main stat becomes a 5e rule", "secondary stat");
-}
-
 /** Remove a feature (and its rider) that lost out under GREEN_RULE, listing its line as not converted. */
 function dropFeature(ctx, f, why, shortWhy) {
   ctx.features = ctx.features.filter(x => x !== f);
@@ -806,42 +774,48 @@ function dropFeature(ctx, f, why, shortWhy) {
   notConverted(ctx, f.sourceLine ?? f.source, why, shortWhy);
 }
 
-/** Uncommon items: one benefit (GREEN_RULE). Runs after all lines, before the enhancement bonus. */
-function applyGreenRule(ctx) {
+/**
+ * Resistance lines. Full Resistance at purple+ and full size (RESIST_RULE). Identity test (RESIST_RING): a blue+
+ * ring / amulet / cloak whose resistance line is its largest number gets Resistance to that school (the resistance
+ * ring pattern). One school per item (biggest, first listed on ties); orange items keep two full-size lines. 3+ small
+ * schools on a ring or cloak: the protection base (VARIANT_BASES; the matcher picks it). Never a second source of the
+ * same Resistance.
+ */
+function applyResistances(ctx) {
   const { p, tier } = ctx;
-  if (tier !== 1) return;
-  const stat = ctx.features.find(f => f.rider && STAT_RIDERS.has(f.rider.type));
-  if (!stat) return;
-  const effect = ctx.features.find(f => f.rider && EFFECT_RIDERS.has(f.rider.type) && !STAT_RIDERS.has(f.rider.type));
-  if (effect) { dropFeature(ctx, stat, `an Uncommon item gets one benefit; its effect (${effect.name}) takes it`, "effect instead"); return; }
-  const enhanced = ctx.extras.weapon || p.wowType === "Shield";
-  if (!enhanced) return; // chest armour and accessories: the stat passive is their one effect
-  const ability = stat.rider.ability;
-  const caster = GREEN_RULE.casterStats.has(ability) && (p.wowType === "Staff" || p.effects.some(e => /spell/i.test(e.text)));
-  const identity = statIsIdentity(p.name, ability);
-  if (caster || identity) {
-    stat.source += caster ? "; replaces the Uncommon +1 (caster weapon with a casting stat)" : "; replaces the Uncommon +1 (the stat is the item's identity)";
+  const entries = Object.entries(p.resist);
+  const lineOf = (school, v) => school === "All" ? `+${v} All Resistances` : `+${v} ${school} Resistance`;
+  const min = Math.max(RESIST_RULE.minValue, Math.ceil((p.itemLevel ?? 1) * RESIST_RULE.perItemLevel));
+  const schools = entries.filter(([k]) => k !== "All");
+  const P = RESIST_RING.protection;
+  if (schools.length >= P.minSchools && P.slots.includes(p.slot) && tier >= 1 && schools.every(([, v]) => v < min)) {
+    ctx.extras.protection = true;
+    for (const [k, v] of entries) notConverted(ctx, lineOf(k, v), "several small resistances: covered by the protection base (or GM review)", "protection");
     return;
   }
-  dropFeature(ctx, stat, "an Uncommon weapon, armour or shield gets the +1 enhancement as its one benefit", "+1 instead");
-}
-
-function applyResistances(ctx) {
-  const { p } = ctx;
-  for (const [school, value] of Object.entries(p.resist)) {
-    const line = school === "All" ? `+${value} All Resistances` : `+${value} ${school} Resistance`;
+  const largest = Math.max(0, ...Object.values(p.stats), ...entries.map(([, v]) => v));
+  const ring = tier >= RESIST_RING.minTier && RESIST_RING.slots.includes(p.slot);
+  const eligible = schools.filter(([, v]) => (v >= min && tier >= RESIST_RULE.minTier) || (ring && v >= largest))
+    .sort((a, b) => b[1] - a[1]);
+  const full = eligible.filter(([, v]) => v >= min);
+  const keep = tier >= 4 && full.length >= 2 ? full.slice(0, RESIST_RING.maxSchools[4]) : eligible.slice(0, 1);
+  const given = new Set();
+  for (const [school, value] of entries) {
+    const line = lineOf(school, value);
     if (school === "All") { notConverted(ctx, line, "a small bonus to every resistance has no proportionate 5e rule", "small"); continue; }
-    const min = Math.max(RESIST_RULE.minValue, Math.ceil((p.itemLevel ?? 1) * RESIST_RULE.perItemLevel));
-    if (value >= min && ctx.tier < (RESIST_RULE.minTier ?? 0)) {
-      notConverted(ctx, line, `5e Resistance is a Very Rare-level benefit (a Resistance is worth one rarity step)`, "below Very Rare");
-    } else if (value >= min) {
-      const type = SCHOOL_MAP[school];
+    const type = SCHOOL_MAP[school];
+    if (keep.some(([k]) => k === school) && !given.has(type)) {
+      given.add(type);
+      const identity = value < min || tier < RESIST_RULE.minTier;
       addFeature(ctx, {
         name: `${type} Resistance`, sourceLine: line,
         text: `While ${verb(ctx)} this ${itemNoun(ctx)}, you have Resistance to ${type} damage.`,
-        source: line, rider: { type: "resistance", damageType: type.toLowerCase(), value: 1, trigger: "equipped" }
+        source: identity ? `${line} (the item's largest line: resistance ring pattern)` : line,
+        rider: { type: "resistance", damageType: type.toLowerCase(), value: 1, trigger: "equipped" }
       });
-    } else notConverted(ctx, line, `too small for 5e Resistance (needs +${min} at item level ${p.itemLevel ?? "?"})`, `below ${min}`);
+    } else if (value >= min && tier < RESIST_RULE.minTier) notConverted(ctx, line, "5e Resistance is a Very Rare-level benefit (a Resistance is worth one rarity step)", "below Very Rare");
+    else if (keep.length) notConverted(ctx, line, "one Resistance per item (the biggest school)", "one school");
+    else notConverted(ctx, line, `too small for 5e Resistance (needs +${min} at item level ${p.itemLevel ?? "?"})`, `below ${min}`);
   }
 }
 
@@ -858,7 +832,7 @@ function procFeature(ctx, school, lo, hi, line, kindLabel) {
       text: `When you score a Critical Hit with this weapon, the target takes an extra ${d} ${type} damage. This extra damage isn't doubled by the Critical Hit.`,
       rider: { type: "extraDamage", formula: d, damageType: type.toLowerCase(), trigger: "critical" }
     });
-  } else if (ratio < PROC_RULE.burstFrom) {
+  } else if (ratio < (ctx.opts.blastThreshold ?? PROC_RULE.burstFrom)) {
     const d = PROC_RULE.onHitDice[tier];
     addFeature(ctx, {
       name: `${type} Strike`, sourceLine: line, source: src,
@@ -878,6 +852,7 @@ function procFeature(ctx, school, lo, hi, line, kindLabel) {
 /** Equip / Use / Chance-on-hit lines (gear and weapons; consumables have their own handler). */
 function applyEffects(ctx) {
   const { p, tier } = ctx;
+  const o = ctx.opts;
   const isWeapon = !!ctx.extras.weapon;
   for (const fx of p.effects) {
     const t = fx.text, line = fx.line, label = KIND_LABEL[fx.kind];
@@ -916,9 +891,90 @@ function applyEffects(ctx) {
       });
       continue;
     }
+    // Flavour / profession lines: a small situational bonus, free (not counted in the line budget).
+    if (fx.kind === "equip" && (m = t.match(/\b(Mining|Fishing|Herbalism|Skinning|Lockpicking|Engineering|Enchanting|Alchemy|Blacksmithing|Leatherworking|Tailoring|Cooking|First Aid)\b[^\d]*\+?(\d+)?/i))) {
+      if (!o.flavourBonuses) { notConverted(ctx, line, "flavour / profession bonuses are turned off (setting)", "setting off"); continue; }
+      const prof = Object.keys(FLAVOUR_RULE.map).find(k => k.toLowerCase() === m[1].toLowerCase());
+      const n = Number(m[2] ?? 0) >= FLAVOUR_RULE.bigFrom ? FLAVOUR_RULE.big : FLAVOUR_RULE.small;
+      addFeature(ctx, { name: `${prof} Knack`, sourceLine: line, source: `Equip — ${short(t, 60)} (flavour line, free)`,
+        text: `While ${verb(ctx)} this ${itemNoun(ctx)}, you have a +${n} bonus to ${FLAVOUR_RULE.map[prof]}, when it fits the situation.`,
+        rider: { type: "flavour", skill: prof, value: n, trigger: "situational" } });
+      continue;
+    }
+    // "+N% critical strike" (and with spells): extra dice on a Critical Hit, not doubled.
+    if (fx.kind === "equip" && /critical strike/i.test(t)) {
+      if (!o.critDice) { notConverted(ctx, line, "critical-strike dice are turned off (setting)", "setting off"); continue; }
+      if (ctx.extras.crit) { notConverted(ctx, line, "only one critical-hit rider per item", "duplicate"); continue; }
+      ctx.extras.crit = true;
+      const d = CRIT_RULE.dice[tier], spell = /spell/i.test(t);
+      addFeature(ctx, { name: spell ? "Spell Crit" : "Keen Edge", sourceLine: line, source: `Equip — ${short(t, 60)}`,
+        text: spell ? `While ${verb(ctx)} this ${itemNoun(ctx)}, when you score a Critical Hit with a spell attack, the target takes an extra ${d} damage of the spell's type. This extra damage isn't doubled.`
+          : `While ${verb(ctx)} this ${itemNoun(ctx)}, when you score a Critical Hit with ${isWeapon ? "this weapon" : "a weapon attack"}, the target takes an extra ${d} damage of the weapon's type. This extra damage isn't doubled.`,
+        rider: { type: "critDice", formula: d, scope: spell ? "spell" : "weapon", trigger: "critical" } });
+      continue;
+    }
+    // "+N% dodge / parry": a Reaction.
+    if (fx.kind === "equip" && /chance to (dodge|parry)/i.test(t)) {
+      if (!o.parryReaction) { notConverted(ctx, line, "the parry reaction is turned off (setting)", "setting off"); continue; }
+      if (ctx.extras.parry) { notConverted(ctx, line, "only one parry reaction per item", "duplicate"); continue; }
+      ctx.extras.parry = true;
+      const ac = PARRY_RULE.ac[tier];
+      addFeature(ctx, { name: "Parry", sourceLine: line, source: `Equip — ${short(t, 60)}`,
+        text: `While ${verb(ctx)} this ${itemNoun(ctx)}, when a creature you can see hits you with an attack roll, you can take a Reaction to gain a ${ac === "@prof" ? "bonus equal to your Proficiency Bonus" : `+${ac} bonus`} to AC against that attack, possibly turning the hit into a miss. Once used, this property can't be used again until you finish a Short or Long Rest.`,
+        rider: { type: "parry", value: ac, trigger: "reaction", uses: PARRY_RULE.uses, recovery: PARRY_RULE.recovery } });
+      continue;
+    }
+    // "Restores N mana per 5 sec.": slot recovery or Concentration, by slot.
+    if (fx.kind === "equip" && /mana (per|every) 5 sec/i.test(t)) {
+      if (!o.manaRegen) { notConverted(ctx, line, "mana regeneration rules are turned off (setting)", "setting off"); continue; }
+      if (MANA_REGEN.slotRecoverySlots.includes(p.slot) || ["Staff", "Wand"].includes(p.wowType)) {
+        const lvl = MANA_REGEN.slotLevel[tier];
+        addFeature(ctx, { name: "Wellspring", sourceLine: line, source: `Equip — ${short(t, 60)} (slot recovery)`,
+          text: `While ${verb(ctx)} this ${itemNoun(ctx)}, when you finish a Short Rest you can regain one expended spell slot of level ${lvl} or lower. Once used, this property can't be used again until you finish a Long Rest.`,
+          rider: { type: "slotRecovery", level: lvl, trigger: "shortRest", uses: 1, recovery: "lr" } });
+      } else {
+        const n = MANA_REGEN.concentration[tier];
+        addFeature(ctx, { name: "Steady Focus", sourceLine: line, source: `Equip — ${short(t, 60)} (Concentration)`,
+          text: `While ${verb(ctx)} this ${itemNoun(ctx)}, you have a +${n} bonus to Constitution saving throws you make to maintain Concentration.`,
+          rider: { type: "concentration", value: n, trigger: "equipped" } });
+      }
+      continue;
+    }
+    // "Restores N health per 5 sec.": purple / orange regeneration pattern; green / blue route to a base (else review).
+    if (fx.kind === "equip" && /health (per|every) 5 sec/i.test(t)) {
+      if (tier >= HEALTH_REGEN.patternFrom) {
+        addFeature(ctx, { name: "Regeneration", sourceLine: line, source: `Equip — ${short(t, 60)} (regeneration pattern)`,
+          text: `While ${verb(ctx)} this ${itemNoun(ctx)}, you regain ${HEALTH_REGEN.dice} Hit Points every ${HEALTH_REGEN.minutes} minutes, provided that you have at least 1 Hit Point.`,
+          rider: { type: "regeneration", formula: HEALTH_REGEN.dice, minutes: HEALTH_REGEN.minutes, trigger: "equipped" } });
+      } else review(ctx, line, "health regeneration at this rarity uses an official base (wound-closure item); none was found in your compendiums");
+      continue;
+    }
+    // "When struck" / "Protects" lines that damage the attacker: a passive rider, no uses.
+    if (fx.kind === "equip" && /when struck|when hit|attackers?|protects/i.test(t) && (m = t.match(/(\d+) (Fire|Frost|Nature|Shadow|Arcane|Holy) damage/i))) {
+      const type = damageType(cap(m[2].toLowerCase()), t), d = THORNS_DICE[tier];
+      addFeature(ctx, { name: `${type} Ward`, sourceLine: line, source: `Equip — ${short(t, 60)} (passive)`,
+        text: `While ${verb(ctx)} this ${itemNoun(ctx)}, a creature that hits you with a melee attack takes ${d} ${type} damage.`,
+        rider: { type: "thorns", formula: d, damageType: type.toLowerCase(), trigger: "struck" } });
+      continue;
+    }
+    if (fx.kind === "equip" && /^Protects\b|when struck/i.test(t)) {
+      addFeature(ctx, { name: "Ward", sourceLine: line, source: `Equip — ${short(t, 60)} (passive)`,
+        text: `While ${verb(ctx)} this ${itemNoun(ctx)}, you have Advantage on saving throws against the effect this line names (${short(t.replace(/\.$/, ""), 60)}).`,
+        rider: { type: "ward", trigger: "equipped" } });
+      continue;
+    }
+    // "Use: Increases damage and healing done by spells by up to N for X sec.": a limited-use surge.
+    if (fx.kind === "use" && /spells and effects by up to \d+/i.test(t)) {
+      const b = SPELL_RULE.bonus[tier], d = WEAPON_EXTRA_DICE[tier], uses = DAILY_USES[tier];
+      ctx.attuneBy ||= "by a spellcaster";
+      addFeature(ctx, { name: "Spell Surge", sourceLine: line, source: `Use — ${short(t, 60)}`,
+        text: `As a Bonus Action, you can awaken this ${itemNoun(ctx)} for ${SPELL_SURGE.minutes} minute. For the duration, you have a +${b} bonus to spell attack rolls and to the saving throw DCs of your spells, and once on each of your turns one spell you cast deals an extra ${d} damage to one target. ${usesText(uses)}`,
+        rider: { type: "spellSurge", value: b, formula: d, trigger: "bonusAction", uses, recovery: "lr" } });
+      continue;
+    }
     if (fx.kind === "equip" && (m = t.match(/chance to hit by (\d+)%/i)) && !/spell/i.test(t)) {
       if (isWeapon) { notConverted(ctx, line, "the weapon's enhancement bonus already covers accuracy", "covered by weapon bonus"); continue; }
-      if (tier < HIT_RULE.minTier) { notConverted(ctx, line, "hit chance on Common or Poor items has no 5e rule", "common item"); continue; }
+      if (tier < HIT_RULE.minTier) { notConverted(ctx, line, "a few % hit chance converts only on Very Rare and Legendary items (with attunement)", "below Very Rare"); continue; }
       if (ctx.extras.attackBonus) { notConverted(ctx, line, "only one attack bonus per item", "duplicate"); continue; }
       ctx.extras.attackBonus = true;
       const hb = HIT_RULE.bonus, spell = isCasterGear(p);
@@ -958,6 +1014,7 @@ function applyEffects(ctx) {
     }
     if (fx.kind === "equip" && (m = t.match(/^Increased Defense \+(\d+)|^\+(\d+) Armor\.?$/i))) {
       if (ctx.extras.armor || p.wowType === "Shield") { notConverted(ctx, line, "the armour's or shield's own AC already covers it", "covered by base AC"); continue; }
+      if (!DEFENSE_RULE.slots.includes(p.slot)) { notConverted(ctx, line, "AC comes only from an official base or chest armour and shields (only trinkets turn a defence line into +1 AC)", "slot rule"); continue; }
       if (tier < DEFENSE_RULE.minTier) { notConverted(ctx, line, "defence on Common or Poor items has no 5e rule", "common item"); continue; }
       if (ctx.extras.acBonus) { notConverted(ctx, line, "only one AC bonus per item", "duplicate"); continue; }
       ctx.extras.acBonus = true;
@@ -975,16 +1032,12 @@ function applyEffects(ctx) {
 
 function applyLinesCommon(ctx) {
   if (ctx.tier === 0) applyBaseline(ctx);
-  else if (ctx.p.slot === "Trinket") {
+  else {
     applyResistances(ctx);
     applyEffects(ctx);
-    applyTrinketStat(ctx);
-  } else {
-    applyStats(ctx);
-    applyResistances(ctx);
-    applyEffects(ctx);
+    applyVariant(ctx);
+    applyBudget(ctx);
   }
-  applyGreenRule(ctx);
   const { p } = ctx;
   for (const s of p.sets) notConverted(ctx, s, "set bonuses are not converted yet, as there are no set rules", "set bonus");
   // "<Random enchantment>" is flavour (nothing to roll or convert), so it is not a "not converted" line.
@@ -1071,6 +1124,8 @@ function buildSystem(shape, ctx) {
       });
     }
     applyLinesCommon(ctx);
+    // Held caster weapons (scepters, caster maces) with a spell line are spellcasting foci too.
+    if (ctx.extras.spell && !props.includes("foc")) props.push("foc");
     enhancement(ctx, "weapon");
     if (ctx.bonus) sys.magicalBonus = ctx.bonus;
     ctx.summary = `${b.label}${ctx.bonus ? ` +${ctx.bonus}` : ""}`;
