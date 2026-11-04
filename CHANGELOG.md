@@ -2,6 +2,23 @@
 
 ## 0.3.0 (unreleased)
 
+### Unreleased: official bases (phase 1, conversion only)
+- **Official bases.** When converting, an item can be re-based on a matching official item from your installed
+  compendiums (scored by the lines it covers, with a confidence; accept / suggest / tooltip conversion). It keeps
+  its own name, icon, price, quality and rarity; lines the base lacks become one extra effect. Weapons, chest
+  armour and shields can use the +N template. Mechanics are read from your compendium at build time; Loot Ledger
+  stores no official text.
+- New world settings, each can be turned off: **Official bases**, **Base compendiums** (priority order),
+  **Book compendium** (exact-name matches used as is; only price, quality and focus added), **Base confidence**,
+  **Ability-score bases**, **Gap-fills on bases**, **Hand-made items** (names / UUIDs Build leaves alone; also
+  `flags.loot-ledger.handmade`).
+- Converted items carry `flags.loot-ledger.base`, `gapFills` and `converted.route`
+  (base | convert-auto | convert-review | baseline | book | handmade); `basedOn` is kept as an alias for one version.
+- Changed: rule values from the book review (level bands, Legendary-only attunement tier, armour with features,
+  weapon rider dice, Resistance from Very Rare, uses per Long Rest, Initiative, mana potion slots). Removed: the
+  random reflavour pick and the per-item AC effect. Converter version 5 (unreviewed converted items are rewritten
+  on the next Build).
+
 ### Added
 - **Convert items to 5e when building** world setting (off by default). When on, Build runs the 5e converter
   over every copied item, writes the results to a new compendium **Loot Ledger · Converted Items**, and points

@@ -17,10 +17,14 @@ export class Pack {
     this.folderDocs = new Map();
     this.locked = false;
     this.writes = { created: 0, deleted: 0 };
+    this.indexCalls = 0;
   }
   get index() { return this._index(); }
-  _index() { const i = new Index(); for (const d of this.docs.values()) i.set(d._id, { _id: d._id, name: d.name, flags: clone(d.flags ?? {}) }); return i; }
-  async getIndex() { return this._index(); }
+  _index() { const i = new Index(); for (const d of this.docs.values()) i.set(d._id, {
+    _id: d._id, name: d.name, type: d.type, system: clone(d.system ?? {}), effects: clone(d.effects ?? []), _stats: clone(d._stats ?? {}),
+    flags: clone(d.flags ?? {})
+  }); return i; }
+  async getIndex() { this.indexCalls++; return this._index(); }
   get folders() { const m = this.folderDocs; return { get: id => m.get(id), map: fn => [...m.values()].map(fn) }; }
   get documentClass() { return this.collection.endsWith("tables") ? globalThis.RollTable : globalThis.Item; }
   async configure(o) { Object.assign(this, o); }
@@ -33,10 +37,11 @@ function makeDoc(d, collection) {
   return Object.assign(clone(d), { id: d._id, uuid: `Compendium.${collection}.Item.${d._id}`, toObject: () => clone(data) });
 }
 
-export function install({ sourceItems, settings = {} }) {
+export function install({ sourceItems, settings = {}, extraPacks = {} }) {
   const packs = new Map();
   const source = new Pack("wow-classic-items.items", sourceItems.map(clone));
   packs.set(source.collection, source);
+  for (const [key, docs] of Object.entries(extraPacks)) packs.set(key, new Pack(key, docs.map(clone)));
   const chat = [];
   const journal = [];
   const pack = o => packs.get(o.pack);

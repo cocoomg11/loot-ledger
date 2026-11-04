@@ -207,3 +207,78 @@ test('"<Random enchantment>" is flavour: not counted as not converted', async ()
   }
   assert.equal(parse(rnd2).result.needsReview, parse(plain).result.needsReview, "no review added either");
 });
+
+/* Official bases, book pack, hand-made items (made-up fixtures; no official text). */
+const fxBase = (id, name, o = {}) => ({ _id: id, name, type: o.type ?? "equipment", img: "icons/svg/ring.svg",
+  system: { rarities: [o.rarity ?? "rare"], type: { value: o.t ?? "ring", baseItem: "" }, attunement: "", description: { value: o.text ?? "" }, properties: [] },
+  effects: o.effects ?? [], _stats: { modifiedTime: o.mod ?? 1 }, flags: {} });
+const emberRing = () => srcItem({ name: "Test Ember Band", quality: "epic", lines: ["Finger", "+25 Fire Resistance", "Item Level 60"] });
+const wardBase = () => fxBase("fx1", "Fixture Ring of Warding", { effects: [{ name: "fx", transfer: true, changes: [{ key: "system.traits.dr.value", mode: 2, value: "fire" }] }] });
+
+test("official bases: each base pack indexed once per build; accepted base applied; base edit rewrites", async () => {
+  const env = install({ sourceItems: [...FIXTURES, emberRing()], settings: { convertOnBuild: true, baseSources: "test.bases" }, extraPacks: { "test.bases": [wardBase()] } });
+  const s = await build({ confirm: false });
+  assert.equal(env.packs.get("test.bases").indexCalls, 1, "one getIndex per build");
+  const ring = conv(env).docs.get(emberRing()._id);
+  const f = ring.flags["loot-ledger"];
+  assert.equal(f.converted.route, "base");
+  assert.equal(f.base.name, "Fixture Ring of Warding");
+  assert.equal(f.basedOn.uuid, "Compendium.test.bases.Item.fx1");
+  assert.equal(ring.name, "Test Ember Band");
+  assert.equal(ring.effects.length, 1, "the base's own effect");
+  assert.ok(s.build.converted > 0);
+  const again = await build({ confirm: false });
+  assert.equal(again.build.converted, 0, "unchanged");
+  env.packs.get("test.bases").docs.get("fx1")._stats.modifiedTime = 2;
+  const edited = await build({ confirm: false });
+  assert.equal(edited.build.converted, FIXTURES.length + 1, "a base edit changes the fingerprint and rewrites unreviewed items");
+});
+
+test("official bases off: no index, tooltip conversion only", async () => {
+  const env = install({ sourceItems: [emberRing()], settings: { convertOnBuild: true, baseSources: "test.bases", officialBases: false }, extraPacks: { "test.bases": [wardBase()] } });
+  await build({ confirm: false });
+  assert.equal(env.packs.get("test.bases").indexCalls, 0);
+  const f = conv(env).docs.get(emberRing()._id).flags["loot-ledger"];
+  assert.equal(f.base, undefined);
+  assert.equal(f.converted.route, "convert-auto");
+});
+
+test("book pack: exact name match is used as is (price from the source), route book", async () => {
+  const book = fxBase("bk1", "Test Ember Band", { text: "<p>Fixture book rules.</p>", rarity: "veryRare" });
+  book.system.price = { value: 5000, denomination: "gp" };
+  const env = install({ sourceItems: [emberRing()], settings: { convertOnBuild: true, bookPack: "test.book", baseSources: "test.bases" },
+    extraPacks: { "test.book": [book], "test.bases": [wardBase()] } });
+  await build({ confirm: false });
+  const d = conv(env).docs.get(emberRing()._id);
+  assert.equal(d.flags["loot-ledger"].converted.route, "book");
+  assert.match(d.system.description.value, /Fixture book rules/);
+  assert.notEqual(d.system.price.value, 5000, "never the book price");
+  assert.equal(env.packs.get("test.book").indexCalls, 1);
+});
+
+test("hand-made items: skipped by Build (list or flag), stored copies never overwritten or removed", async () => {
+  const keep = srcItem({ name: "Test Signet", quality: "epic", lines: ["Finger", "+20 Strength", "Item Level 60"] });
+  const env = install({ sourceItems: [...FIXTURES, keep], settings: { convertOnBuild: true } });
+  await build({ confirm: false });
+  conv(env).docs.get(keep._id).flags["loot-ledger"].handmade = true;
+  conv(env).docs.get(keep._id).name = "GM edit";
+  env.store.handmadeExclude = "Test Signet";
+  const s = await build({ confirm: false, force: true });
+  assert.equal(s.handmade, 1);
+  assert.equal(conv(env).docs.get(keep._id).name, "GM edit", "never overwritten, even with force");
+  const fresh = install({ sourceItems: [keep], settings: { convertOnBuild: true, handmadeExclude: "test signet" } });
+  const s2 = await build({ confirm: false });
+  assert.equal(s2.handmade, 1);
+  assert.equal(conv(fresh).docs.size, 0, "not converted");
+  assert.equal(items(fresh).docs.size, 0, "not copied");
+});
+
+test("dryRun with base and book packs: indexes read, zero writes", async () => {
+  const env = install({ sourceItems: [...FIXTURES, emberRing()], settings: { convertOnBuild: true, baseSources: "test.bases", bookPack: "test.book" },
+    extraPacks: { "test.bases": [wardBase()], "test.book": [fxBase("bk1", "Test Lucky Charm")] } });
+  const calls = spyOnWrites(env);
+  const s = await build({ dryRun: true });
+  assert.deepEqual(calls, []);
+  assert.deepEqual(s.bases.sources, ["test.book", "test.bases"], "book pack first");
+  assert.equal(s.bases.indexed, 2);
+});
