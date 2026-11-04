@@ -19,6 +19,22 @@
   random reflavour pick and the per-item AC effect. Converter version 5 (unreviewed converted items are rewritten
   on the next Build).
 
+### Unreleased: stat variants and line rules (phase 2, conversion only)
+- **Stat variants.** The main stat becomes exactly one flat bonus chosen by slot (skills, saves, Initiative, max HP,
+  Concentration, spell save DC, Grapple / Shove DC, Hit Point Dice healing); never an ability score or weapon
+  damage. Advantage instead of the bonus only by a per-item opt-in (`flags.loot-ledger.overrides.advantage`).
+  Green / blue items whose only benefit is the variant need no attunement.
+- **Line budget**: green 1, blue 2, purple / orange 3 benefits beyond the +N; the weakest extra line is listed as
+  not converted. Profession lines are free.
+- **Line rules**: critical-hit dice, parry / dodge reaction, mana regeneration (slot recovery or Concentration),
+  health regeneration, resistance on jewellery and cloaks, protection for several small resistances, passive
+  "when struck" riders, spell surges, +1 AC from trinket defence lines (now actually applied), +hit on non-weapons
+  from Very Rare (attuned).
+- **Weapons**: +1 / +1 / +2 / +3 at every tier (the +1 always wins at green), scimitar by name, blasts from 2x a
+  normal hit; an endgame +1 step only by override (`flags.loot-ledger.overrides.raise`).
+- New world settings, each can be turned off: **Critical-hit dice**, **Profession bonuses**, **Mana regeneration**,
+  **Parry reaction**, **Blast threshold**. Converter version 6.
+
 ### Added
 - **Convert items to 5e when building** world setting (off by default). When on, Build runs the 5e converter
   over every copied item, writes the results to a new compendium **Loot Ledger · Converted Items**, and points

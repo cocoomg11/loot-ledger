@@ -282,3 +282,18 @@ test("dryRun with base and book packs: indexes read, zero writes", async () => {
   assert.deepEqual(s.bases.sources, ["test.book", "test.bases"], "book pack first");
   assert.equal(s.bases.indexed, 2);
 });
+
+test("rule-family settings reach the converter and the source hash; dry run still writes nothing", async () => {
+  const keen = srcItem({ name: "Sample Keen Band", quality: "epic", lines: ["Finger", "Equip: Improves your chance to get a critical strike by 1%.", "Item Level 60"] });
+  const on = install({ sourceItems: [keen], settings: { convertOnBuild: true } });
+  const calls = spyOnWrites(on);
+  const a = await build({ dryRun: true });
+  assert.deepEqual(calls, []);
+  const { baseSettings } = await import("../scripts/build.mjs");
+  assert.equal(baseSettings().rules.critDice, true);
+  install({ sourceItems: [keen], settings: { convertOnBuild: true, critDice: false, blastThreshold: "3" } });
+  const r = baseSettings().rules;
+  assert.deepEqual([r.critDice, r.blastThreshold], [false, 3]);
+  const b = await build({ dryRun: true });
+  assert.ok(a.plan.convert.create.length === 1 && b.plan.convert.create.length === 1);
+});

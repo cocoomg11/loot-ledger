@@ -649,7 +649,8 @@ export const VARIANT_RULE = {
 /**
  * Slot -> variant, per main stat. Row keys (all must match): slots (classic slot), armor (classic armour type),
  * shape (converter shape), held (weapons, wands, shields, off-hand and relic items), caster (cloth armour or a held
- * item), minTier. A row with fallback: true is the stat's default (no slot rule).
+ * item), minTier. Stamina's Concentration row needs a held caster item (off-hand, relic, staff, wand): cloth worn
+ * pieces keep Con saves. A row with fallback: true is the stat's default (no slot rule).
  * Variants: grapple (Grapple / Shove DC), athletics, moveSaves (saving throws to avoid being moved or knocked
  * Prone), initiative, stealth, acrobatics, hpMax, conSaves, concentration, spellDC, arcana, investigation,
  * hitDice (Hit Point Dice healing), wisSaves, perception.
@@ -669,7 +670,7 @@ export const VARIANT_SLOTS = {
   con: [
     { slots: ["Chest", "Legs", "Waist"], variant: "hpMax" },
     { slots: ["Head", "Neck", "Finger", "Back"], variant: "conSaves" },
-    { caster: true, variant: "concentration" },
+    { caster: true, held: true, variant: "concentration" },
     { fallback: true, variant: "conSaves" }
   ],
   int: [

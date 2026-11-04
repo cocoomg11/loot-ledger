@@ -122,3 +122,16 @@ test("random suffix rules (first pass, section 9)", () => {
   assert.equal(R.SUFFIXES.length, 25);
   assert.deepEqual(Object.keys(R.SUFFIX_WEIGHTS), ["cloth", "leather", "mail", "plate", "shield", "melee", "ranged", "caster", "jewelry"]);
 });
+
+test("phase 2 line rules and variant tables", () => {
+  assert.deepEqual(R.WEAPON_BONUS, { 0: 0, 1: 1, 2: 1, 3: 2, 4: 3 });
+  assert.deepEqual(R.CRIT_RULE.dice, { 1: "1d6", 2: "1d6", 3: "2d6", 4: "3d6" });
+  assert.deepEqual(R.PARRY_RULE, { ac: { 1: 2, 2: 2, 3: "@prof", 4: "@prof" }, uses: 1, recovery: "sr" });
+  assert.deepEqual(R.MANA_REGEN.slotLevel, { 1: 1, 2: 3, 3: 4, 4: 5 });
+  assert.deepEqual(R.MANA_REGEN.concentration, { 1: 1, 2: 1, 3: 2, 4: 2 });
+  assert.deepEqual(R.HEALTH_REGEN, { patternFrom: 3, dice: "1d6", minutes: 10 });
+  assert.deepEqual(R.LINE_BUDGET, { 1: 1, 2: 2, 3: 3, 4: 3 });
+  assert.deepEqual(R.VARIANT_RULE.bonus, { 1: 1, 2: 1, 3: 2, 4: 2 });
+  assert.ok(Math.max(...Object.values(R.VARIANT_RULE.bonus)) <= 2, "checks and saves capped at +2");
+  assert.equal(R.WEAPON_RULES[0].base, "scimitar", "name rule before speed rules");
+});

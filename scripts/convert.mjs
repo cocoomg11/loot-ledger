@@ -1221,7 +1221,7 @@ function finish(ctx, sys) {
   if (ctx.attuneBy) ctx.attune = true;
   // Very Rare / Legendary gear that ends up with nothing beyond its base: flag it rather than invent.
   const real = ctx.features.filter(f => !/^\+\d /.test(f.name));
-  if (tier >= EMPTY_REVIEW_TIER && !ctx.bonus && !real.length) review(ctx, `${QUALITY_NAME[p.quality]} quality`, `${TIER_NAME[tier]} item with no line that converts; decide whether it needs a feature`);
+  if (tier >= EMPTY_REVIEW_TIER && !ctx.bonus && !real.length && !ctx.extras.protection) review(ctx, `${QUALITY_NAME[p.quality]} quality`, `${TIER_NAME[tier]} item with no line that converts; decide whether it needs a feature`);
   if (ctx.magic || ctx.bonus) sys.properties = [...new Set([...(sys.properties ?? []), "mgc"])];
   sys.attunement = ctx.attune ? "required" : "";
   return sys;
