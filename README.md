@@ -194,8 +194,7 @@ copied into the items compendium.
 ### Review board
 
 GM only (setting **Review board**, on by default). Open it from the Loot Ledger settings window, the button on
-the **Loot Ledger · Build Report** journal entry, or `api.reviewBoard()`. It lists every converted item that
-needs review, with filters (status, quality, item type, slot, reason, search) and progress counts. For each item
+the **Loot Ledger · Build Report** journal entry, or `api.reviewBoard()`. It lists every converted item, with filters (status, quality, item type, slot, reason, search) and progress counts. For each item
 it shows the source tooltip with the unconverted lines highlighted, the converted result and a note field.
 Actions: **Accept** (A), **Tweak** (T: opens the item sheet, marked tweaked on close), **Skip** (S), **Reject**
 (R: left out of the roll tables from the next build); arrow keys move between items.
@@ -278,9 +277,23 @@ items to 5e when building** setting is on (off by default; its rules are still b
   big it is, in line with SRD magic items of the same rarity.
 - **Flag, don't guess.** A line with no rule stays as flavour, and the item gets
   `flags["loot-ledger"].converted.needsReview = true` and a **GM review** note.
-- **No automation yet.** Riders (extra damage, check or save bonuses, resistances and so on) are text only
-  and are recorded in `flags["loot-ledger"].riders` for a later automation pass. Only the enhancement bonus
-  uses dnd5e's own `magicalBonus` field.
+- **Mostly text.** Riders (extra damage, check or save bonuses, resistances and so on) are written out in the
+  item's description and recorded in `flags["loot-ledger"].riders`. Only the enhancement bonus, a few passive
+  bonuses and the effects of an official base or gap-fill are applied by dnd5e's own fields and Active Effects.
+
+**Official bases.** When your world has the core rulebooks (or the 2024 SRD) installed, an item whose lines match an
+existing official item can use it as its base: it keeps its own name, icon, price and quality, takes the base's
+mechanics, and gets one extra effect for the lines the base does not cover. Weapons, chest armour and shields can
+use a plain +N template. Every match has a confidence; weak matches are only suggested on the Review board. Loot
+Ledger stores no official text: mechanics are read from your compendiums at build time.
+
+**Stat variants and line rules.** A main stat becomes exactly one flat bonus chosen by slot (a skill, a save,
+Initiative, max HP, Concentration, spell save DC and so on), never an ability score. Critical-strike, dodge and
+parry, mana and health regeneration, resistance and profession lines each have a size rule by quality, and an item
+keeps only a limited number of benefits for its quality (the rest are listed as not converted). Items that end up
+following the same rule are grouped on the Review board so you review the rule once.
+
+How all of this is decided, and every number, is in [docs/conversion.md](docs/conversion.md).
 
 Items the source module converted by hand are kept only when every mechanic in their rules traces to the
 tooltip (`auditHandAuthored`) and the item is not on the replace list; otherwise Loot Ledger's own conversion
@@ -323,6 +336,7 @@ Open **Game Settings › Configure Settings › Loot Ledger**.
 - **Prices look rounded.** The item sheet shows the exact value; the inventory column rounds to three decimals.
 - **Names are not coloured.** Check that **Quality colours** is on and the world was reloaded. Unknown (homebrew) rarities stay uncoloured; set a quality with the picker.
 - **A converted item is flagged GM review.** The converter had no rule for one of its lines. Open the **Review board** from the settings window.
+- **Items get no official base.** Check **Official bases** is on and that the core rulebooks or the 2024 SRD are enabled in the world (or listed under **Base compendiums**). The Build Report's *Official bases* page shows how many items matched and which bases were weakest.
 - **Something looks wrong after an update.** Run **Build loot pools** again; it only rewrites what changed.
 
 

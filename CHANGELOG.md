@@ -2,6 +2,9 @@
 
 ## 0.3.0 (unreleased)
 
+Conversion rework in three parts (official bases, stat variants and line rules, collapse and review board). Conversion
+stays off by default; every new option is a setting that can be turned off. How it works: [docs/conversion.md](docs/conversion.md).
+
 ### Unreleased: official bases (phase 1, conversion only)
 - **Official bases.** When converting, an item can be re-based on a matching official item from your installed
   compendiums (scored by the lines it covers, with a confidence; accept / suggest / tooltip conversion). It keeps
@@ -52,6 +55,8 @@
 - **Build Report**: an "Official bases" page (matched share, by route, collapse groups, lowest-confidence bases);
   `build({ dryRun: true })` returns `plan.items` with route, base, confidence, candidates, gap-fills and collapse per
   item. Base candidates are stored on every matched item (`baseCandidates`). Converter version 7.
+- Docs: `docs/conversion.md` rewritten for the whole rework; README conversion section and troubleshooting updated; a test
+  keeps the doc's rule names in sync with `rules.mjs`.
 
 ### Added
 - **Convert items to 5e when building** world setting (off by default). When on, Build runs the 5e converter
