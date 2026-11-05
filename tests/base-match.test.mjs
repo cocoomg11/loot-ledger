@@ -289,3 +289,16 @@ test("phase-2 hook passes the match through unchanged", () => {
   const m = { status: "none", base: null };
   assert.equal(M.variantStep(m, {}, {}), m);
 });
+
+test("base signals: score items read from the text when the index has no effect changes (both wordings)", () => {
+  const a = M.baseSignals(entry("t1", "Fixture Belt A", { text: "<p>While wearing this belt, your Strength score is 23.</p>" }));
+  assert.equal(a.scores.str, 23);
+  const b = M.baseSignals(entry("t2", "Fixture Belt B", { text: "<p>While wearing this belt, your Strength changes to 25.</p>" }));
+  assert.equal(b.scores.str, 25);
+  assert.ok(b.tags.has("score:str"));
+});
+
+test("index fields avoid system.source.rules (a nested field that breaks some index reads); the source object is requested instead", () => {
+  assert.ok(M.INDEX_FIELDS.includes("system.source"));
+  assert.ok(!M.INDEX_FIELDS.includes("system.source.rules"));
+});

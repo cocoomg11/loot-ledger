@@ -20,7 +20,7 @@ export const MATCHER_VERSION = 1;
 
 /** Fields read from each compendium index (one getIndex call per pack per build). */
 export const INDEX_FIELDS = [
-  "system.rarity", "system.rarities", "system.type", "system.attunement", "system.properties", "system.source.rules",
+  "system.rarity", "system.rarities", "system.type", "system.attunement", "system.properties", "system.source",
   "system.description.value", "effects", "_stats.modifiedTime"
 ];
 
@@ -90,7 +90,7 @@ export function baseSignals(e) {
     if (/bonus to (your )?armor class/.test(text)) tags.add(slot === "armor" || slot === "shield" ? "plus" : "ac");
     if (/bonus to attack (rolls )?and damage rolls/.test(text) && slot === "weapon") tags.add("plus");
     if (/bonus to (all )?saving throws/.test(text)) tags.add("saves");
-    for (m of text.matchAll(/(strength|dexterity|constitution|intelligence|wisdom|charisma) score (?:is|becomes|changes to|of) (\d+)/g)) {
+    for (m of text.matchAll(/(strength|dexterity|constitution|intelligence|wisdom|charisma)(?: score)? (?:is|becomes|changes to|of) (\d+)/g)) {
       tags.add(`score:${ABILITIES[m[1]]}`); scores[ABILITIES[m[1]]] = Number(m[2]);
     }
     if (/spell slot/.test(text) && /\b(regain|recover)/.test(text)) tags.add("slotRecovery");
