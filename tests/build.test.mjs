@@ -56,9 +56,10 @@ test("conversion on: converted pack, tables point at it, report lists review and
   assert.equal(kris.flags["loot-ledger"].converted.handAuthoredKept, false);
   // report
   const pages = env.journal[0]._pages;
-  assert.equal(pages.length, 4);
+  assert.equal(pages.length, 5);
   assert.match(pages[1].name, /GM review \(1\)/);
-  assert.match(pages[3].name, /^Random suffixes \(0\)$/);
+  assert.match(pages[3].name, /^Official bases \(/);
+  assert.match(pages[4].name, /^Random suffixes \(0\)$/);
   assert.match(pages[1].text.content, /Test Odd Ring/);
   assert.match(pages[2].text.content, /Scarlet Kris/);
   assert.match(env.chat.at(-1).content, /GM review needed:<\/strong> 1/);
@@ -118,6 +119,7 @@ function spyOnWrites(env) {
   const calls = [];
   const wrap = (obj, name, label) => { const orig = obj[name]; obj[name] = (...a) => { calls.push(label); return orig.apply(obj, a); }; };
   for (const k of ["Item", "RollTable", "Folder"]) { wrap(globalThis[k], "createDocuments", `${k}.createDocuments`); wrap(globalThis[k], "deleteDocuments", `${k}.deleteDocuments`); }
+  wrap(globalThis.Item, "updateDocuments", "Item.updateDocuments");
   wrap(globalThis.JournalEntry, "create", "JournalEntry.create");
   wrap(globalThis.ChatMessage, "create", "ChatMessage.create");
   const C = globalThis.foundry.documents.collections.CompendiumCollection;
@@ -146,7 +148,7 @@ test("dryRun on an empty world: returns plan, report data and counts; zero write
   assert.equal(s.plan.convert.create.length, sources.length);
   assert.ok(s.plan.tables.length > 0 && s.tables === s.plan.tables.length);
   assert.ok(s.plan.tables.flatMap(t => t.results.map(r => r.documentUuid)).filter(u => u.includes(".Item.")).every(u => u.includes(CONVERTED_PACK.name)));
-  assert.equal(s.report.pages.length, 4);
+  assert.equal(s.report.pages.length, 5);
   assert.match(s.report.pages[1].html ?? s.report.pages[1].text?.content ?? "", /Test Odd Ring/);
   assert.match(s.report.summaryHtml, /GM review needed/);
   assert.equal(s.reportUuid ?? null, null);

@@ -29,6 +29,7 @@
  *   9. Random suffix enchantments                          (rolled on drop)
  *  10. Official bases                                      (matching a converted item to an official base item)
  *  11. Stat variants and line budget                       (one variant per main stat, by slot; lines per tier)
+ *  12. Collapse                                           (tier bands that group same-rule items for review)
  */
 
 /* -------------------------------------------- */
@@ -704,4 +705,23 @@ export const FREE_RIDERS = new Set(["flavour", "cantrip", "thorns", "ward"]);
 export const LINE_WEIGHT = {
   resistance: 6, burstDamage: 5, extraAttack: 5, spellBonus: 5, spellSurge: 5, slotRecovery: 4, regeneration: 4,
   extraDamage: 3, attackBonus: 3, acBonus: 3, heal: 3, healBonus: 3, parry: 2, critDice: 2, concentration: 2
+};
+
+/* -------------------------------------------- */
+/*  12. Collapse                                */
+/* -------------------------------------------- */
+
+/**
+ * Collapse (scripts/collapse.mjs): converted items that follow the same rule are grouped for review by shape, slot,
+ * armour / weapon type, quality, tier band, official base, +N and gap-fills. tierBands are the four character-level
+ * bands the key uses; the loot tables keep LEVEL_BANDS' seven sub-bands (a loot band maps to the tier band that
+ * holds its lowest character level).
+ */
+export const COLLAPSE_RULE = {
+  tierBands: [
+    { band: 1, min: 1, max: 4, label: "L1–4" },
+    { band: 2, min: 5, max: 10, label: "L5–10" },
+    { band: 3, min: 11, max: 16, label: "L11–16" },
+    { band: 4, min: 17, max: 20, label: "L17–20" }
+  ]
 };

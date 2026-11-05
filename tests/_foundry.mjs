@@ -60,6 +60,25 @@ export function install({ sourceItems, settings = {}, extraPacks = {} }) {
       for (const id of ids) p.docs.delete(id);
       p.writes.deleted += ids.length;
     }
+    /** Dotted-key updates with Foundry's "-=key" deletion syntax, applied to stored docs. */
+    static async updateDocuments(list, o) {
+      const p = pack(o);
+      for (const u of list) {
+        const d = p.docs.get(u._id);
+        if (!d) throw new Error(`update of missing doc ${u._id}`);
+        for (const [path, value] of Object.entries(u)) {
+          if (path === "_id") continue;
+          const parts = path.split(".");
+          let cur = d;
+          for (const k of parts.slice(0, -1)) cur = cur[k] ??= {};
+          const last = parts.at(-1);
+          if (last.startsWith("-=")) delete cur[last.slice(2)];
+          else cur[last] = clone(value);
+        }
+      }
+      p.writes.updated = (p.writes.updated ?? 0) + list.length;
+      return list;
+    }
   };
   globalThis.Item = docClass();
   globalThis.RollTable = docClass();

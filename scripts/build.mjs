@@ -11,8 +11,9 @@ import { INDEX_FIELDS, MATCHER_VERSION, indexBases, bookEntry, parseConfidence, 
 import { OFFICIAL_BASES } from "./rules.mjs";
 import {
   sourceHash, rulesFingerprint, planSync, indexReplaceList, replaceEntry, replaceListStatus, reportRow, errorRow,
-  summaryCounts, summaryHtml, reportPages
+  summaryCounts, summaryHtml, reportPages, basesSummary
 } from "./ledger.mjs";
+import { collapseGroups, collapseUpdates, groupSummary } from "./collapse.mjs";
 import { REPLACE_LIST } from "./replace-list.mjs";
 import { protectReviewed, carryReview, isRejected } from "./review-model.mjs";
 import { CREATURE_TABLE } from "./rules.mjs";
@@ -202,6 +203,8 @@ export async function convertToPack({ names = null, filter = null, pack = { name
     payload.push(data);
     rows.push(row);
   }
+  const { flags: collapse } = collapseGroups(payload.map(d => ({ id: d._id, name: d.name, flags: d.flags?.[MODULE_ID] ?? {}, system: d.system })), { mode: bs.collapse });
+  for (const d of payload) { const c = collapse.get(d._id); if (c) d.flags[MODULE_ID].collapse = c; }
   for (let i = 0; i < payload.length; i += ITEM_CHUNK) {
     await Item.createDocuments(payload.slice(i, i + ITEM_CHUNK), { pack: target.collection, keepId: true });
   }
@@ -210,7 +213,7 @@ export async function convertToPack({ names = null, filter = null, pack = { name
 
 /**
  * The official-base settings (each can be turned off; missing registrations read as defaults, e.g. in tests).
- * @returns {{on:boolean, sources:string[], book:string, confidence:object, scoreItems:boolean, gapFills:boolean, handmade:string[]}}
+ * @returns {{on:boolean, sources:string[], book:string, confidence:object, scoreItems:boolean, gapFills:boolean, handmade:string[], collapse:string, rules:object}}
  */
 export function baseSettings() {
   const get = (k, d) => { try { const v = game.settings.get(MODULE_ID, k); return v ?? d; } catch { return d; } };
@@ -222,6 +225,7 @@ export function baseSettings() {
     scoreItems: get("scoreItems", true) !== false,
     gapFills: get("gapFills", true) !== false,
     handmade: parseList(get("handmadeExclude", "")),
+    collapse: get("collapseMode", "shared") === "off" ? "off" : "shared",
     rules: ruleSettings(get)
   };
 }
@@ -270,6 +274,26 @@ export async function loadBases(bs) {
 
 function canonicalBases(bs, order, index) {
   return JSON.stringify({ on: bs.on, order, book: bs.book, c: bs.confidence, s: bs.scoreItems, g: bs.gapFills, r: bs.rules ?? null, m: MATCHER_VERSION, fp: index?.fingerprint ?? "" });
+}
+
+/**
+ * Review-board data a rewritten converted item carries forward from its stored version: the overrides (advantage,
+ * raise, base) and an explicit split from its collapse group. Both are GM decisions, never build output.
+ */
+export function carryOverrides(stored) {
+  const out = {};
+  const o = stored?.overrides;
+  if (o && typeof o === "object" && Object.keys(o).length) out.overrides = { ...o };
+  if (stored?.collapse?.split === true) out.collapse = { split: true };
+  return out;
+}
+
+/** Write collapse flag changes to stored items in batches (one update per item; dry runs never get here). */
+async function applyCollapse(pack, updates, dryRun = false) {
+  noWrites(dryRun, "applyCollapse");
+  if (!updates.length) return;
+  const data = updates.map(u => ({ _id: u.id, [`flags.${MODULE_ID}.${u.collapse ? "collapse" : "-=collapse"}`]: u.collapse ?? null }));
+  for (let i = 0; i < data.length; i += ITEM_CHUNK) await Item.updateDocuments(data.slice(i, i + ITEM_CHUNK), { pack: pack.collection });
 }
 
 /** Convert one source item: book route, else the converter plus an accepted official base. */
@@ -571,6 +595,8 @@ export async function build({
     const bases = convert ? await loadBases(bs) : null;
     const officialPacks = bases?.order ?? [];
     const replaceIndex = indexReplaceList(REPLACE_LIST);
+    // Stored converted items are read once here: their review-board overrides are part of the conversion hash.
+    const convStored0 = convert ? (await packState(conv)).flags : new Map();
     const byId = new Map(), copyWant = [], convWant = [], replaceHits = [], handmade = [];
     let randomLines = 0;
     for (const doc of docs) {
@@ -587,7 +613,8 @@ export async function build({
       };
       copyWant.push({ id: doc.id, hash: rec.copyHash });
       if (convert) {
-        rec.convHash = sourceHash(doc, { mode: "convert", ratio, converterVersion: CONVERTER_VERSION, rules, replace: rec.replace, officialPacks, bases: bases.fingerprint, dnd5eMajor });
+        rec.overrides = convStored0.get(doc.id)?.flags?.overrides ?? null;
+        rec.convHash = sourceHash(doc, { mode: "convert", ratio, converterVersion: CONVERTER_VERSION, rules, replace: rec.replace, officialPacks, bases: bases.fingerprint, dnd5eMajor, overrides: rec.overrides });
         convWant.push({ id: doc.id, hash: rec.convHash });
       }
       byId.set(doc.id, rec);
@@ -611,22 +638,24 @@ export async function build({
     let convPlan = null, convProduced = new Map(), reviewProtected = [];
     const failed = new Map();
     if (convert) {
-      const convState = await packState(conv);
+      const convState = { hashes: new Map([...convStored0].map(([id, v]) => [id, v.flags?.hash ?? null])), flags: convStored0 };
       const planned = keepHandmade(planSync(force ? new Map([...convState.hashes].map(([k]) => [k, null])) : convState.hashes, convWant, { prune }), handmade, convState.flags);
       // Accepted / tweaked items keep the stored (possibly hand-edited) version unless force.
       ({ plan: convPlan, protected: reviewProtected } = protectReviewed(planned, convState.flags, { force }));
       bar.update(0.36, `Loot Ledger: converting ${convPlan.create.length + convPlan.replace.length} items (${convPlan.skip.length} unchanged)…`);
       // Items the converter throws on go to GM review; their stale conversion is removed (tables use the plain copy).
       convProduced = await applySync(conv, convPlan, async id => {
-        const { doc, meta, replace, convHash } = byId.get(id);
+        const { doc, meta, replace, convHash, overrides } = byId.get(id);
         try {
-          const opts = { ratio, dnd5eMajor, forceReplace: replace, ...bases.options };
+          const opts = { ratio, dnd5eMajor, forceReplace: replace, ...bases.options, overrides: overrides ?? null };
           const { data } = await convertOne(doc, meta, ratio, opts, bases);
           data._id = doc.id;
           data.folder = convFolders[meta.category] ?? null;
           data.flags[MODULE_ID].hash = convHash;
-          const review = carryReview(convState.flags.get(id)?.flags?.review, { force });
+          const prev = convState.flags.get(id)?.flags;
+          const review = carryReview(prev?.review, { force });
           if (review) data.flags[MODULE_ID].review = review;
+          Object.assign(data.flags[MODULE_ID], carryOverrides(prev));
           return data;
         } catch (err) {
           console.error(`${MODULE_ID} | conversion failed for ${doc.name}`, err);
@@ -636,13 +665,35 @@ export async function build({
       }, { dryRun, label: "Loot Ledger: converted", onProgress: (f, m) => bar.update(0.36 + 0.34 * f, m) });
     }
 
-    // 3. Roll tables: converted versions when available, plain copies otherwise.
-    // Dry run: what the converted pack would hold after this build (stored items, minus removals, plus freshly converted ones).
-    const convStored = convert ? (await packState(conv)).flags : new Map();
+    // 2b. Collapse (collapse.mjs): group same-rule converted items. What the converted pack holds after this build
+    // (stored items, minus removals, plus freshly converted ones); the dry run reads the same set without writing.
+    const convStored = convert ? (dryRun ? new Map(convStored0) : (await packState(conv)).flags) : new Map();
+    let groups = [], collapseChanged = 0;
     if (dryRun && convert) {
       for (const id of convPlan.remove) convStored.delete(id);
       for (const [id, d] of convProduced) convStored.set(id, { name: d.name, flags: d.flags?.[MODULE_ID] ?? {} });
     }
+    if (convert) {
+      const systems = new Map(convProduced.size ? [...convProduced].map(([id, d]) => [id, d.system]) : []);
+      if (!dryRun) {
+        // Stored items' type and +N come from a second index read (small fields only).
+        const idx = await conv.getIndex({ fields: ["system.type", "system.magicalBonus", "system.armor.magicalBonus"] });
+        for (const e of idx) if (!systems.has(e._id)) systems.set(e._id, e.system ?? {});
+      }
+      const members = [...convStored].filter(([id]) => byId.has(id) && !failed.has(id) && !handmade.includes(id))
+        .map(([id, v]) => ({ id, name: v.name, flags: v.flags, system: systems.get(id) ?? {} }));
+      const grouped = collapseGroups(members, { mode: bs.collapse });
+      const updates = collapseUpdates(grouped.flags, new Map(members.map(m => [m.id, m.flags])));
+      collapseChanged = updates.length;
+      if (!dryRun && updates.length) {
+        noWrites(dryRun, "collapse flags");
+        await applyCollapse(conv, updates);
+      }
+      for (const u of updates) { const v = convStored.get(u.id); if (v) { if (u.collapse) v.flags.collapse = u.collapse; else delete v.flags.collapse; } }
+      groups = groupSummary(grouped.groups, id => convStored.get(id)?.name ?? id);
+    }
+
+    // 3. Roll tables: converted versions when available, plain copies otherwise.
     // Items rejected on the review board stay out of the tables (the decision lives on the converted item, which
     // is read even when conversion is now off).
     const reviewFlags = convert ? convStored : (await packState(game.packs.get(convId) ?? null)).flags;
@@ -683,6 +734,7 @@ export async function build({
       }
     }
     const rl = convert ? replaceListStatus(REPLACE_LIST, replaceHits) : null;
+    const basesReport = convert ? basesSummary(rows, groups) : null;
     const seconds = Math.round((performance.now() - t0) / 100) / 10;
     const counts = summaryCounts({ copy: copyPlan, convert: convPlan, rows, protected: reviewProtected.length, rejected: rejected.size });
     const suffixes = convert ? suffixReport(randomLines) : null;
@@ -694,20 +746,31 @@ export async function build({
     }, {});
     let reportUuid = null;
     if (dryRun) {
-      const pages = reportPages(counts, rows, { convertOn: convert, replaceList: rl, tables: plan.length, seconds, suffixes });
+      const pages = reportPages(counts, rows, { convertOn: convert, replaceList: rl, tables: plan.length, seconds, suffixes, bases: basesReport, groups });
+      // Per-item conversion plan: route, base, confidence, gap-fills and collapse group for every converted item.
+      const itemPlan = convert ? rows.filter(r => r.route).map(r => {
+        const f = convStored.get(r.id)?.flags ?? {};
+        return { id: r.id, name: r.name, fresh: convProduced.has(r.id), route: r.route, quality: r.quality,
+          base: f.base ? { name: f.base.name, uuid: f.base.uuid ?? null, status: f.base.status, confidence: f.base.confidence } : null,
+          candidates: f.baseCandidates ?? f.base?.candidates ?? [],
+          gapFills: (f.gapFills ?? []).map(g => [g.kind, g.detail].filter(Boolean).join(":")),
+          collapse: f.collapse ? { group: f.collapse.group, canonical: f.collapse.canonical, size: f.collapse.size } : null,
+          flags: r.flags, review: r.reviewLines };
+      }) : [];
       const result = {
         dryRun: true, items: copyWant.length, rollable: metas.filter(m => m.rollable).length, tables: plan.length, counts: kinds,
         build: counts, convert, replaceList: rl, seconds, randomSuffixLines: randomLines, handmade: handmade.length,
-        bases: bases ? { sources: bases.order, book: bs.book || null, indexed: bases.index?.entries.length ?? 0 } : null,
+        bases: bases ? { sources: bases.order, book: bs.book || null, indexed: bases.index?.entries.length ?? 0, ...(basesReport ?? {}) } : null,
+        collapse: { mode: bs.collapse, groups: groups.length, changed: collapseChanged },
         itemsPack: itemsId, convertedPack: convert ? convId : null, tablesPack: tablesId,
-        plan: { copy: copyPlan, convert: convPlan, tables: plan },
+        plan: { copy: copyPlan, convert: convPlan, tables: plan, items: itemPlan },
         report: { rows, pages, summaryHtml: summaryHtml(counts, { convertOn: convert, tables: plan.length, seconds }) }
       };
       console.info(`${MODULE_ID} | dry run: nothing was written.`, result.build);
       return result;
     }
     if (report) {
-      const pages = reportPages(counts, rows, { convertOn: convert, replaceList: rl, tables: plan.length, seconds, suffixes });
+      const pages = reportPages(counts, rows, { convertOn: convert, replaceList: rl, tables: plan.length, seconds, suffixes, bases: basesReport, groups });
       noWrites(dryRun, "report");
       const entry = await writeReport(pages);
       reportUuid = entry.uuid;
@@ -722,6 +785,7 @@ export async function build({
     const summary = {
       items: copyWant.length, rollable: metas.filter(m => m.rollable).length, tables: plan.length, counts: kinds,
       build: counts, convert, replaceList: rl, reportUuid, randomSuffixLines: randomLines, handmade: handmade.length,
+      bases: basesReport, collapse: { mode: bs.collapse, groups: groups.length, changed: collapseChanged },
       seconds, itemsPack: items.collection, convertedPack: conv?.collection ?? null, tablesPack: tables.collection
     };
     bar.done(`Loot Ledger: built ${summary.items} items and ${summary.tables} tables.`);

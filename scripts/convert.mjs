@@ -44,7 +44,7 @@ export {
 
 /** Bump when the rules (rules.mjs) or the conversion logic change: it is part of every item's source hash, so
  * Build re-converts items converted under an older version. */
-export const CONVERTER_VERSION = 6;
+export const CONVERTER_VERSION = 7;
 
 /* -------------------------------------------- */
 /*  SRD 5.2 reference data                      */
@@ -391,7 +391,7 @@ export function convertItem(src, options = {}) {
   const rarity = QUALITY_BY_KEY[p.quality]?.rarity ?? "common";
   const shape = classify(p);
   const ctx = {
-    p, shape, tier: TIER[p.quality] ?? 0, features: [], notConverted: [], review: [], riders: [],
+    p, shape, tier: TIER[p.quality] ?? 0, features: [], notConverted: [], review: [], riders: [], flagged: [],
     bonus: 0, attune: false, attuneBy: "", magic: false, summary: "", basis: "", extras: {},
     opts: { ...RULE_OPTIONS, ...ruleOpts },
     // Review-board overrides (flags.loot-ledger.overrides on the source or converted item): advantage swap, +1 step.
@@ -432,7 +432,9 @@ export function convertItem(src, options = {}) {
     match = variantStep(matchBase({ p, shape, tier: ctx.tier, bonus: ctx.bonus, riders: ctx.riders, extras: ctx.extras, armorKey, variant: ctx.extras.variant ?? null },
       bases, { thresholds: baseConfidence, scoreItems }), { p, shape }, ctx);
   }
+  if (match) match = applyBaseOverride(match, ctx, bases);
   const basedOn = match?.status === "accept" && match.base?.source === "compendium" ? match.base : null;
+  raiseFlags(ctx, hand, match);
 
   const sourceHtml = base.system?.description?.value ?? "";
   const price = priceFor(p.vendorSellCopper, ratio);
@@ -463,6 +465,9 @@ export function convertItem(src, options = {}) {
     // "<Random enchantment>": the item can roll a random suffix when it drops (suffix.mjs, suffix-hooks.mjs).
     ...(p.randomEnchant ? { randomSuffix: true, suffixGroup: suffixGroup(p, shape) } : {}),
     ...(match?.base ? { base: baseFlag(match) } : {}),
+    // The top candidates of the match (for "pick another base" on the review board), even when none was accepted.
+    ...(match?.candidates?.length ? { baseCandidates: candidateList(match) } : {}),
+    ...(Object.keys(ctx.overrides).length ? { overrides: clone(ctx.overrides) } : {}),
     converted: {
       version: CONVERTER_VERSION, shape, needsReview, route,
       ...(kept ? { sourceText: true } : {}),
@@ -473,7 +478,9 @@ export function convertItem(src, options = {}) {
       ...(hand && !kept ? { handAuthoredReplaced: replacedWhy(hand).map(x => `${x.claim}: ${x.text}`) } : {}),
       ...(hand?.forced ? { replaceList: true } : {}),
       summary: ctx.summary, review: ctx.review.map(r => `${r.line} — ${r.why}`),
-      notConverted: ctx.notConverted.map(r => r.line)
+      notConverted: ctx.notConverted.map(r => r.line),
+      // Review flags (REVIEW_FLAGS): open questions the GM should look at; they do not by themselves need review.
+      ...(ctx.flagged.length ? { flags: ctx.flagged.map(f => ({ ...f })) } : {})
     }
   };
 
@@ -507,6 +514,7 @@ export function convertItem(src, options = {}) {
     route, officialBase: match?.base ? `${match.base.name} (${match.status}, ${match.base.confidence})` : "",
     needsReview,
     reviewReason: needsReview ? ctx.review.map(r => `${short(r.line, 60)}: ${r.why}`).join(" | ") : "",
+    flags: ctx.flagged.map(f => f.kind).join(","),
     price: `${price.value} ${price.denomination}`,
     ...(hand ? { handAuthored: kept ? "kept (passes audit)" : `replaced: ${replacedWhy(hand).map(x => x.text).join("; ")}` } : {})
   };
@@ -523,8 +531,58 @@ function baseFlag(match) {
     uuid: b.uuid ?? null, name: b.name, pack: b.pack ?? null, source: b.source, confidence: b.confidence,
     status: match.status, covered: b.covered ?? [], excess: b.excess ?? 0, plus: b.plus ?? 0,
     matcherVersion: MATCHER_VERSION,
-    candidates: (match.candidates ?? []).map(c => ({ uuid: c.uuid ?? null, name: c.name, confidence: c.confidence }))
+    ...(match.pinned ? { pinned: true } : {}),
+    candidates: candidateList(match)
   };
+}
+
+/** The top candidates of a match: [{uuid, name, pack, confidence}]. */
+function candidateList(match) {
+  return (match.candidates ?? []).map(c => ({ uuid: c.uuid ?? null, name: c.name, pack: c.pack ?? null, confidence: c.confidence }));
+}
+
+/**
+ * Review-board base override (flags.loot-ledger.overrides.base): "none" drops the base (tooltip conversion); a
+ * {uuid} pins one of the indexed bases (usually one of the match's candidates) as accepted. Other items are left as
+ * the matcher decided.
+ */
+function applyBaseOverride(match, ctx, bases) {
+  const o = ctx.overrides.base;
+  if (o === undefined || o === null || o === "") return match;
+  if (o === "none") return { ...match, status: "none", base: null, dropped: true };
+  const uuid = typeof o === "string" ? o : o.uuid;
+  if (!uuid) return match;
+  const entry = (bases?.entries ?? []).find(e => e.uuid === uuid) ?? null;
+  if (!entry) { review(ctx, "Base override", `the chosen base (${uuid}) is not in the indexed compendiums; the matcher's choice is kept`); return match; }
+  const base = { uuid: entry.uuid, name: entry.name, pack: entry.pack, source: "compendium", attune: !!entry.attune, plus: 0, confidence: 1, covered: [...entry.tags], excess: 0 };
+  return { ...match, status: "accept", base, pinned: true };
+}
+
+/**
+ * Review flags (converted.flags): open questions raised at build and shown on the review board. Each is a kind
+ * from REVIEW_FLAGS with a short reason; current behaviour is kept, only the flag is raised.
+ */
+export const REVIEW_FLAGS = {
+  zeroPrice: "no vendor price",
+  sourceTextConflict: "source rules text replaced by the rules",
+  nonDamageProc: "a non-damage proc became a feature with uses",
+  fistStandIn: "stand-in fist weapon",
+  stackableThrown: "stackable thrown weapon",
+  procParts: "parts of a proc not converted",
+  protection: "protection base not found",
+  healthRegen: "health regeneration base not found",
+  suggestedBase: "a base was suggested, not accepted"
+};
+function flag(ctx, kind, why = REVIEW_FLAGS[kind]) {
+  if (!ctx.flagged.some(f => f.kind === kind)) ctx.flagged.push({ kind, why });
+}
+function raiseFlags(ctx, hand, match) {
+  const { p } = ctx;
+  if (!(p.vendorSellCopper > 0)) flag(ctx, "zeroPrice");
+  if (hand && !hand.kept) flag(ctx, "sourceTextConflict");
+  if (ctx.extras.base === "fist") flag(ctx, "fistStandIn");
+  if (p.hands === "thrown") flag(ctx, "stackableThrown");
+  if (match?.status === "suggest") flag(ctx, "suggestedBase", `${REVIEW_FLAGS.suggestedBase} (${match.base?.name ?? "?"}, ${match.base?.confidence ?? "?"})`);
 }
 
 /**
@@ -673,7 +731,12 @@ function riderEffects(riders, base, extra = {}) {
 function gapFillEffects(riders, base) { return riderEffects(riders, base, { gapFill: true }); }
 /** flags.loot-ledger.gapFills: one entry per uncovered rider. */
 function gapFillList(riders) {
-  return riders.map(r => ({ kind: r.type, ability: r.ability ?? null, detail: r.variant ?? r.damageType ?? r.skill ?? null, from: r.source ?? null, ae: riderChanges(r).length > 0 }));
+  return riders.map(r => ({ kind: r.type, ability: r.ability ?? null, detail: gapDetail(r), from: r.source ?? null, ae: riderChanges(r).length > 0 }));
+}
+/** The part of a rider that changes its mechanics (beyond kind and tier): variant / damage type / skill, trigger, ability. */
+function gapDetail(r) {
+  return [r.variant ?? r.damageType ?? r.skill ?? null, r.trigger && r.type !== "variant" ? r.trigger : null, r.ability && r.type !== "variant" ? r.ability : null]
+    .filter(Boolean).join("/") || null;
 }
 
 function addFeature(ctx, f) {
@@ -849,6 +912,9 @@ function procFeature(ctx, school, lo, hi, line, kindLabel) {
   }
 }
 
+/** Review line for a green / blue health-regen line (removed again by base-match variantStep when a base is found). */
+export const HEALTH_REGEN_REVIEW = "health regeneration at this rarity uses an official base (wound-closure item); none was found in your compendiums";
+
 /** Equip / Use / Chance-on-hit lines (gear and weapons; consumables have their own handler). */
 function applyEffects(ctx) {
   const { p, tier } = ctx;
@@ -864,7 +930,7 @@ function applyEffects(ctx) {
     if (dmg && isProc) {
       const extra = t.replace(/\(.*?\)/g, "").split(/\.\s+/).filter(x => x.trim()).length > 1;
       if (!isWeapon) { review(ctx, line, "damage proc on an item that is not a weapon; no weapon to attach it to"); continue; }
-      if (extra) { review(ctx, line, "the proc does more than deal damage (extra targets or effects); write this one by hand"); continue; }
+      if (extra) { review(ctx, line, "the proc does more than deal damage (extra targets or effects); write this one by hand"); flag(ctx, "procParts"); continue; }
       const school = cap(dmg[3].toLowerCase());
       procFeature(ctx, school, +dmg[1], dmg[2] ? +dmg[2] : null, line, label);
       continue;
@@ -875,6 +941,7 @@ function applyEffects(ctx) {
       const weaponText = isWeapon ? "this weapon" : melee ? "a melee weapon" : "a weapon";
       const uses = EXTRA_ATTACK_RULE.uses[tier];
       const often = usesText(uses);
+      flag(ctx, "nonDamageProc");
       addFeature(ctx, {
         name: "Flurry", sourceLine: line, source: `${label} — ${short(t, 60)}; ${uses}/Long Rest by quality`,
         text: `When you hit a creature with ${weaponText} as part of the Attack action, you can immediately make ${n === 1 ? "one additional attack" : `${n} additional attacks`} with that weapon as part of the same action. ${often}`,
@@ -946,7 +1013,7 @@ function applyEffects(ctx) {
         addFeature(ctx, { name: "Regeneration", sourceLine: line, source: `Equip — ${short(t, 60)} (regeneration pattern)`,
           text: `While ${verb(ctx)} this ${itemNoun(ctx)}, you regain ${HEALTH_REGEN.dice} Hit Points every ${HEALTH_REGEN.minutes} minutes, provided that you have at least 1 Hit Point.`,
           rider: { type: "regeneration", formula: HEALTH_REGEN.dice, minutes: HEALTH_REGEN.minutes, trigger: "equipped" } });
-      } else review(ctx, line, "health regeneration at this rarity uses an official base (wound-closure item); none was found in your compendiums");
+      } else { review(ctx, line, HEALTH_REGEN_REVIEW); flag(ctx, "healthRegen"); }
       continue;
     }
     // "When struck" / "Protects" lines that damage the attacker: a passive rider, no uses.

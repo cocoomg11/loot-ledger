@@ -458,6 +458,12 @@ export function riderTags(r) {
 export function variantStep(match, item = {}, ctx = null) {
   if (ctx?.extras?.protection && !(match?.base?.rule === "protection" && match.status === "accept")) {
     ctx.review.push({ line: "Resistances", why: "several small resistances on a ring or cloak use the protection base; none was found in your compendiums" });
+    ctx.flagged?.push({ kind: "protection", why: "protection base not found" });
+  }
+  // A green / blue health-regen line was sent to review by the converter; a found wound-closure base answers it.
+  if (ctx?.review?.length && match?.status === "accept" && match.base?.rule === "need" && match.base.covered?.includes("hpRegen")) {
+    ctx.review = ctx.review.filter(r => !/^health regeneration at this rarity/.test(r.why));
+    ctx.flagged = (ctx.flagged ?? []).filter(f => f.kind !== "healthRegen");
   }
   return match;
 }

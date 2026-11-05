@@ -156,6 +156,12 @@ Hooks.once("init", () => {
     scope: "world", config: true, type: String, default: ""
   });
 
+  game.settings.register(MODULE_ID, "collapseMode", {
+    name: "Collapse same-rule items",
+    hint: "Converted items that follow the same rule (same shape, slot, type, quality, tier band, base, +N and gap-fills) are grouped so you review the rule once on the Review board; every item keeps its own name, icon, price and tooltip. Off: no groups.",
+    scope: "world", config: true, type: String, choices: { shared: "Shared (review once per group)", off: "Off" }, default: "shared"
+  });
+
   // Conversion rule families (read by build.mjs baseSettings(); each can be turned off).
   game.settings.register(MODULE_ID, "critDice", { name: "Critical-hit dice", hint: "Critical-strike lines become extra dice on a Critical Hit (not doubled). Off: listed as not converted.", scope: "world", config: true, type: Boolean, default: true });
   game.settings.register(MODULE_ID, "flavourBonuses", { name: "Profession bonuses", hint: "Profession and flavour lines (mining, fishing, lockpicking, ...) become a small situational bonus. Off: listed as not converted.", scope: "world", config: true, type: Boolean, default: true });
