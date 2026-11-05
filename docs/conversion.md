@@ -14,9 +14,10 @@ For each copied source item, in order:
    overwritten. Route `handmade`.
 3. **Book match**: an exact name match in the **Book compendium** is used as is; only price, quality colour and the
    focus tag are added. Route `book`. These items never re-base, gap-fill or collapse.
-4. **Source text**: if the source module carries its own hand-written 5e rules and they pass the traceability audit
-   (and the item is not on the replace list), that text and shape are kept and the rules only add what it lacks.
-   The item is marked as a source-text item.
+4. **Source text**: if the source module carries its own hand-written 5e rules, they pass the traceability audit,
+   the item is not on the replace list **and no decided rule covers the item** (see "Source text vs decided rules"
+   below), that text and shape are kept and the rules only add what it lacks (the +N backbone). The item is marked
+   as a source-text item. Otherwise the rules win and the hand text is listed as replaced.
 5. **Baseline**: plain grey / white gear maps to plain equipment of its kind; it is never magic. Route `baseline`.
 6. **Stat variant and line rules** decide what the item's lines mean (see below).
 7. **Official-base matcher** looks for a base. Route `base` when one is accepted, `convert-review` when a base is
@@ -46,6 +47,23 @@ Level bands (`LEVEL_BANDS`) and creature-table spread (`CREATURE_TABLE`) live th
 item's features in full, `--json` gives machine-readable rows). [BOOK-DAY.md](../BOOK-DAY.md) is the step-by-step
 calibration and release checklist.
 
+## Source text vs decided rules
+
+The source module's hand-written text wins only where Loot Ledger has not decided a rule of its own
+(`sourceTextWins` in `convert.mjs`):
+
+- **Weapons** keep a hand text that passes the audit. Their hit, critical-hit and proc shapes (a wider critical
+  range, extra dice on a critical hit, once-per-turn damage, an extra damage roll) are the GM's chosen reading of
+  the item; the rules only add the +N backbone when the text lacks one. A weapon's own critical-hit rule ("when you
+  score a critical hit with this weapon") traces to the weapon's damage line.
+- **Every other item** uses the rules as soon as one of its lines became a rider under a decided line rule (stat
+  variant, critical dice, parry, mana or health regeneration, spell power, resistances, defence, thorns, surges,
+  and so on). The hand text is then listed as replaced (`converted.handAuthoredReplaced`, entry
+  `decided-rule: …`) and the item gets the review flag *source text replaced by the rules*
+  (`sourceTextConflict`). A non-weapon none of whose lines a decided rule converts keeps its hand text.
+
+A hand text that fails the audit is always replaced; the replace list still forces a replacement.
+
 ## Official bases: `scripts/base-match.mjs`
 
 A converted item may be re-based on an installed official item that already does what the item's lines ask. The
@@ -56,9 +74,19 @@ installed core rulebooks, then the 2024 SRD). The first pack that has an item wi
 preferred over the 2014 SRD, which is not searched by default. Theme-breaking items (wishes, flight, summoning and
 similar, `OFFICIAL_BASES.exclude`) and cursed, sentient and artifact items are never bases.
 
+A pack index lists an item's Active Effects by name only, without their changes. For each item, the best
+candidates by index score (`OFFICIAL_BASES.shortlist`, 3) that have effects are loaded once as full documents, and
+their effect changes are added to their tags; if that changes anything, the item is matched again. Loaded documents
+are cached for the build and shared with the accepted-base load. This is read-only, so dry runs do it too. Effect
+changes are read from `changes` or, on Foundry 14, `system.changes`.
+
 **Needs and candidates.** Each line becomes a weighted need (main stat, secondary stat, resistance, effect line, the
 +N backbone). Candidates must fit the item's slot (or weapon family, armour type, shield), and their rarity may not
-be above the item's.
+be above the item's. A magic entry with no rarity (multi-tier entries listing several bonuses) is never a
+candidate, because its rarity cannot be checked. Weapon types in `OFFICIAL_BASES.templateOnly` (staves) only ever
+use the +N template. A decided-rule base (`VARIANT_BASES`, kind `need`) is not a free candidate for items outside
+its rule's quality range (for example the green / blue slot-recovery base never goes on a purple item). A wand
+base already is the wand's attack, so the fallback cantrip is never added to it as a gap-fill.
 
 **Base signals.** A base is described by tags taken from its Active Effect keys plus a small keyword pass over its
 description, run in memory. Only the tags are kept; no description text is stored anywhere.
@@ -111,8 +139,10 @@ chosen deterministically by slot:
 - **Spirit**: Hit Point Die healing (chest, legs, cloth), Wisdom saves (head, neck, held items), Perception (rings,
   cloaks, other).
 
-Ties are broken by stats that have a rule for the slot, then by armour type (heavy: Strength / Stamina; light:
-Agility; cloth: Intellect / Spirit), then by stat order. Sizes by quality (green / blue / purple / orange): checks
+Ties are broken by (a) a quality-gated slot rule (Very Rare and Legendary jewellery with a caster stat: spell save
+DC), (b) armour type in its own order (plate and mail: Stamina, then Strength; leather: Agility; cloth: Intellect,
+then Spirit; `VARIANT_RULE.armorStats`), (c) any other slot rule for the slot, (d) stat order. A slot rule always
+beats plain stat order. Sizes by quality (green / blue / purple / orange): checks
 and saves +1 / +1 / +2 / +2; Initiative +1 / +2 / +2 / +3; max HP +1 per two levels (green, blue) or per level
 (purple, orange); Hit Die healing +1 / +1 / +2 / +Proficiency Bonus. A spell save DC variant is a passive bonus with
 attunement and is described as not stacking with other items that raise the DC. A variant never changes an ability
@@ -165,10 +195,13 @@ its one effect. Caster staves get a Focus tag and a spell bonus, never a specifi
 - A weapon's own extra-damage line becomes once-per-turn dice.
 - Chance-on-hit procs are sized by the ratio of average proc damage to a normal hit: below 1 an extra-dice
   damage on a Critical Hit; from 1 to the blast threshold once per turn on a hit; at or above it a limited-use
-  blast (setting **Blast threshold**, default 2).
+  blast (setting **Blast threshold**, default 2). A proc with no damage school deals the weapon's own damage type.
+  A proc that also does something else ("… damage and …") is flagged (*parts of a proc not converted*); with no
+  damage school it stays a review line.
 - Procs that do not deal damage become a described feature with uses and go to GM review.
 - Attack power and hit chance on weapons are covered by the +N and are not converted separately.
-- An endgame +1 step is a per-item or per-group override (`overrides.raise`), never decided by name.
+- An endgame +1 step is a per-item or per-group override (`overrides.raise`), never decided by name. It raises the
+  +N of weapons, chest armour and shields (up to +3); the armour curve itself stays +0 / +0 / +1 / +2.
 
 ## Collapse: `scripts/collapse.mjs`
 

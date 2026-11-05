@@ -58,6 +58,20 @@ stays off by default; every new option is a setting that can be turned off. How 
 - Docs: `docs/conversion.md` rewritten for the whole rework; README conversion section and troubleshooting updated; a test
   keeps the doc's rule names in sync with `rules.mjs`.
 
+### Unreleased: dry-run fix round (conversion only)
+- **Source text vs decided rules.** The source module's hand text now wins only where no rule is decided: weapons
+  keep a hand text that passes the audit; other items use the rules when any line became a rider, and the hand
+  text is listed as replaced (review flag). A weapon's own critical-hit rule traces to its damage line.
+- **Untyped procs.** "N to M damage" procs with no school convert in the weapon's own damage type (they were
+  dropped to review before); procs that also do something else are flagged.
+- **Matcher.** Staves use the +N template only; magic entries with no rarity are never candidates; decided-rule
+  bases outside their quality range are not free candidates; a wand base no longer gets a cantrip gap-fill.
+  Shortlisted candidates are read in full once per build so their Active Effects reach the matcher (the pack index
+  has no effect changes); Foundry 14 `system.changes` is read.
+- **Variants.** Main-stat ties: quality-gated jewellery row, then armour order (plate / mail: Stamina first), then
+  slot rule, then stat order. The endgame raise override now also raises chest armour and shields.
+- Converter version 8, matcher version 2 (unreviewed converted items are rewritten on the next Build).
+
 ### Added
 - **Convert items to 5e when building** world setting (off by default). When on, Build runs the 5e converter
   over every copied item, writes the results to a new compendium **Loot Ledger · Converted Items**, and points

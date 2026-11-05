@@ -209,7 +209,7 @@ A **collapse group** (items that follow the same rule) shows as one entry with i
 applies to every member. The **Official base** section offers **Accept base**, **Use this base** (one of the top
 candidates recorded at build), **Drop base** (tooltip conversion instead), **Split this item** (review it on its
 own), **Advantage** (epic / legendary only: Advantage instead of the flat stat bonus) and **Raise** (an endgame +1
-step on the weapon bonus). These write `flags["loot-ledger"].overrides` and take effect on the next Build, which
+step on the +N of a weapon, chest armour or shield). These write `flags["loot-ledger"].overrides` and take effect on the next Build, which
 rewrites the item from them.
 
 
