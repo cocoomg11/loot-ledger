@@ -129,3 +129,35 @@ test("summary counts and report pages", () => {
   assert.equal(reportPages(counts, [], { convertOn: false }).length, 1, "conversion off: summary only");
   assert.match(summaryHtml(counts, { convertOn: false }), /off \(setting\)/);
 });
+
+test("basesSummary / basesPageHtml: matched share, routes, groups, lowest-confidence list", async () => {
+  const { basesSummary, basesPageHtml, reportRow, reportPages } = await import("../scripts/ledger.mjs");
+  const row = (id, name, flags) => reportRow(id, name, flags, `Compendium.world.x.Item.${id}`);
+  const rows = [
+    row("a", "Alpha", { converted: { route: "base", review: [] }, base: { name: "Fixture Ring", status: "accept", confidence: 0.9 }, collapse: { group: "g", size: 2 } }),
+    row("b", "Beta", { converted: { route: "base", review: [] }, base: { name: "Fixture Ring", status: "accept", confidence: 0.62 }, collapse: { group: "g", size: 2 } }),
+    row("c", "Gamma", { converted: { route: "convert-review", review: ["x — y"], flags: [{ kind: "zeroPrice", why: "no vendor price" }] }, base: { name: "Fixture Band", status: "suggest", confidence: 0.45 } }),
+    row("d", "Delta", { converted: { route: "book", review: [] }, base: { name: "Delta", status: "exact", confidence: 1 } }),
+    row("e", "Echo", { converted: { route: "baseline", review: [] } })
+  ];
+  assert.equal(rows[0].route, "base");
+  assert.deepEqual(rows[2].flags, ["zeroPrice"]);
+  const groups = [{ group: "g", size: 2, canonical: "Alpha", members: ["Alpha", "Beta"] }];
+  const b = basesSummary(rows, groups);
+  assert.equal(b.total, 5);
+  assert.equal(b.based, 3, "base and book routes");
+  assert.equal(b.matchedPct, 60);
+  assert.deepEqual(b.byRoute, { base: 2, "convert-review": 1, book: 1, baseline: 1 });
+  assert.equal(b.suggested, 1);
+  assert.equal(b.flagged, 1);
+  assert.equal(b.groups, 1);
+  assert.equal(b.collapsed, 2);
+  assert.deepEqual(b.lowest.map(r => r.name), ["Gamma", "Beta", "Alpha"], "exact book matches are not listed; lowest first");
+  const html = basesPageHtml(b, groups);
+  assert.match(html, /60%/);
+  assert.match(html, /Collapse groups \(1 groups, 2 items\)/);
+  assert.match(html, /@UUID\[Compendium\.world\.x\.Item\.c\]\{Gamma\}/);
+  const pages = reportPages({ copied: 0, copySkipped: 0, converted: 0, convertSkipped: 0, skipped: 0, removed: 0, review: 0, errors: 0, replaced: 0, replaceList: 0, kept: 0 }, rows, { convertOn: true, bases: b, groups });
+  assert.ok(pages.some(p => p.name === "Official bases (60%)"));
+  assert.ok(!reportPages({ copied: 0, copySkipped: 0, converted: 0, convertSkipped: 0, skipped: 0, removed: 0, review: 0, errors: 0, replaced: 0, replaceList: 0, kept: 0 }, rows, { convertOn: true }).some(p => p.name.startsWith("Official bases")), "no page without the summary");
+});

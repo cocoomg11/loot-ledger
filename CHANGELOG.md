@@ -35,6 +35,24 @@
 - New world settings, each can be turned off: **Critical-hit dice**, **Profession bonuses**, **Mana regeneration**,
   **Parry reaction**, **Blast threshold**. Converter version 6.
 
+### Unreleased: collapse and review board (phase 3, conversion only)
+- **Collapse.** Converted items that follow the same rule (shape, slot, type, quality, tier band, official base,
+  bonus and gap-fills; white / grey gear by shape, slot, type and band) are grouped (`flags.loot-ledger.collapse`)
+  and reviewed once; every item keeps its own name, icon, price, item level, tooltip and quality. Book, hand-made
+  and source-text items never collapse; a member with an override, a Tweak or an explicit split stands alone.
+  New world setting **Collapse same-rule items** (shared | off).
+- **Review board.** Every converted item is on the board. New kind filters (suggested base, no base, collapsed
+  group, source-text item, flagged); a group is one entry with its members and a decision applies to all of them;
+  new actions: accept base, use another candidate, drop base, split from group, Advantage opt-in (epic / legendary),
+  endgame +1 raise. These write `flags.loot-ledger.overrides` (and `collapse.split`); the next Build rewrites the
+  item from them (the overrides are part of the conversion hash).
+- **Review flags** raised at build (`converted.flags`): no vendor price, source text replaced by the rules,
+  non-damage proc turned into a feature, stand-in fist weapon, stackable thrown weapon, proc parts not converted,
+  protection / health-regeneration base not found, suggested base.
+- **Build Report**: an "Official bases" page (matched share, by route, collapse groups, lowest-confidence bases);
+  `build({ dryRun: true })` returns `plan.items` with route, base, confidence, candidates, gap-fills and collapse per
+  item. Base candidates are stored on every matched item (`baseCandidates`). Converter version 7.
+
 ### Added
 - **Convert items to 5e when building** world setting (off by default). When on, Build runs the 5e converter
   over every copied item, writes the results to a new compendium **Loot Ledger · Converted Items**, and points

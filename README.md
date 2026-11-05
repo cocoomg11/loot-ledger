@@ -200,6 +200,19 @@ it shows the source tooltip with the unconverted lines highlighted, the converte
 Actions: **Accept** (A), **Tweak** (T: opens the item sheet, marked tweaked on close), **Skip** (S), **Reject**
 (R: left out of the roll tables from the next build); arrow keys move between items.
 
+Every converted item is on the board (nothing is approved automatically). The **kind** filter narrows it to items
+with a *suggested base*, items with *no base* that need review, *collapsed groups*, *source-text items* (the source
+module's own rules were kept) and *flagged* items (open questions raised at build: no vendor price, source text
+replaced by the rules, a non-damage proc turned into a feature, a stand-in fist weapon, a stackable thrown weapon,
+proc parts not converted, a protection or health-regeneration base not found, a suggested base).
+
+A **collapse group** (items that follow the same rule) shows as one entry with its member list; a decision on it
+applies to every member. The **Official base** section offers **Accept base**, **Use this base** (one of the top
+candidates recorded at build), **Drop base** (tooltip conversion instead), **Split this item** (review it on its
+own), **Advantage** (epic / legendary only: Advantage instead of the flat stat bonus) and **Raise** (an endgame +1
+step on the weapon bonus). These write `flags["loot-ledger"].overrides` and take effect on the next Build, which
+rewrites the item from them.
+
 
 ### Quality colours
 
@@ -290,6 +303,16 @@ Open **Game Settings › Configure Settings › Loot Ledger**.
 | **Random suffixes: who picks** | *Roll on drop* or *GM picks*. |
 | **Item tooltip (hold Shift)** | Per user, off by default. |
 | **Tell players about the item tooltip** | On by default. Shows a one-time notification (once per browser) to players who have the tooltip off, saying where to turn it on. Does not turn it on. |
+| **Official bases** | On by default (conversion only). A converted item can use a matching official item from your installed compendiums as its base; it keeps its own name, icon, price and quality. Off: every item uses the tooltip conversion. |
+| **Base compendiums** | Compendium ids to search for bases, highest priority first. Empty: the installed core rulebooks and the 2024 SRD. |
+| **Book compendium** | A compendium whose items match source items by exact name; a match is used as is (only price, quality and focus tag added). Empty: off. |
+| **Base confidence** | Accept and suggest thresholds (`0.6, 0.4`): at or above accept the base is used; between the two it is recorded as a suggestion for the Review board. |
+| **Ability-score bases** | On by default. Allows bases that set an ability score for items with a big main stat. |
+| **Gap-fills on bases** | On by default. A re-based item gets one extra effect for the lines its base does not cover. |
+| **Hand-made items** | Names or UUIDs of source items Build leaves alone (never copied, converted or overwritten); items flagged `loot-ledger.handmade` are always left alone. |
+| **Collapse same-rule items** | *Shared* (default) or *Off*. Converted items that follow the same rule (shape, slot, type, quality, tier band, base, bonus, gap-fills) are grouped so you review the rule once on the Review board; every item keeps its own name, icon, price and tooltip. |
+| **Critical-hit dice**, **Profession bonuses**, **Mana regeneration**, **Parry reaction** | On by default. Each conversion rule family can be turned off; its lines are then listed as not converted. |
+| **Blast threshold** | `2` by default. A weapon proc at least this many times a normal hit becomes a limited-use blast; smaller procs deal extra damage once per turn (or on a Critical Hit). |
 | **Build loot pools** (button) | Runs the build. |
 
 
@@ -310,7 +333,8 @@ Open **Game Settings › Configure Settings › Loot Ledger**.
 - World compendiums **Loot Ledger · Items**, **· Converted Items** and **· Tables**.
 - The **Loot Ledger · Build Report** journal entry.
 - World settings (all small: booleans and one short string; nothing grows over time).
-- Item flags under `flags["loot-ledger"]` (source link, quality, price, hash, review decision, random suffix).
+- Item flags under `flags["loot-ledger"]` (source link, quality, price, hash, review decision, random suffix,
+  official base and candidates, gap-fills, collapse group, review-board overrides).
   They live on the items in those compendiums and on any item you copied out of them.
 
 Everything is stored under its own `loot-ledger` namespace. To remove it, run `await ll.removeData()` for a dry
@@ -348,7 +372,8 @@ Do not import the module's scripts or read its settings directly. **Stable** = k
 | `api.sellPrice(item)`, `api.bandForLevel(level)`, `api.formatCoins(copper)` | stable | Price and band helpers. |
 | `api.BANDS`, `api.QUALITIES`, `api.TYPES`, `api.CREATURES` | stable | Lookup lists. |
 | `api.setQuality(items, quality)`, `api.qualityOf(item)` | stable | Quality colours (undefined `setQuality` while the setting is off). |
-| `api.convert`, `api.convertToPack`, `api.rules()`, `api.replaceList()`, `api.auditHandWritten()`, `api.auditHandAuthored()` | experimental | 5e conversion and calibration tools. |
+| `api.convert(item, options)`, `api.convertToPack`, `api.rules()`, `api.replaceList()`, `api.auditHandWritten()`, `api.auditHandAuthored()` | experimental | 5e conversion and calibration tools. `convert` options include `bases`, `baseConfidence`, `scoreItems`, `gapFills`, `rules` (the rule-family toggles) and `overrides`. |
+| `api.build({ dryRun: true })` | experimental | Everything up to the writes: the per-item conversion plan (`plan.items`), the "Official bases" summary (`bases`) and the collapse counts (`collapse`), writing nothing. |
 | `api.reviewBoard()`, `api.rollSuffix(item, options)`, `api.suffixes()` | experimental | Review board and random suffixes. |
 | `api.removeData({ dryRun, confirm, itemFlags })` | experimental | GM: remove Loot Ledger's data (see below). |
 | Hook `loot-ledger.ready` (argument: the API) | stable | Fires on `ready`. |
@@ -420,6 +445,23 @@ Converted items also carry `riders` and `converted` (`needsReview`, `review`, `n
 Review board decisions are stored on the converted item as `review` (`status`: pending, accepted, tweaked,
 skipped or rejected; `note`, `by`, `at`). Accepted and tweaked items are not rewritten by later builds unless
 `build({ force: true })`; rejected items are left out of the roll tables.
+
+Converted items from the official-base matcher also carry:
+
+```js
+{
+  base,            // { uuid, name, pack, source, confidence, status: accept | suggest | exact, covered, excess, plus, pinned?, candidates }
+  baseCandidates,  // top candidates of the match [{ uuid, name, pack, confidence }], even when none was accepted
+  gapFills,        // [{ kind, ability, detail, from, ae }]: lines the base does not cover, added as one extra effect
+  collapse,        // { key, group, canonical, canonicalId, size, split? }: the item's same-rule group
+  overrides,       // { base: uuid | "none", advantage, raise }: Review board overrides, applied on the next Build
+  converted: { route, flags, sourceText, sourceTextConflict, ... }
+  //   route: base | convert-auto | convert-review | baseline | book | handmade; flags: [{ kind, why }] review flags
+}
+```
+
+`api.build({ dryRun: true })` returns `plan.items`, one row per converted item with its route, base, confidence,
+candidates, gap-fills, collapse group, flags and review lines, and `bases` with the "Official bases" summary.
 
 
 ### 5e conversion: calibration and replace list
