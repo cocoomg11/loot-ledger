@@ -80,9 +80,60 @@ export function carryReview(prev, { force = false } = {}) {
   return out;
 }
 
-/** True when an item belongs on the board: the converter flagged it for review, or it already has a decision. */
+/**
+ * True when an item belongs on the board: every converted item does (manual review for all, no auto-approve), and
+ * so does anything that already carries a decision.
+ */
 export function onBoard(flags) {
-  return !!(flags?.converted?.needsReview || flags?.review);
+  return !!(flags?.converted || flags?.review);
+}
+
+/** Qualities whose items may opt in to the Advantage swap (epic / legendary only). */
+export const ADVANTAGE_QUALITIES = new Set(["epic", "legendary"]);
+
+/** Override actions and the flag changes they make (see overrideUpdate). */
+export const OVERRIDE_ACTIONS = ["acceptBase", "pickBase", "dropBase", "split", "advantage", "raise"];
+
+/**
+ * The flag changes for a review-board override action on one item. Pure: returns {overrides?, collapse?} to merge
+ * into flags["loot-ledger"] (overrides is the whole new object; a build then rewrites the item from them).
+ * @param {object} flags   the item's current flags["loot-ledger"]
+ * @param {string} action  acceptBase (the suggested / matched base becomes accepted) | pickBase (one of the stored
+ *                         candidates, by uuid) | dropBase (tooltip conversion) | split (leave the collapse group) |
+ *                         advantage (toggle; epic / legendary only) | raise (toggle the endgame +1 step)
+ * @param {{uuid?:string}} [o]
+ */
+export function overrideUpdate(flags, action, { uuid = null } = {}) {
+  // Merge semantics (a document update merges objects): a toggle off is written as false, never deleted.
+  const prev = { ...(flags?.overrides ?? {}) };
+  const clean = o => o;
+  switch (action) {
+    case "acceptBase": {
+      const u = flags?.base?.uuid ?? flags?.baseCandidates?.[0]?.uuid ?? null;
+      if (!u) throw new Error("Loot Ledger: no base to accept on this item");
+      return { overrides: clean({ ...prev, base: u }) };
+    }
+    case "pickBase": {
+      const list = [...(flags?.baseCandidates ?? []), ...(flags?.base?.candidates ?? [])];
+      if (!uuid || !list.some(c => c.uuid === uuid)) throw new Error("Loot Ledger: pick one of the item's stored candidates");
+      return { overrides: clean({ ...prev, base: uuid }) };
+    }
+    case "dropBase": return { overrides: clean({ ...prev, base: "none" }) };
+    case "split": return { collapse: { ...(flags?.collapse ?? {}), split: true } };
+    case "advantage": {
+      if (!ADVANTAGE_QUALITIES.has(flags?.quality)) throw new Error("Loot Ledger: the Advantage swap is for epic and legendary items only");
+      return { overrides: clean({ ...prev, advantage: !prev.advantage }) };
+    }
+    case "raise": return { overrides: clean({ ...prev, raise: !prev.raise }) };
+    default: throw new Error(`Loot Ledger: unknown override action "${action}"`);
+  }
+}
+
+/** The ids a decision on `entry` applies to: every member of its collapse group (split members stand alone). */
+export function groupIds(entries, entry) {
+  const g = entry?.collapse;
+  if (!g || g.size < 2 || g.split) return entry ? [entry.id] : [];
+  return entries.filter(e => e.collapse?.group === g.group && !e.collapse.split).map(e => e.id);
 }
 
 /** The reason part of a stored review line ("<line> — <why>"); the line itself when there is no reason. */
@@ -102,24 +153,67 @@ export function lineOf(line) {
 /** One board entry from a converted pack index entry ({_id, name, img, flags: {"loot-ledger": ...}}). */
 export function boardEntry(id, name, flags, img = null) {
   const lines = flags?.converted?.review ?? [];
+  const c = flags?.converted ?? {};
+  const b = flags?.base ?? null;
   return {
     id, name: name ?? "", img,
     quality: flags?.quality ?? "", category: flags?.category ?? "", slot: flags?.slot ?? "", band: flags?.band ?? null,
     lines, reasons: [...new Set(lines.map(reasonOf))],
-    status: statusOf(flags), note: flags?.review?.note ?? ""
+    status: statusOf(flags), note: flags?.review?.note ?? "",
+    route: c.route ?? "", sourceText: !!c.sourceText,
+    base: b ? { name: b.name ?? "", uuid: b.uuid ?? null, status: b.status ?? "", confidence: b.confidence ?? null, pinned: !!b.pinned } : null,
+    candidates: flags?.baseCandidates ?? b?.candidates ?? [],
+    collapse: flags?.collapse ? { group: flags.collapse.group, canonical: !!flags.collapse.canonical, canonicalId: flags.collapse.canonicalId, size: flags.collapse.size ?? 1, split: !!flags.collapse.split } : null,
+    flags: (c.flags ?? []).map(f => ({ kind: f.kind, why: f.why })),
+    overrides: { ...(flags?.overrides ?? {}) }
   };
+}
+
+/** Queue "kind" filters: key -> label and predicate. */
+export const KINDS = {
+  suggested: { label: "Suggested base", test: e => e.base?.status === "suggest" },
+  nobase: { label: "No base (review)", test: e => e.route === "convert-review" && e.base?.status !== "suggest" },
+  group: { label: "Collapsed group", test: e => !!e.collapse && e.collapse.size > 1 && !e.collapse.split },
+  sourceText: { label: "Source-text item", test: e => e.sourceText },
+  flagged: { label: "Flagged", test: e => e.flags.length > 0 }
+};
+
+/**
+ * Fold collapse groups: one entry per group (its canonical member, carrying `members` [{id, name, status}]); split
+ * members and singletons stay as they are. A decision on the shown entry applies to every member (groupIds).
+ */
+export function foldGroups(entries) {
+  const byGroup = new Map();
+  for (const e of entries) {
+    const g = e.collapse;
+    if (!g || g.size < 2 || g.split) continue;
+    if (!byGroup.has(g.group)) byGroup.set(g.group, []);
+    byGroup.get(g.group).push(e);
+  }
+  const out = [];
+  for (const e of entries) {
+    const g = e.collapse;
+    if (!g || g.size < 2 || g.split) { out.push(e); continue; }
+    const members = byGroup.get(g.group);
+    const head = members.find(m => m.id === g.canonicalId) ?? members[0];
+    if (e !== head) continue;
+    out.push({ ...e, members: members.map(m => ({ id: m.id, name: m.name, status: m.status })) });
+  }
+  return out;
 }
 
 /**
  * Filter the queue.
  * @param {object[]} entries  boardEntry() rows
- * @param {object} f  {status: "todo"|"all"|<status>, quality, category, slot, reason, search}; empty values match all
+ * @param {object} f  {status: "todo"|"all"|<status>, quality, category, slot, reason, kind (KINDS key), search}; empty values match all
  */
 export function filterQueue(entries, f = {}) {
   const q = String(f.search ?? "").trim().toLowerCase();
   const st = f.status ?? "todo";
+  const kind = f.kind ? KINDS[f.kind] : null;
   return entries.filter(e =>
     (st === "all" || (st === "todo" ? TODO.has(e.status) : e.status === st)) &&
+    (!kind || kind.test(e)) &&
     (!f.quality || e.quality === f.quality) &&
     (!f.category || e.category === f.category) &&
     (!f.slot || e.slot === f.slot) &&

@@ -71,7 +71,8 @@ test("boardEntry, reasons and onBoard", () => {
   assert.deepEqual(entries[0].reasons, ["no rule for this Equip effect yet"]);
   assert.equal(R.lineOf("Equip: a — b — why"), "Equip: a — b");
   assert.equal(R.reasonOf("plain"), "plain");
-  assert.equal(R.onBoard({ converted: { needsReview: false } }), false);
+  assert.equal(R.onBoard({ converted: { needsReview: false } }), true, "every converted item is reviewed by hand");
+  assert.equal(R.onBoard({ quality: "epic" }), false, "a plain copy is not");
   assert.equal(R.onBoard({ converted: { needsReview: false }, review: { status: "accepted" } }), true);
   assert.equal(R.onBoard({ converted: { needsReview: true } }), true);
 });

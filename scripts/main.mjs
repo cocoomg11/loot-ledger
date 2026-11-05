@@ -119,6 +119,60 @@ Hooks.once("init", () => {
     scope: "world", config: true, type: Boolean, default: true, requiresReload: true
   });
 
+  // Official bases (conversion only; each part can be turned off). Read by build.mjs baseSettings().
+  game.settings.register(MODULE_ID, "officialBases", {
+    name: "Official bases",
+    hint: "When converting, re-base items on a matching official item from your installed compendiums (it keeps its own name, icon, price and quality). Off: every item uses the tooltip conversion.",
+    scope: "world", config: true, type: Boolean, default: true
+  });
+  game.settings.register(MODULE_ID, "baseSources", {
+    name: "Base compendiums",
+    hint: "Compendium ids to search for bases, comma separated, highest priority first (the first one wins on duplicate names). Empty: the installed core rulebook compendiums and the 2024 SRD. The 2014 SRD (dnd5e.items) is only used when listed.",
+    scope: "world", config: true, type: String, default: ""
+  });
+  game.settings.register(MODULE_ID, "bookPack", {
+    name: "Book compendium",
+    hint: "Compendium id of a book whose items match source items by exact name. A match is used as is (its own rules and text); Loot Ledger only adds the price, quality and focus tag. Empty: off.",
+    scope: "world", config: true, type: String, default: ""
+  });
+  game.settings.register(MODULE_ID, "baseConfidence", {
+    name: "Base confidence",
+    hint: "Accept and suggest thresholds, e.g. \"0.6, 0.4\". At or above accept the item is re-based; between suggest and accept the base is recorded for review and the tooltip conversion is kept.",
+    scope: "world", config: true, type: String, default: "0.6, 0.4"
+  });
+  game.settings.register(MODULE_ID, "scoreItems", {
+    name: "Ability-score bases",
+    hint: "Allow bases that set an ability score for items with a big main stat, one rarity above the base's own rarity.",
+    scope: "world", config: true, type: Boolean, default: true
+  });
+  game.settings.register(MODULE_ID, "gapFills", {
+    name: "Gap-fills on bases",
+    hint: "A re-based item gets one extra effect for its lines the base does not cover. Off: re-based items use the base's effects only.",
+    scope: "world", config: true, type: Boolean, default: true
+  });
+  game.settings.register(MODULE_ID, "handmadeExclude", {
+    name: "Hand-made items",
+    hint: "Source item names or UUIDs (comma separated) that Build leaves alone: never copied, converted or overwritten. Items flagged loot-ledger.handmade are always left alone.",
+    scope: "world", config: true, type: String, default: ""
+  });
+
+  game.settings.register(MODULE_ID, "collapseMode", {
+    name: "Collapse same-rule items",
+    hint: "Converted items that follow the same rule (same shape, slot, type, quality, tier band, base, +N and gap-fills) are grouped so you review the rule once on the Review board; every item keeps its own name, icon, price and tooltip. Off: no groups.",
+    scope: "world", config: true, type: String, choices: { shared: "Shared (review once per group)", off: "Off" }, default: "shared"
+  });
+
+  // Conversion rule families (read by build.mjs baseSettings(); each can be turned off).
+  game.settings.register(MODULE_ID, "critDice", { name: "Critical-hit dice", hint: "Critical-strike lines become extra dice on a Critical Hit (not doubled). Off: listed as not converted.", scope: "world", config: true, type: Boolean, default: true });
+  game.settings.register(MODULE_ID, "flavourBonuses", { name: "Profession bonuses", hint: "Profession and flavour lines (mining, fishing, lockpicking, ...) become a small situational bonus. Off: listed as not converted.", scope: "world", config: true, type: Boolean, default: true });
+  game.settings.register(MODULE_ID, "manaRegen", { name: "Mana regeneration", hint: "Mana-over-time lines become spell-slot recovery (head, chest, jewellery, held items) or a Concentration bonus (other slots). Off: listed as not converted.", scope: "world", config: true, type: Boolean, default: true });
+  game.settings.register(MODULE_ID, "parryReaction", { name: "Parry reaction", hint: "Dodge and parry lines become a Reaction that adds to AC against one attack. Off: listed as not converted.", scope: "world", config: true, type: Boolean, default: true });
+  game.settings.register(MODULE_ID, "blastThreshold", {
+    name: "Blast threshold",
+    hint: "A weapon proc at least this many times one normal hit becomes a limited-use blast; smaller procs deal extra damage once per turn (or on a Critical Hit below 1).",
+    scope: "world", config: true, type: String, default: "2"
+  });
+
   if (game.settings.get(MODULE_ID, "reviewBoard")) registerReviewBoard();
   if (game.settings.get(MODULE_ID, "qualityColours")) registerQualityColours();
   // The picker without the colours would be invisible; it is part of the colours feature.

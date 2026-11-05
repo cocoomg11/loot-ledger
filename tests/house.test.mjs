@@ -97,3 +97,16 @@ test("a converter version bump rewrites unreviewed items but never accepted or t
   assert.deepEqual(safe.replace, ["c"]);
   assert.deepEqual(kept.sort(), ["a", "b"]);
 });
+
+test("docs: conversion.md names only rules exports that exist, and public docs carry no game-publisher or official item names", async () => {
+  const doc = read("docs/conversion.md");
+  const R = await import("../scripts/rules.mjs");
+  const named = [...new Set([...doc.matchAll(/`([A-Z][A-Z0-9_]{3,})`/g)].map(m => m[1]))];
+  assert.ok(named.length > 15, "the doc names the rule tables");
+  for (const n of named) assert.ok(n in R || ["SETTING_KEYS", "REPLACE_LIST", "REVIEW_FLAGS"].includes(n), `${n} is not an export of rules.mjs`);
+  const banned = /warcraft|azeroth|blizzard|elvenkind|pearl of power|ring of protection|ring of resistance|ogre power|giant strength/i;
+  for (const f of ["docs/conversion.md", "README.md", "CHANGELOG.md"]) {
+    const text = read(f).replace(/Blizzard Entertainment or Wizards of the Coast/g, "");
+    assert.ok(!banned.test(text), `${f} mentions a publisher or official item name`);
+  }
+});
