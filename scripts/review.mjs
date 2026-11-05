@@ -35,7 +35,13 @@ export class ReviewBoard extends ApplicationV2 {
       prev() { this.step(-1); },
       next() { this.step(1); },
       reload() { this.load(true); },
-      open() { this.openSheet(); }
+      open() { this.openSheet(); },
+      acceptBase() { this.override("acceptBase"); },
+      pickBase() { this.override("pickBase", { uuid: this.element?.querySelector("select[name=candidate]")?.value ?? null }); },
+      dropBase() { this.override("dropBase"); },
+      split() { this.override("split"); },
+      advantage() { this.override("advantage"); },
+      raise() { this.override("raise"); }
     }
   };
 
@@ -61,7 +67,7 @@ export class ReviewBoard extends ApplicationV2 {
   entries = null;          // all board entries (boardEntry rows)
   current = null;          // id of the item shown
   view = null;             // itemView() of the current item
-  filters = { status: "todo", quality: "", category: "", slot: "", reason: "", search: "" };
+  filters = { status: "todo", quality: "", category: "", slot: "", reason: "", kind: "", search: "" };
   #tweakHook = null;
 
   /** Read the converted pack index (once, or again with `force`). */
@@ -78,9 +84,52 @@ export class ReviewBoard extends ApplicationV2 {
     if (force) { this.view = null; this.render(); }
   }
 
-  /** The filtered, sorted queue. */
+  /** The filtered, sorted queue: collapse groups folded to their canonical member first. */
   queue() {
-    return R.sortQueue(R.filterQueue(this.entries ?? [], this.filters));
+    return R.sortQueue(R.filterQueue(R.foldGroups(this.entries ?? []), this.filters));
+  }
+
+  /** The pack, unlocked, or null (with a warning). GM only. */
+  #writablePack() {
+    if (!game.user.isGM) return null;
+    const pack = convertedPack();
+    if (pack?.locked) {
+      ui.notifications.warn(`Loot Ledger: ${CONVERTED_PACK.label} is locked. Unlock it (right-click the compendium) to record review decisions.`);
+      return null;
+    }
+    return pack;
+  }
+
+  /**
+   * Record an override on the current item (and, except for split, every member of its collapse group). Overrides
+   * live in flags.loot-ledger.overrides / collapse.split; the next Build rewrites the item from them.
+   */
+  async override(action, payload = {}) {
+    if (!this.current) return;
+    const pack = this.#writablePack();
+    if (!pack) return;
+    const entry = this.entries.find(e => e.id === this.current);
+    if (!entry) return;
+    const ids = action === "split" ? [entry.id] : R.groupIds(this.entries, entry);
+    const updates = [];
+    try {
+      for (const id of ids) {
+        const doc = await pack.getDocument(id);
+        if (!doc) continue;
+        const change = R.overrideUpdate(doc.flags?.[MODULE_ID] ?? {}, action, payload);
+        const u = { _id: id };
+        if (change.overrides) u[`flags.${MODULE_ID}.overrides`] = change.overrides;
+        if (change.collapse) u[`flags.${MODULE_ID}.collapse`] = change.collapse;
+        updates.push(u);
+      }
+    } catch (err) {
+      ui.notifications.warn(err.message);
+      return;
+    }
+    if (updates.length) await Item.updateDocuments(updates, { pack: pack.collection });
+    ui.notifications.info(`Loot Ledger: override recorded on ${updates.length} item${updates.length === 1 ? "" : "s"}; run Build to apply it.`);
+    await this.load(true);
+    this.show(this.current);
   }
 
   async show(id) {
@@ -100,22 +149,28 @@ export class ReviewBoard extends ApplicationV2 {
 
   /** Write a decision to the item and move on. */
   async decide(action, { advance = true } = {}) {
-    if (!game.user.isGM || !this.current) return;
-    const pack = convertedPack();
-    if (pack.locked) {
-      ui.notifications.warn(`Loot Ledger: ${CONVERTED_PACK.label} is locked. Unlock it (right-click the compendium) to record review decisions.`);
-      return;
-    }
+    if (!this.current) return;
+    const pack = this.#writablePack();
+    if (!pack) return;
     const before = this.queue();
     const id = this.current;
     const entry = this.entries.find(e => e.id === id);
-    const doc = await pack.getDocument(id);
-    if (!doc || !entry) return;
+    if (!entry) return;
     const note = this.element?.querySelector("textarea[name=note]")?.value;
-    const review = R.applyAction(doc.getFlag(MODULE_ID, "review") ?? null, action, { by: game.user.name, at: new Date().toISOString(), note });
-    await doc.update({ [`flags.${MODULE_ID}.review`]: review });
-    entry.status = review.status;
-    entry.note = review.note;
+    // A decision on a collapse group applies to every member.
+    const updates = [];
+    let review = null;
+    for (const mid of R.groupIds(this.entries, entry)) {
+      const doc = await pack.getDocument(mid);
+      if (!doc) continue;
+      const r = R.applyAction(doc.getFlag(MODULE_ID, "review") ?? null, action, { by: game.user.name, at: new Date().toISOString(), note });
+      if (mid === id) review = r;
+      updates.push({ _id: mid, [`flags.${MODULE_ID}.review`]: r });
+      const m = this.entries.find(e => e.id === mid);
+      if (m) { m.status = r.status; m.note = r.note; }
+    }
+    if (!review) return;
+    await Item.updateDocuments(updates, { pack: pack.collection });
     if (advance && action !== "note") {
       const after = this.queue();
       const stillThere = after.some(e => e.id === id);
@@ -176,7 +231,8 @@ export class ReviewBoard extends ApplicationV2 {
     for (const e of all) for (const r of e.reasons) reasons.set(r, (reasons.get(r) ?? 0) + 1);
     const topReasons = [...reasons].sort((a, b) => b[1] - a[1]).slice(0, 60);
     const slots = [...new Set(all.map(e => e.slot).filter(Boolean))].sort();
-    const entry = all.find(e => e.id === this.current) ?? null;
+    const kinds = Object.entries(R.KINDS);
+    const entry = queue.find(e => e.id === this.current) ?? all.find(e => e.id === this.current) ?? null;
 
     const filtersHtml = `
       <div class="llrb-filters">
@@ -185,6 +241,7 @@ export class ReviewBoard extends ApplicationV2 {
         <select name="category">${opt("", "Any item type", f.category)}${CATEGORIES.map(x => opt(x.key, x.label, f.category)).join("")}</select>
         <select name="slot">${opt("", "Any slot", f.slot)}${slots.map(s => opt(s, s, f.slot)).join("")}</select>
         <select name="reason">${opt("", "Any reason", f.reason)}${topReasons.map(([r, n]) => opt(r, `${r.length > 60 ? r.slice(0, 59) + "…" : r} (${n})`, f.reason)).join("")}</select>
+        <select name="kind">${opt("", "Any kind", f.kind)}${kinds.map(([k, v]) => opt(k, v.label, f.kind)).join("")}</select>
         <input type="search" name="search" placeholder="Search name, line or note" value="${esc(f.search)}">
         <button type="button" data-action="reload" data-tooltip="Re-read the compendium"><i class="fa-solid fa-rotate"></i></button>
       </div>`;
@@ -198,7 +255,7 @@ export class ReviewBoard extends ApplicationV2 {
 
     const list = queue.slice(0, LIST_LIMIT).map(e => `
       <li data-id="${e.id}" data-action="pick" class="${e.id === this.current ? "active" : ""}">
-        <span class="llrb-name ${Q.qualityClass(e.quality)}">${esc(e.name)}</span>
+        <span class="llrb-name ${Q.qualityClass(e.quality)}">${esc(e.name)}${e.members ? ` <small>(+${e.members.length - 1})</small>` : ""}</span>
         <span class="llrb-st llrb-st-${e.status}">${STATUS_LABEL[e.status]}</span>
       </li>`).join("") + (queue.length > LIST_LIMIT ? `<li class="llrb-more">+${queue.length - LIST_LIMIT} more: narrow the filters</li>` : "");
 
@@ -214,6 +271,27 @@ export class ReviewBoard extends ApplicationV2 {
         v.riders.length ? `<li><strong>Riders:</strong> ${v.riders.map(esc).join("; ")}</li>` : "",
         v.notConverted.length ? `<li><strong>Not converted:</strong> ${v.notConverted.map(esc).join("; ")}</li>` : ""
       ].filter(Boolean).join("");
+      const o = entry.overrides;
+      const b = entry.base;
+      const baseLine = b
+        ? `${esc(b.name)} (${esc(b.status)}${b.confidence !== null ? `, ${b.confidence}` : ""}${b.pinned ? ", chosen on the board" : ""})`
+        : entry.route === "convert-review" || entry.route === "convert-auto" ? "none (tooltip conversion)" : esc(entry.route || "—");
+      const candidates = entry.candidates.filter(c => c.uuid);
+      const canAdvantage = R.ADVANTAGE_QUALITIES.has(entry.quality);
+      const bases = `
+        <section class="llrb-bases"><h3>Official base</h3>
+          <p><strong>Base:</strong> ${baseLine}${o.base === "none" ? " · <em>dropped (override)</em>" : o.base ? " · <em>pinned (override)</em>" : ""}</p>
+          <div class="llrb-override">
+            ${b && b.status !== "accept" && b.status !== "exact" ? `<button type="button" data-action="acceptBase">Accept base</button>` : ""}
+            ${candidates.length ? `<select name="candidate">${candidates.map(c => `<option value="${esc(c.uuid)}">${esc(c.name)} (${c.confidence})</option>`).join("")}</select><button type="button" data-action="pickBase">Use this base</button>` : ""}
+            ${b || o.base ? `<button type="button" data-action="dropBase" data-tooltip="Use the tooltip conversion instead">Drop base</button>` : ""}
+            ${canAdvantage ? `<button type="button" data-action="advantage">${o.advantage ? "Advantage: on" : "Advantage: off"}</button>` : ""}
+            <button type="button" data-action="raise" data-tooltip="Endgame +1 step on the weapon bonus">${o.raise ? "Raise: on" : "Raise: off"}</button>
+          </div>
+          ${entry.members ? `<p><strong>Group of ${entry.members.length}:</strong> ${entry.members.map(m => esc(m.name)).join(", ")}. A decision here applies to all of them. <button type="button" data-action="split" data-tooltip="Review this item on its own">Split this item</button></p>` : ""}
+          ${entry.flags.length ? `<p><strong>Flags:</strong> ${entry.flags.map(f => esc(f.why)).join("; ")}</p>` : ""}
+          <p class="llrb-help">Overrides take effect on the next Build (the item is rewritten from them).</p>
+        </section>`;
       detail = `
         <header class="llrb-head">
           <h2 class="${Q.qualityClass(entry.quality)}">${esc(entry.name)}</h2>
@@ -227,6 +305,7 @@ export class ReviewBoard extends ApplicationV2 {
           <section class="llrb-result"><h3>Converted 5e item</h3><ul class="llrb-facts">${facts}</ul>
             <div class="llrb-rules">${v.rulesHtml}</div></section>
         </div>
+        ${bases}
         <label class="llrb-note">GM note <textarea name="note" rows="2" placeholder="Optional: what you decided and why">${esc(entry.note)}</textarea></label>
         <footer class="llrb-actions">
           <button type="button" data-action="prev" data-tooltip="Previous (←)"><i class="fa-solid fa-arrow-left"></i></button>
