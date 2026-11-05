@@ -583,6 +583,11 @@ export const OFFICIAL_BASES = {
   penalty: { excessShare: 0.5, unfilledNeeded: 0.8, farBelow: 0.8, farBelowSteps: 2 },
   template: { confidence: 0.75, manyGaps: 0.6, manyGapsFrom: 2 },
   tableConfidence: 0.8,
+  // Classic weapon types that only ever use the +N template (never a specific official item of that family).
+  templateOnly: ["Staff"],
+  // Candidates per item whose full documents are loaded at build to read their Active Effects (the pack index
+  // carries effect names only); cached for the build.
+  shortlist: 3,
   weights: { mainStat: 2, secondaryStat: 0.5, resist: 1.5, smallResist: 0.5, effect: 1.5, minor: 1, plus: 1 },
   scoreRule: { minValue: 8, perItemLevel: 5, stepsUp: 1 },
   beltScore: { 3: 23, 4: 25 },
@@ -637,14 +642,15 @@ export const VARIANT_BASES = [
  *   hitDice     extra HP per Hit Point Die spent: +1 / +1 / +2 / +Proficiency Bonus
  * advantageFrom: an Advantage swap (Advantage on the roll instead of the flat bonus) is possible from this tier, but
  * only when the item or its group opts in on the review board (flags.loot-ledger.overrides.advantage); never by
- * default. Main-stat ties: stats with a slot rule here first (not a fallback row), then the armour type's stats
- * (armorStats), then stat order (str, dex, con, int, wis).
+ * default. Main-stat ties (variants.mjs mainStat): a quality-gated slot row (minTier) first, then the armour type's
+ * stats in armorStats order (plate / mail: Stamina before Strength, defence first), then any other slot row (not a
+ * fallback), then stat order (str, dex, con, int, wis).
  */
 export const VARIANT_RULE = {
   bonus: { 1: 1, 2: 1, 3: 2, 4: 2 }, initiative: { 1: 1, 2: 2, 3: 2, 4: 3 },
   hpPerLevel: { 1: 0.5, 2: 0.5, 3: 1, 4: 1 }, hitDice: { 1: "1", 2: "1", 3: "2", 4: "@prof" },
   advantageFrom: 3,
-  armorStats: { Plate: ["str", "con"], Mail: ["str", "con"], Leather: ["dex"], Cloth: ["int", "wis"] }
+  armorStats: { Plate: ["con", "str"], Mail: ["con", "str"], Leather: ["dex"], Cloth: ["int", "wis"] }
 };
 
 /**

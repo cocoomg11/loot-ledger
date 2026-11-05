@@ -16,7 +16,7 @@ import { VARIANT_TAGS } from "./variants.mjs";
 import { OFFICIAL_BASES, VARIANT_BASES, SCHOOL_MAP, PROC_RULE, RESIST_RULE, STAT_RULE, SPELL_RULE, POTION_REFLAVOUR } from "./rules.mjs";
 
 /** Bump when matching logic changes (stored on every matched item as base.matcherVersion; part of the hash). */
-export const MATCHER_VERSION = 1;
+export const MATCHER_VERSION = 2;
 
 /** Fields read from each compendium index (one getIndex call per pack per build). */
 export const INDEX_FIELDS = [
@@ -34,11 +34,16 @@ const NEUTRAL = new Set(["plus"]);
 /*  Base signals                                */
 /* -------------------------------------------- */
 
-/** Rarity tier of an index entry (dnd5e 5 `system.rarity` string or dnd5e 6 `system.rarities` set/array). */
+/**
+ * Rarity tier of an index entry (dnd5e 5 `system.rarity` string or dnd5e 6 `system.rarities` set/array). A magic
+ * item (property `mgc`) with no rarity (multi-tier entries such as "+1, +2, or +3" items) returns null: its rarity
+ * cannot be checked against the item's, so it is never a candidate. Mundane items with no rarity are common (0).
+ */
 export function entryRarity(e) {
   const s = e.system ?? {};
-  const r = s.rarities ? [...s.rarities][0] : s.rarity;
-  return RARITY_TIER[r] ?? 0;
+  const r = s.rarities && [...s.rarities].length ? [...s.rarities][0] : s.rarity;
+  if (RARITY_TIER[r] !== undefined) return RARITY_TIER[r];
+  return [...(s.properties ?? [])].includes("mgc") ? null : 0;
 }
 
 /** Slot of an official item, from its dnd5e type and a few generic name words (equipment only). */
@@ -68,7 +73,8 @@ export function baseSignals(e) {
   const tags = new Set(), damage = [], scores = {};
   const slot = entrySlot(e);
   for (const fx of e.effects ?? []) {
-    for (const c of fx.changes ?? []) {
+    // Foundry 14 keeps an effect's changes under system.changes; older data has them at the top level.
+    for (const c of effectChanges(fx)) {
       const k = String(c.key ?? ""); let m;
       if (k === "system.attributes.ac.bonus") tags.add(slot === "armor" || slot === "shield" ? "plus" : "ac");
       else if (k === "system.bonuses.abilities.save") tags.add("saves");
@@ -112,6 +118,12 @@ export function baseSignals(e) {
   return { tags, damage, scores };
 }
 
+/** An Active Effect's changes (top-level `changes`, or `system.changes` on Foundry 14). */
+export function effectChanges(fx) {
+  const c = fx?.changes ?? fx?.system?.changes;
+  return Array.isArray(c) ? c : [];
+}
+
 /* -------------------------------------------- */
 /*  Index                                       */
 /* -------------------------------------------- */
@@ -134,16 +146,55 @@ export function indexBases(sources, { exclude = OFFICIAL_BASES.exclude } = {}) {
       if (!key || skip.has(key) || byName.has(key)) continue;
       const sig = baseSignals(e);
       if (sig.tags.has("cursed") || sig.tags.has("sentient") || sig.tags.has("artifact")) continue;
+      // A pack index lists effects without their changes: such entries are enriched from the full document when
+      // they reach an item's shortlist (enrichEntry).
+      const effects = e.effects ?? [];
       const entry = {
         uuid: e.uuid ?? `Compendium.${pack}.Item.${e._id}`, id: e._id, name: e.name, pack, priority, type: e.type,
         rarity: entryRarity(e), slot: entrySlot(e), family: e.system?.type?.baseItem || null,
-        attune: e.system?.attunement === "required", modified: e._stats?.modifiedTime ?? null, ...sig
+        attune: e.system?.attunement === "required", modified: e._stats?.modifiedTime ?? null, ...sig,
+        enriched: !effects.length || effects.every(fx => effectChanges(fx).length > 0)
       };
       byName.set(key, entry);
       entries.push(entry);
     }
   });
   return { entries, byName, fingerprint: fp.sort().join("|") };
+}
+
+/**
+ * Add the signals of an entry's full document (its Active Effect changes, which the pack index lacks) to the entry,
+ * in place. Tags are only added (the index's own text tags stay); an entry whose document turns out cursed,
+ * sentient or an artifact is excluded. Returns true when the entry's tags changed.
+ * @param {object} entry an indexBases() entry
+ * @param {object|null} doc  the full Item document or its data (null: could not be loaded; nothing changes)
+ */
+export function enrichEntry(entry, doc) {
+  if (entry.enriched) return false;
+  entry.enriched = true;
+  if (!doc) return false;
+  const data = typeof doc.toObject === "function" ? doc.toObject() : doc;
+  const sig = baseSignals(data);
+  const before = entry.tags.size;
+  for (const t of sig.tags) entry.tags.add(t);
+  for (const d of sig.damage) if (!entry.damage.some(x => x.type === d.type && x.freq === d.freq)) entry.damage.push(d);
+  Object.assign(entry.scores, Object.fromEntries(Object.entries(sig.scores).filter(([k]) => entry.scores[k] == null)));
+  if (sig.tags.has("cursed") || sig.tags.has("sentient") || sig.tags.has("artifact")) entry.excluded = true;
+  return entry.tags.size !== before || !!entry.excluded;
+}
+
+/**
+ * The candidates worth loading in full for one item: not yet enriched, ranked by their index score (coverage not
+ * required, since the missing effect changes may be what covers the item), top OFFICIAL_BASES.shortlist, plus the
+ * decided-rule entry when it has one. Returns index entries.
+ */
+export function shortlist(item, index, needs = itemNeeds(item), tableEntry = null) {
+  const list = candidates(item, index).filter(e => !e.enriched)
+    .map(e => ({ e, s: scoreBase(needs, e, item).score }))
+    .sort((a, b) => b.s - a.s || a.e.name.localeCompare(b.e.name))
+    .slice(0, OFFICIAL_BASES.shortlist).map(x => x.e);
+  if (tableEntry && !tableEntry.enriched && !list.includes(tableEntry)) list.push(tableEntry);
+  return list;
 }
 
 /** Exact-name lookup (trimmed, case-insensitive) in a book pack's plain index entries. */
@@ -157,6 +208,12 @@ export function bookEntry(entries, name) {
 /* -------------------------------------------- */
 
 const W = () => OFFICIAL_BASES.weights;
+
+/**
+ * Damage in a proc line: "N (to M) School damage", or untyped "N (to M) damage" (dealt as the weapon's own damage
+ * type). Shared with convert.mjs.
+ */
+export const PROC_DAMAGE = /(\d+)(?: to (\d+))? (?:(Fire|Frost|Nature|Shadow|Arcane|Holy) )?damage/i;
 const STAT_TAGS = { str: ["stat:str", "score:str", "skill:ath"], dex: ["stat:dex", "score:dex", "init", "stealth", "skill:acr"],
   con: ["stat:con", "score:con", "hpMax"], int: ["stat:int", "score:int", "spell", "skill:arc", "skill:inv"], wis: ["stat:wis", "score:wis", "skill:prc", "hpRegen"] };
 
@@ -199,10 +256,10 @@ export function itemNeeds(item) {
     out.push({ key: `damage:${type}`, tags: [`damage:${type}`], weight: w.effect, needed: true, line: p.extraDamage.line, freq: "perTurn", avg: (p.extraDamage.min + p.extraDamage.max) / 2 });
   }
   for (const fx of p.effects ?? []) {
-    const dmg = fx.text.match(/(\d+)(?: to (\d+))? (Fire|Frost|Nature|Shadow|Arcane|Holy) damage/i);
+    const dmg = fx.text.match(PROC_DAMAGE);
     if (dmg && (fx.kind === "hit" || /\bchance\b/i.test(fx.text))) {
-      const school = dmg[3][0].toUpperCase() + dmg[3].slice(1).toLowerCase();
-      const type = SCHOOL_MAP[school].toLowerCase();
+      const school = dmg[3] ? dmg[3][0].toUpperCase() + dmg[3].slice(1).toLowerCase() : null;
+      const type = school ? SCHOOL_MAP[school].toLowerCase() : (item.weaponDamageType ?? "weapon");
       const lo = +dmg[1], hi = dmg[2] ? +dmg[2] : lo;
       const ratio = ((lo + hi) / 2) / Math.max(1, p.damage ? (p.damage.min + p.damage.max) / 2 : 1);
       const freq = ratio < PROC_RULE.critBelow ? "crit" : ratio < PROC_RULE.burstFrom ? "perTurn" : "limited";
@@ -240,13 +297,25 @@ export function itemSlot(item) {
 export function candidates(item, index) {
   const slot = itemSlot(item);
   if (!slot || !index?.entries) return [];
+  // Template-only weapon types (staves): only the +N template, never a specific official item.
+  if (slot === "weapon" && OFFICIAL_BASES.templateOnly.includes(item.p?.wowType)) return [];
   const family = item.extras?.base ?? item.armorKey ?? null;
   return index.entries.filter(e => {
-    if (e.slot !== slot || e.rarity > item.tier) return false;
+    if (e.excluded || e.rarity === null || e.slot !== slot || e.rarity > item.tier) return false;
+    if (outOfRule(e, item)) return false;
     if (["weapon", "armor"].includes(slot) && (!e.family || e.family !== family)) return false;
     if (e.rarity === 0 && item.tier > 0 && !e.tags.size) return false; // a plain mundane item is the baseline, not a base
     return true;
   });
+}
+
+/**
+ * A decided-rule base (VARIANT_BASES "need" rule, by name) outside its rule's quality range is never a free
+ * candidate either (e.g. the green / blue slot-recovery base for a purple item, which keeps its own larger rule).
+ */
+function outOfRule(e, item) {
+  const n = String(e.name ?? "").toLowerCase();
+  return VARIANT_BASES.some(r => r.kind === "need" && r.name.toLowerCase() === n && (item.tier < (r.minTier ?? 1) || item.tier > (r.maxTier ?? 4)));
 }
 
 /** Specific-base strength guard: false when the base's extra damage is far stronger than the item's own line. */
@@ -313,7 +382,7 @@ export function tableBase(item, index, { scoreItems = true, variant = null } = {
   const { p, shape, tier } = item;
   const lookup = name => index?.byName?.get(name.toLowerCase()) ?? null;
   const needs = new Set((p.effects ?? []).map(lineNeed).filter(Boolean));
-  const fits = (rule, e, maxRarity = tier) => e && e.rarity <= maxRarity ? { rule, entry: e } : null;
+  const fits = (rule, e, maxRarity = tier) => e && !e.excluded && e.rarity !== null && e.rarity <= maxRarity ? { rule, entry: e } : null;
   for (const rule of VARIANT_BASES) {
     if (rule.slot && rule.slot !== p.slot) continue;
     if (rule.kind === "variant") {
@@ -337,7 +406,7 @@ export function tableBase(item, index, { scoreItems = true, variant = null } = {
       if (rule.belt) {
         const want = OFFICIAL_BASES.beltScore[tier];
         if (!want) continue;
-        const belt = (index?.entries ?? []).find(e => e.name.toLowerCase().startsWith(rule.name.toLowerCase()) && e.scores?.[rule.ability] === want);
+        const belt = (index?.entries ?? []).find(e => !e.excluded && e.name.toLowerCase().startsWith(rule.name.toLowerCase()) && e.scores?.[rule.ability] === want);
         if (belt) return { rule, entry: belt };
         continue;
       }
@@ -388,7 +457,7 @@ export function isHandmade(doc, list = []) {
   return [doc?.name, doc?.uuid, doc?._id, doc?.id].some(k => k && keys.has(String(k).toLowerCase()));
 }
 
-const asBase = (e, extra) => ({ uuid: e.uuid, name: e.name, pack: e.pack, source: "compendium", attune: !!e.attune, plus: 0, ...extra });
+const asBase = (e, extra) => ({ uuid: e.uuid, name: e.name, pack: e.pack, source: "compendium", attune: !!e.attune, plus: 0, slot: e.slot ?? null, ...extra });
 
 /**
  * Match one item.
@@ -408,7 +477,8 @@ export function matchBase(item, index, { thresholds = OFFICIAL_BASES.confidence,
   if (table?.entry) {
     const s = scoreBase(needs, table.entry, item);
     const confidence = Math.max(s.confidence, OFFICIAL_BASES.tableConfidence);
-    return { status: decide(confidence, thresholds), base: asBase(table.entry, { confidence, covered: s.covered, excess: s.excess, rule: table.rule.kind }), candidates: [], needs };
+    return { status: decide(confidence, thresholds), base: asBase(table.entry, { confidence, covered: s.covered, excess: s.excess, rule: table.rule.kind }), candidates: [], needs,
+      shortlist: table.entry.enriched ? [] : [table.entry] };
   }
   const scored = candidates(item, index).filter(e => strengthGuard(needs, e))
     .map(e => ({ entry: e, ...scoreBase(needs, e, item) }))
@@ -418,7 +488,7 @@ export function matchBase(item, index, { thresholds = OFFICIAL_BASES.confidence,
     .sort((a, b) => b.score - a.score || b.confidence - a.confidence || a.name.localeCompare(b.name));
   const best = all[0] ?? null;
   const status = best ? decide(best.confidence, thresholds) : "none";
-  return { status, base: status === "none" ? null : best, candidates: all.slice(0, 3), needs };
+  return { status, base: status === "none" ? null : best, candidates: all.slice(0, 3), needs, shortlist: index ? shortlist(item, index, needs) : [] };
 }
 
 /**
@@ -429,7 +499,8 @@ export function uncoveredRiders(riders, base) {
   if (!base) return riders;
   if (base.source === "template") return riders;
   const tags = base.tags ?? new Set(base.covered ?? []);
-  return riders.filter(r => !riderTags(r).some(t => tags.has(t)));
+  // A wand base already is the wand's attack: the fallback cantrip is never added on top of it.
+  return riders.filter(r => !(r.type === "cantrip" && base.slot === "wand") && !riderTags(r).some(t => tags.has(t)));
 }
 
 /** Tags a rider would be covered by. */

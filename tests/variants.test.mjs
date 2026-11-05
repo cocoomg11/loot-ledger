@@ -313,3 +313,40 @@ test("sample expectations (weapons), recast as made-up fixtures", () => {
   const fang = conv({ name: "Test Gloom Fang", quality: "rare", type: "weapon", lines: ["One-Hand", "Sword", "30 - 55 Damage", "Speed 2.90", "Chance on hit: Wounds the target for 45 Shadow damage.", "Item Level 40"] });
   assert.equal(fang.result.bonus, 1); assert.equal(rider(fang, "extraDamage").trigger, "hit");
 });
+
+test("main stat ties: quality-gated jewellery row first, then armour order (plate / mail: Sta before Str), then slot rules", () => {
+  const p = stats => ({ stats, statLines: {}, itemLevel: 60 });
+  assert.equal(V.mainStat(p({ int: 12, con: 12 }), facts("Finger"), 3).ability, "int", "purple ring: caster stat -> spell DC row wins");
+  assert.equal(V.mainStat(p({ int: 12, con: 12 }), facts("Finger"), 2).ability, "con", "blue ring: no gated row, stat order");
+  assert.equal(V.mainStat(p({ str: 14, con: 14 }), facts("Feet", "Plate"), 2).ability, "con", "plate boots: armour order beats Str's boot row");
+  assert.equal(V.mainStat(p({ str: 9, dex: 9 }), facts("Legs", "Leather"), 2).ability, "dex", "leather: Agi");
+  assert.equal(V.mainStat(p({ con: 2, wis: 2 }), facts("Waist", "Cloth"), 1).ability, "wis", "cloth: Int / Spi");
+  const ring = conv({ name: "Test Wyrm Signet", quality: "epic", lines: ["Finger", "+12 Intellect", "+12 Stamina", "Item Level 70"] });
+  assert.equal(variantOf(ring), "spellDC"); assert.equal(attuned(ring), true);
+  const boots = conv({ name: "Test Rime Sabatons", quality: "rare", lines: ["Feet", "Plate", "300 Armor", "+14 Strength", "+14 Stamina", "Item Level 58"] });
+  assert.equal(variantOf(boots), "conSaves");
+});
+
+test("untyped damage procs take the weapon's damage type; a proc with an extra clause is flagged", () => {
+  const saw = conv({ name: "Test Grim Cleaver", quality: "rare", type: "weapon", lines: ["Two-Hand", "Polearm", "40 - 60 Damage", "Speed 3.50", "Chance on hit: Wounds the target for 100 to 130 damage.", "Item Level 50"] });
+  const b = rider(saw, "burstDamage");
+  assert.deepEqual([b.formula, b.uses, b.damageType], ["4d6", 1, "slashing"], "ratio 2.3 -> Rare blast in the polearm's type");
+  assert.equal(saw.data.flags["loot-ledger"].converted.review.length, 0, "not left for review");
+  const small = conv({ name: "Test Bonk Knuckle", quality: "rare", type: "weapon", lines: ["One-Hand", "Mace", "30 - 50 Damage", "Speed 2.00", "Chance on hit: Pummels the target for 4 damage and interrupts the spell being cast.", "Item Level 40"] });
+  assert.equal(rider(small, "extraDamage"), undefined, "untyped damage + another effect: review");
+  assert.ok(small.data.flags["loot-ledger"].converted.flags.some(f => f.kind === "procParts"));
+  const typed = conv({ name: "Test Gloom Hook", quality: "epic", type: "weapon", lines: ["One-Hand", "Dagger", "40 - 70 Damage", "Speed 1.80", "Chance on hit: Hurls a bolt for 70 Shadow damage and weakens the target.", "Item Level 60"] });
+  assert.equal(rider(typed, "extraDamage").damageType, "necrotic", "typed damage still converts");
+  assert.ok(typed.data.flags["loot-ledger"].converted.flags.some(f => f.kind === "procParts"), "the rest is flagged");
+  const ring = conv({ name: "Test Spiked Band", quality: "rare", lines: ["Finger", "Chance on hit: Wounds the target for 20 damage.", "Item Level 40"] });
+  assert.ok(ring.data.flags["loot-ledger"].converted.review.some(r => /not a weapon/.test(r)), "non-weapons: review");
+});
+
+test("endgame raise: +1 step on the +N of weapons, chest armour and shields (override only)", () => {
+  const plate = { name: "Test Drake Breastplate", quality: "epic", lines: ["Chest", "Mail", "400 Armor", "+15 Stamina", "Equip: Improves your chance to get a critical strike by 1%.", "Item Level 70"] };
+  assert.equal(conv(plate).result.bonus, 1, "curve: Very Rare armour with features +1");
+  assert.equal(conv(plate, { overrides: { raise: true } }).result.bonus, 2, "raise override +1 step");
+  const shield = { name: "Test Lion Guard", quality: "rare", lines: ["Off Hand", "Shield", "1500 Armor", "+10 Stamina", "Item Level 50"] };
+  const s0 = conv(shield).result.bonus;
+  assert.equal(conv(shield, { overrides: { raise: true } }).result.bonus, s0 + 1);
+});

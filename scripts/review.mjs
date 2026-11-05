@@ -286,7 +286,7 @@ export class ReviewBoard extends ApplicationV2 {
             ${candidates.length ? `<select name="candidate">${candidates.map(c => `<option value="${esc(c.uuid)}">${esc(c.name)} (${c.confidence})</option>`).join("")}</select><button type="button" data-action="pickBase">Use this base</button>` : ""}
             ${b || o.base ? `<button type="button" data-action="dropBase" data-tooltip="Use the tooltip conversion instead">Drop base</button>` : ""}
             ${canAdvantage ? `<button type="button" data-action="advantage">${o.advantage ? "Advantage: on" : "Advantage: off"}</button>` : ""}
-            <button type="button" data-action="raise" data-tooltip="Endgame +1 step on the weapon bonus">${o.raise ? "Raise: on" : "Raise: off"}</button>
+            <button type="button" data-action="raise" data-tooltip="Endgame +1 step on the item's +N (weapon, chest armour, shield)">${o.raise ? "Raise: on" : "Raise: off"}</button>
           </div>
           ${entry.members ? `<p><strong>Group of ${entry.members.length}:</strong> ${entry.members.map(m => esc(m.name)).join(", ")}. A decision here applies to all of them. <button type="button" data-action="split" data-tooltip="Review this item on its own">Split this item</button></p>` : ""}
           ${entry.flags.length ? `<p><strong>Flags:</strong> ${entry.flags.map(f => esc(f.why)).join("; ")}</p>` : ""}

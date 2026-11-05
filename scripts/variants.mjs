@@ -29,7 +29,7 @@ export function slotRule(ability, facts, tier) {
     if (r.held && !facts.held) continue;
     if (r.caster && !facts.caster) continue;
     if (r.minTier && tier < r.minTier) continue;
-    return { variant: r.variant, fallback: false };
+    return { variant: r.variant, fallback: false, gated: !!r.minTier };
   }
   return null;
 }
@@ -38,8 +38,13 @@ export function slotRule(ability, facts, tier) {
 export const statThreshold = ilvl => Math.max(STAT_RULE.minValue, Math.ceil((ilvl ?? 1) / STAT_RULE.perItemLevel));
 
 /**
- * The main stat: highest value; ties broken by (a) a slot rule for this slot (not a fallback row), (b) the armour
- * type's stats, (c) stat order. Returns {ability, value, line, sub (below the threshold)} or null.
+ * The main stat: highest value; ties broken by
+ *   (a) a quality-gated slot rule (a row with minTier, e.g. purple / orange jewellery with a caster stat -> spell DC),
+ *   (b) the armour type's stats, in the armour's own order (VARIANT_RULE.armorStats: plate / mail Sta then Str,
+ *       leather Agi, cloth Int then Spi),
+ *   (c) any other slot rule for this slot (not a fallback row),
+ *   (d) stat order.
+ * A slot rule always beats plain stat order. Returns {ability, value, line, sub (below the threshold)} or null.
  */
 export function mainStat(p, facts, tier) {
   const keys = STAT_ORDER.filter(k => p.stats?.[k]);
@@ -47,8 +52,13 @@ export function mainStat(p, facts, tier) {
   const top = Math.max(...keys.map(k => p.stats[k]));
   const tied = keys.filter(k => p.stats[k] === top);
   const armorStats = VARIANT_RULE.armorStats[facts.armor] ?? [];
-  const rank = k => [slotRule(k, facts, tier)?.fallback === false ? 0 : 1, armorStats.includes(k) ? 0 : 1, STAT_ORDER.indexOf(k)];
-  tied.sort((a, b) => { const x = rank(a), y = rank(b); return x[0] - y[0] || x[1] - y[1] || x[2] - y[2]; });
+  const rank = k => {
+    const row = slotRule(k, facts, tier);
+    const gated = row && !row.fallback && row.gated;
+    const armour = armorStats.indexOf(k);
+    return [gated ? 0 : 1, armour >= 0 ? armour : armorStats.length, row?.fallback === false ? 0 : 1, STAT_ORDER.indexOf(k)];
+  };
+  tied.sort((a, b) => { const x = rank(a), y = rank(b); return x[0] - y[0] || x[1] - y[1] || x[2] - y[2] || x[3] - y[3]; });
   const ability = tied[0];
   return { ability, value: top, line: p.statLines?.[ability] ?? `+${top} ${ability}`, sub: top < statThreshold(p.itemLevel) };
 }

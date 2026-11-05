@@ -299,3 +299,24 @@ test("rule-family settings reach the converter and the source hash; dry run stil
   const b = await build({ dryRun: true });
   assert.ok(a.plan.convert.create.length === 1 && b.plan.convert.create.length === 1);
 });
+
+test("shortlisted candidates are read in full when the index lacks effect changes; cached per build; dry run writes nothing", async () => {
+  // The only signal of this base is its Active Effect (no rules text), which a real pack index does not carry.
+  const silent = fxBase("fx2", "Fixture Silent Ring", { effects: [{ _id: "fxe1", name: "fx", transfer: true, system: { changes: [{ key: "system.traits.dr.value", type: "add", value: "fire" }] } }] });
+  const mk = () => {
+    const env = install({ sourceItems: [emberRing()], settings: { convertOnBuild: true, baseSources: "test.bases" }, extraPacks: { "test.bases": [silent] } });
+    env.packs.get("test.bases").bareIndexEffects = true;
+    return env;
+  };
+  const dry = mk();
+  const calls = spyOnWrites(dry);
+  const s = await build({ dryRun: true });
+  assert.deepEqual(calls, [], "loading candidate documents is read-only");
+  assert.equal(s.plan.items.find(i => i.name === "Test Ember Band").base.name, "Fixture Silent Ring");
+  const env = mk();
+  await build({ confirm: false });
+  const ring = conv(env).docs.get(emberRing()._id);
+  assert.equal(ring.flags["loot-ledger"].converted.route, "base", "the effect tag reached the matcher");
+  assert.equal(ring.flags["loot-ledger"].base.name, "Fixture Silent Ring");
+  assert.equal(env.packs.get("test.bases").docCalls, 1, "one document load: shortlist and accepted base share the cache");
+});

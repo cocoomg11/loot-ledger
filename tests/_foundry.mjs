@@ -21,7 +21,9 @@ export class Pack {
   }
   get index() { return this._index(); }
   _index() { const i = new Index(); for (const d of this.docs.values()) i.set(d._id, {
-    _id: d._id, name: d.name, type: d.type, system: clone(d.system ?? {}), effects: clone(d.effects ?? []), _stats: clone(d._stats ?? {}),
+    // bareIndexEffects: like a real pack index, effects carry no changes (names only).
+    _id: d._id, name: d.name, type: d.type, system: clone(d.system ?? {}),
+    effects: this.bareIndexEffects ? (d.effects ?? []).map(e => ({ _id: e._id, name: e.name, type: e.type })) : clone(d.effects ?? []), _stats: clone(d._stats ?? {}),
     flags: clone(d.flags ?? {})
   }); return i; }
   async getIndex() { this.indexCalls++; return this._index(); }
@@ -29,7 +31,7 @@ export class Pack {
   get documentClass() { return this.collection.endsWith("tables") ? globalThis.RollTable : globalThis.Item; }
   async configure(o) { Object.assign(this, o); }
   async getDocuments() { return [...this.docs.values()].map(d => makeDoc(d, this.collection)); }
-  async getDocument(id) { const d = this.docs.get(id); return d ? makeDoc(d, this.collection) : null; }
+  async getDocument(id) { this.docCalls = (this.docCalls ?? 0) + 1; const d = this.docs.get(id); return d ? makeDoc(d, this.collection) : null; }
 }
 
 function makeDoc(d, collection) {

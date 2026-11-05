@@ -7,7 +7,7 @@ import {
   analyse, priceFor, formatCoins, bandLabel, creatureRegex
 } from "./data.mjs";
 import { convertItem, reviewRow, applyOfficial, bookItem, CONVERTER_VERSION, RULE_OPTIONS } from "./convert.mjs";
-import { INDEX_FIELDS, MATCHER_VERSION, indexBases, bookEntry, parseConfidence, parseList, isHandmade } from "./base-match.mjs";
+import { INDEX_FIELDS, MATCHER_VERSION, indexBases, bookEntry, parseConfidence, parseList, isHandmade, enrichEntry } from "./base-match.mjs";
 import { OFFICIAL_BASES } from "./rules.mjs";
 import {
   sourceHash, rulesFingerprint, planSync, indexReplaceList, replaceEntry, replaceListStatus, reportRow, errorRow,
@@ -247,7 +247,8 @@ export function baseSourceOrder(bs) {
 }
 
 /**
- * Index every base source once per build (pack indexes only; documents are loaded only for accepted bases).
+ * Index every base source once per build (pack indexes; full documents only for accepted bases and for each item's
+ * shortlisted candidates, whose Active Effects the index lacks; both cached for the build).
  * Returns the matcher options, the book index and a fingerprint for the source hash.
  */
 export async function loadBases(bs) {
@@ -268,6 +269,20 @@ export async function loadBases(bs) {
     async doc(uuid, pack, id) {
       if (!docs.has(uuid)) docs.set(uuid, (await game.packs.get(pack)?.getDocument(id)) ?? null);
       return docs.get(uuid);
+    },
+    /**
+     * Read the Active Effects of shortlisted candidates from their full documents (the pack index has none of
+     * their changes); each entry is loaded at most once per build. Read-only. Returns true when any tag changed.
+     */
+    async enrich(entries = []) {
+      let changed = false;
+      for (const e of entries) {
+        if (e.enriched) continue;
+        let d = null;
+        try { d = await this.doc(e.uuid, e.pack, e.id); } catch { d = null; }
+        if (enrichEntry(e, d)) changed = true;
+      }
+      return changed;
     }
   };
 }
@@ -303,7 +318,9 @@ async function convertOne(doc, meta, ratio, opts, bases) {
     const book = await bases.doc(hit.uuid, bases.order[0], hit._id);
     if (book) return convertedItem(doc, meta, ratio, { ...opts, book });
   }
-  const pre = convertItem(doc, opts);
+  let pre = convertItem(doc, opts);
+  // Shortlisted candidates are read in full once (their effect changes); match again when that changed any tag.
+  if (pre.match?.shortlist?.length && await bases.enrich(pre.match.shortlist)) pre = convertItem(doc, opts);
   const off = pre.basedOn ? await bases.doc(pre.basedOn.uuid, pre.basedOn.pack, pre.basedOn.uuid?.split(".").pop()) : null;
   return convertedItem(doc, meta, ratio, { ...opts, official: off });
 }

@@ -31,7 +31,7 @@
  */
 import { MODULE_ID, SOURCE_MODULE, QUALITY_BY_KEY, analyse, tooltipLines, priceFor, formatCoins } from "./data.mjs";
 import { suffixGroup } from "./suffix.mjs";
-import { matchBase, variantStep, uncoveredRiders, MATCHER_VERSION } from "./base-match.mjs";
+import { matchBase, variantStep, uncoveredRiders, MATCHER_VERSION, PROC_DAMAGE } from "./base-match.mjs";
 import { slotFacts, slotRule, mainStat, statThreshold, variantFeature, variantKeys, overBudget, lineWeight, isFree, STAT_ORDER } from "./variants.mjs";
 // Every tunable number lives in rules.mjs (book-day calibration edits values there, not logic here).
 import {
@@ -44,7 +44,7 @@ export {
 
 /** Bump when the rules (rules.mjs) or the conversion logic change: it is part of every item's source hash, so
  * Build re-converts items converted under an older version. */
-export const CONVERTER_VERSION = 7;
+export const CONVERTER_VERSION = 8;
 
 /* -------------------------------------------- */
 /*  SRD 5.2 reference data                      */
@@ -338,6 +338,10 @@ export function auditHandAuthored(p) {
         }
       } else if (c.needType) {
         ok = c.needType.test(p.wowType ?? "") || c.needType.test(p.slot ?? "");
+      } else if (c.id === "crit" && p.damage && /this weapon/i.test(text)) {
+        // A weapon's own critical-hit rule ("when you score a critical hit with this weapon") traces to its damage line.
+        ok = true;
+        used.add(`${p.damage.min} - ${p.damage.max} Damage`);
       } else {
         const lm = support.split("\n").find(l => c.need.test(l));
         ok = !!lm;
@@ -402,11 +406,13 @@ export function convertItem(src, options = {}) {
   let system = auto.system ?? clone(base.system);
   let itemType = auto.type;
 
-  // The source module's own hand-written rules: kept only when every mechanic in them traces to a line.
+  // The source module's own hand-written rules: kept only when every mechanic in them traces to a line and no
+  // decided rule covers the item (sourceTextWins).
   let hand = null;
   if (p.handAuthored) {
     const audit = auditHandAuthored(p);
-    hand = { audit, kept: keepHandAuthored && audit.pass && !forceReplace, forced: !!forceReplace };
+    const decided = audit.pass ? sourceTextWins(shape, ctx) : { wins: true, ruled: [] };
+    hand = { audit, kept: keepHandAuthored && audit.pass && !forceReplace && decided.wins, forced: !!forceReplace, ruled: decided.ruled };
     if (hand.kept) {
       itemType = base.type;
       system = clone(base.system);
@@ -429,7 +435,8 @@ export function convertItem(src, options = {}) {
   let match = null;
   if (officialBases && !hand?.kept && ctx.tier >= 1 && !["loot", "container"].includes(shape)) {
     const armorKey = system.type?.baseItem || null;
-    match = variantStep(matchBase({ p, shape, tier: ctx.tier, bonus: ctx.bonus, riders: ctx.riders, extras: ctx.extras, armorKey, variant: ctx.extras.variant ?? null },
+    match = variantStep(matchBase({ p, shape, tier: ctx.tier, bonus: ctx.bonus, riders: ctx.riders, extras: ctx.extras, armorKey, variant: ctx.extras.variant ?? null,
+      weaponDamageType: WEAPON_BASES[ctx.extras.base]?.dmg?.[2] ?? null },
       bases, { thresholds: baseConfidence, scoreItems }), { p, shape }, ctx);
   }
   if (match) match = applyBaseOverride(match, ctx, bases);
@@ -660,9 +667,28 @@ function isFocusLike(p) {
     || (/Off-?hand/i.test(p.slot ?? "") && isCasterGear(p));
 }
 
-/** Why a hand-written rule was replaced: the audit's problems, plus the replace list when it was on it. */
+/**
+ * Source text vs decided rules. The source module's hand-written rule wins only where Loot Ledger has not decided a
+ * rule of its own:
+ *   - weapons (shape "weapon"): the hand text wins (its hit / critical-hit / proc shape is kept as written; only the
+ *     +N backbone is added when it lacks one);
+ *   - every other item: when any of its lines became a rider under a decided line rule (stat variant, critical
+ *     dice, parry, mana / health regeneration, spell power, resistances, defence, procs, ...), the rules win and
+ *     the hand text is listed as replaced (review flag sourceTextConflict). Items no decided rule covers keep the
+ *     hand text.
+ * @returns {{wins:boolean, ruled:string[]}} ruled: the rider types that decided it
+ */
+export function sourceTextWins(shape, ctx) {
+  if (shape === "weapon") return { wins: true, ruled: [] };
+  const ruled = [...new Set((ctx.riders ?? []).map(r => r.type))];
+  return { wins: ruled.length === 0, ruled };
+}
+
+/** Why a hand-written rule was replaced: the audit's problems, decided rules, and the replace list. */
 function replacedWhy(hand) {
-  return [...hand.audit.problems, ...(hand.forced ? [{ claim: "replace-list", text: "on the replace list" }] : [])];
+  return [...hand.audit.problems,
+    ...(hand.ruled?.length && hand.audit.pass ? [{ claim: "decided-rule", text: `decided rules cover this item (${hand.ruled.join(", ")})` }] : []),
+    ...(hand.forced ? [{ claim: "replace-list", text: "on the replace list" }] : [])];
 }
 
 function clone(o) { return o === undefined ? undefined : JSON.parse(JSON.stringify(o)); }
@@ -762,10 +788,12 @@ function enhancement(ctx, kind) {
   const table = kind === "armor" ? ARMOR_BONUS : GEAR_BONUS;
   const row = kind === "weapon" ? { plain: WEAPON_BONUS[tier] ?? 0, withEffect: WEAPON_BONUS[tier] ?? 0 } : table[tier] ?? table[0];
   ctx.bonus = effect ? row.withEffect : row.plain;
-  // Endgame raise: a review-board override (+1 step), never by name. Capped at +3.
-  if (kind === "weapon" && ctx.bonus && ctx.overrides.raise) ctx.bonus = Math.min(3, ctx.bonus + 1);
+  // Endgame raise: a review-board override (+1 step on the +N of a weapon, chest armour or shield), never by name.
+  // Capped at +3. Items with no +N are not raised.
+  const raised = !!(ctx.bonus && ctx.overrides.raise);
+  if (raised) ctx.bonus = Math.min(3, ctx.bonus + 1);
   if (!ctx.bonus) return;
-  const why = row.plain !== row.withEffect ? " with no effect line" : ctx.overrides.raise && kind === "weapon" ? "; endgame raise (review override)" : "";
+  const why = raised ? "; endgame raise (review override)" : row.plain !== row.withEffect ? " with no effect line" : "";
   const text = kind === "weapon"
     ? `You have a +${ctx.bonus} bonus to attack rolls and damage rolls made with this magic weapon.`
     : kind === "shield"
@@ -882,12 +910,18 @@ function applyResistances(ctx) {
   }
 }
 
-/** A damage proc on a weapon. */
+/** The weapon's own damage type ("Slashing"), for untyped procs. */
+function weaponDamageType(ctx) {
+  const t = WEAPON_BASES[ctx.extras.base]?.dmg?.[2];
+  return t ? cap(t) : "Bludgeoning";
+}
+
+/** A damage proc on a weapon (school null: untyped damage, dealt as the weapon's own damage type). */
 function procFeature(ctx, school, lo, hi, line, kindLabel) {
   const { p, tier } = ctx;
-  const type = damageType(school, line);
+  const type = school ? damageType(school, line) : weaponDamageType(ctx);
   const ratio = ((lo + (hi ?? lo)) / 2) / Math.max(1, avg(p.damage ?? { min: 1, max: 1 }));
-  const src = `${kindLabel} — ${lo}${hi ? `–${hi}` : ""} ${school} damage (${ratio.toFixed(1)}× a normal hit)`;
+  const src = `${kindLabel} — ${lo}${hi ? `–${hi}` : ""} ${school ?? "untyped (the weapon's type)"} damage (${ratio.toFixed(1)}× a normal hit)`;
   if (ratio < PROC_RULE.critBelow) {
     const d = PROC_RULE.critDice[tier];
     addFeature(ctx, {
@@ -925,13 +959,18 @@ function applyEffects(ctx) {
     let m;
     const absorbed = NOT_CONVERTED.find(r => r.rx.test(t));
     // Damage procs: "Chance on hit: ... N (to M) School damage" or "Equip: Chance to strike ... for N to M School damage".
-    const dmg = t.match(/(\d+)(?: to (\d+))? (Fire|Frost|Nature|Shadow|Arcane|Holy) damage/i);
+    // Untyped damage ("Wounds the target for N to M damage") takes the weapon's own damage type.
+    const dmg = t.match(PROC_DAMAGE);
     const isProc = fx.kind === "hit" || (fx.kind === "equip" && /\bchance\b/i.test(t));
     if (dmg && isProc) {
       const extra = t.replace(/\(.*?\)/g, "").split(/\.\s+/).filter(x => x.trim()).length > 1;
+      // "... damage and <does something else>": the damage converts, the rest is flagged (procParts). An untyped
+      // proc with such a clause is mostly its other effect: it stays a review line.
+      const clause = /damage\b[^.]*\band\s+\w+/i.test(t);
       if (!isWeapon) { review(ctx, line, "damage proc on an item that is not a weapon; no weapon to attach it to"); continue; }
-      if (extra) { review(ctx, line, "the proc does more than deal damage (extra targets or effects); write this one by hand"); flag(ctx, "procParts"); continue; }
-      const school = cap(dmg[3].toLowerCase());
+      if (extra || (clause && !dmg[3])) { review(ctx, line, "the proc does more than deal damage (extra targets or effects); write this one by hand"); flag(ctx, "procParts"); continue; }
+      if (clause) flag(ctx, "procParts");
+      const school = dmg[3] ? cap(dmg[3].toLowerCase()) : null;
       procFeature(ctx, school, +dmg[1], dmg[2] ? +dmg[2] : null, line, label);
       continue;
     }

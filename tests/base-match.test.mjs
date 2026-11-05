@@ -7,7 +7,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import * as M from "../scripts/base-match.mjs";
 import { OFFICIAL_BASES, VARIANT_BASES } from "../scripts/rules.mjs";
-import { convertItem, parseSource, classify, applyOfficial, bookItem, CONVERTER_VERSION, ROUTES } from "../scripts/convert.mjs";
+import { convertItem, parseSource, classify, applyOfficial, bookItem, auditHandAuthored, CONVERTER_VERSION, ROUTES } from "../scripts/convert.mjs";
 import { srcItem } from "./_fixtures.mjs";
 
 const ae = (...changes) => [{ name: "fx", transfer: true, changes: changes.map(([key, value]) => ({ key, mode: 2, value: String(value) })) }];
@@ -301,4 +301,78 @@ test("base signals: score items read from the text when the index has no effect 
 test("index fields avoid system.source.rules (a nested field that breaks some index reads); the source object is requested instead", () => {
   assert.ok(M.INDEX_FIELDS.includes("system.source"));
   assert.ok(!M.INDEX_FIELDS.includes("system.source.rules"));
+});
+
+test("source text vs decided rules: weapons keep the hand text; other items use the rules when a rule covers a line", () => {
+  // A non-weapon whose hand text passes the audit, but whose lines decided rules convert: the rules win.
+  const collar = srcItem({ name: "Test Hide Collar", quality: "epic",
+    pre: "<p><strong>Hide.</strong> You gain a +1 bonus to Armor Class while wearing this collar.</p>",
+    lines: ["Neck", "+12 Stamina", "Equip: Increases your chance to dodge an attack by 1%.", "Equip: Improves your chance to get a critical strike by 1%.", "Item Level 70"] });
+  const c = convertItem(collar, { dnd5eMajor: 6, bases: fixtureIndex() });
+  const f = c.data.flags["loot-ledger"].converted;
+  assert.equal(f.handAuthoredKept, false);
+  assert.ok(f.flags.some(x => x.kind === "sourceTextConflict"));
+  assert.ok(f.handAuthoredReplaced.some(x => /^decided-rule: /.test(x)), "listed as replaced by the decided rules");
+  assert.ok(c.data.flags["loot-ledger"].riders.some(r => r.type === "parry"));
+  // A non-weapon no decided rule covers keeps its hand text.
+  const charm = srcItem({ name: "Test Squirrel Charm", quality: "rare",
+    pre: "<p><strong>Squirrel.</strong> As a Magic action, you can summon a friendly squirrel.</p>",
+    lines: ["Trinket", "Use: Summons a friendly squirrel.", "Item Level 20"] });
+  const k = convertItem(charm, { dnd5eMajor: 6 });
+  assert.equal(k.data.flags["loot-ledger"].converted.handAuthoredKept, true);
+  assert.equal(k.data.flags["loot-ledger"].converted.sourceText, true);
+  // Weapons: a critical-hit rule about the weapon itself traces to its damage line, and the hand text is kept.
+  const reaper = srcItem({ name: "Test Reaping Axe", quality: "rare", type: "weapon",
+    pre: "<p><strong>Reap.</strong> When you score a critical hit with this weapon, roll the weapon's damage dice one additional time.</p>",
+    lines: ["Two-Hand", "Axe", "150 - 250 Damage", "Speed 3.80", "+13 Stamina", "Equip: +60 Attack Power.", "Item Level 63"] });
+  const r = convertItem(reaper, { dnd5eMajor: 6 });
+  assert.equal(r.data.flags["loot-ledger"].converted.handAuthoredKept, true);
+  assert.equal(r.data.system.magicalBonus, 1, "+N backbone added");
+  // A crit claim with no damage line behind it still fails the audit.
+  const p = parseSource(srcItem({ name: "Test Crit Charm", quality: "rare", pre: "<p><strong>X.</strong> When you score a critical hit with this weapon, it deals 1d6 extra.</p>", lines: ["Trinket", "Item Level 20"] }));
+  assert.ok(auditHandAuthored(p).problems.some(x => x.claim === "crit"));
+});
+
+test("matcher guards: staves use the +N template only; magic entries with no rarity are never candidates; out-of-range rule bases", () => {
+  const idx = M.indexBases([{ pack: "t", entries: [
+    entry("s1", "Fixture Grove Staff", { type: "weapon", t: "simpleM", family: "quarterstaff", rarity: "rare", text: "<p>You gain a bonus to spell attack rolls.</p>" }),
+    { ...entry("w1", "Fixture Battle Wand, +1, +2, or +3", { t: "wand", effects: ae(["system.bonuses.rsak.attack", "+ 1"]) }), system: { rarity: "", type: { value: "wand" }, properties: ["foc", "mgc"], description: { value: "" } } },
+    entry("p1", VARIANT_BASES.find(r => r.kind === "need" && r.need === "slotRecovery").name, { rarity: "uncommon", text: "<p>You can regain one expended spell slot.</p>" })
+  ] }]);
+  assert.equal(M.entryRarity({ system: { rarity: "", properties: ["mgc"] } }), null);
+  assert.equal(M.entryRarity({ system: { rarity: "", properties: [] } }), 0, "mundane gear is common");
+  assert.equal(M.entryRarity({ system: { rarities: [], rarity: "rare" } }), 2, "an empty rarities list falls back to rarity");
+  const staff = item(srcItem({ name: "Test Sage Staff", quality: "epic", type: "weapon", lines: ["Two-Hand", "Staff", "60 - 90 Damage", "Speed 3.00", "+15 Intellect", "Equip: Increases damage and healing done by magical spells and effects by up to 20.", "Item Level 50"] }), { bonus: 2, extras: { base: "quarterstaff", weapon: true } });
+  assert.deepEqual(M.candidates(staff, idx), []);
+  assert.equal(M.matchBase(staff, idx).base.source, "template");
+  const wand = item(srcItem({ name: "Test Ember Wand", quality: "rare", type: "weapon", lines: ["Ranged", "Wand", "30 - 60 Fire Damage", "Speed 1.40", "Equip: Increases damage done by Fire spells and effects by up to 9.", "Item Level 40"] }));
+  assert.deepEqual(M.candidates(wand, idx), [], "no-rarity multi-tier wand skipped");
+  const trinket = item(srcItem({ name: "Test Mana Shard", quality: "epic", lines: ["Trinket", "Equip: Restores 16 mana per 5 sec.", "Item Level 70"] }));
+  assert.deepEqual(M.candidates(trinket, idx), [], "the green / blue slot-recovery base is not a free candidate for a purple item");
+  const green = item(srcItem({ name: "Test Mana Bead", quality: "uncommon", lines: ["Trinket", "Equip: Restores 2 mana per 5 sec.", "Item Level 20"] }));
+  assert.equal(M.candidates(green, idx).length, 1);
+});
+
+test("wand bases cover the cantrip fallback; v14 effect changes; enrichment from full documents", () => {
+  assert.deepEqual(M.uncoveredRiders([{ type: "cantrip" }, { type: "spellBonus" }], { source: "compendium", slot: "wand", covered: [] }).map(r => r.type), ["spellBonus"]);
+  assert.deepEqual(M.uncoveredRiders([{ type: "cantrip" }], { source: "compendium", slot: "Trinket", covered: [] }).length, 1);
+  const v14 = { name: "x", type: "equipment", system: { type: { value: "ring" }, rarities: ["rare"] },
+    effects: [{ name: "fx", system: { changes: [{ key: "system.traits.dr.value", type: "add", value: "cold" }] } }] };
+  assert.ok(M.baseSignals(v14).tags.has("resist:cold"), "Foundry 14 system.changes are read");
+  // Index entries list effects without changes: the entry starts unenriched and gains tags from its document.
+  const bare = { ...entry("e1", "Fixture Frost Band", { t: "ring", rarity: "rare" }), effects: [{ _id: "x", name: "fx" }] };
+  const idx = M.indexBases([{ pack: "t", entries: [bare] }]);
+  const e = idx.entries[0];
+  assert.equal(e.enriched, false); assert.equal(e.tags.has("resist:cold"), false);
+  const ring = item(srcItem({ name: "Test Rime Band", quality: "epic", lines: ["Finger", "+25 Frost Resistance", "Item Level 60"] }));
+  assert.deepEqual(M.matchBase(ring, idx).shortlist.map(x => x.id), ["e1"], "shortlisted by index score even with no coverage yet");
+  assert.equal(M.enrichEntry(e, { ...bare, effects: v14.effects }), true);
+  assert.equal(e.tags.has("resist:cold"), true); assert.equal(e.enriched, true);
+  assert.equal(M.enrichEntry(e, null), false, "enriched once");
+  assert.deepEqual(M.matchBase(ring, idx).shortlist, []);
+  assert.equal(M.matchBase(ring, idx).base?.name, "Fixture Frost Band");
+  const cursed = M.indexBases([{ pack: "t", entries: [{ ...bare, _id: "e2", name: "Fixture Odd Band" }] }]).entries[0];
+  M.enrichEntry(cursed, { ...bare, system: { ...bare.system, description: { value: "<p>This ring is cursed.</p>" } } });
+  assert.equal(cursed.excluded, true);
+  assert.deepEqual(M.candidates(ring, { entries: [cursed] }), []);
 });
