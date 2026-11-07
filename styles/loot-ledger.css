@@ -63,3 +63,14 @@
 .loot-ledger-tooltip .ll-cmp-down span:last-child { color: var(--ll-tt-down); }
 .loot-ledger-tooltip .ll-cmp-same span:last-child { color: var(--ll-tt-muted); }
 @media (prefers-reduced-motion: reduce) { .loot-ledger-tooltip { transition: none; } }
+
+/* Merchants window (GM) and its summary card. */
+.loot-ledger-merchants .ll-m { display: flex; flex-direction: column; gap: 0.6rem; padding: 0.25rem; }
+.loot-ledger-merchants .ll-m-top, .loot-ledger-merchants .ll-m-bulk { display: flex; flex-wrap: wrap; gap: 0.4rem; align-items: center; }
+.loot-ledger-merchants .ll-m-folder h3 { margin: 0.4rem 0 0.2rem; }
+.loot-ledger-merchants .ll-m-folder table select[multiple] { min-width: 9rem; }
+.loot-ledger-merchants .ll-m-folder table input[type="number"] { width: 4.5rem; }
+.loot-ledger-merchants .ll-m-btns { white-space: nowrap; }
+.loot-ledger-merchants .ll-m-missing { max-height: 10rem; overflow: auto; margin: 0.2rem 0; font-family: monospace; }
+.loot-ledger-mcard ul { margin: 0.2rem 0; padding-left: 1.1rem; }
+.loot-ledger-mcard .ll-m-warn, .loot-ledger-mcard .ll-m-bad { color: var(--wc-warn, #c9a227); }

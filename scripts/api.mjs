@@ -5,6 +5,7 @@ import { MODULE_ID, BANDS, QUALITIES, CATEGORIES, CREATURES, bandForLevel, forma
 import { build, convertToPack, TABLES_PACK } from "./build.mjs";
 import { convertItem, parseSource, auditHandAuthored } from "./convert.mjs";
 import { gateApi } from "./gm.mjs";
+import { MERCHANT_API, merchantsOn, healthReport } from "./merchants.mjs";
 
 /** Cached table indexes, by pack collection id: { pack, index: Promise }. Cleared by any RollTable create/update/delete. */
 const tableIndexes = new Map();
@@ -92,7 +93,9 @@ export function sellPrice(item) {
 }
 
 /** API members that read or write documents or roll: GM only (players get a warning and undefined). */
-export const GM_ONLY = ["build", "convertToPack", "roll", "findTable", "auditHandAuthored"];
+export const GM_ONLY = ["build", "convertToPack", "roll", "findTable", "auditHandAuthored", "healthReport"];
+/** Every `api.merchants` member is GM only too (0.3.0); `api.merchants` is undefined while the Merchant tables setting is off. */
+export const MERCHANT_GM_ONLY = Object.keys(MERCHANT_API);
 
 export function createApi() {
   const gated = gateApi({
@@ -100,9 +103,11 @@ export function createApi() {
     auditHandAuthored: (item) => auditHandAuthored(parseSource(item)),
     convertToPack: (options) => convertToPack(options),
     roll,
-    findTable
+    findTable,
+    healthReport: (options) => healthReport(options)
   });
-  return {
+  const merchants = Object.freeze(gateApi(MERCHANT_API));
+  const api = {
     ...gated,
     // Pure helpers and constants: open to everyone.
     convert: (item, options) => convertItem(item, options),
@@ -114,4 +119,6 @@ export function createApi() {
     TYPES: CATEGORIES.map(c => c.key),
     CREATURES: CREATURES.map(c => c.key)
   };
+  Object.defineProperty(api, "merchants", { enumerable: true, get: () => (merchantsOn() ? merchants : undefined) });
+  return api;
 }

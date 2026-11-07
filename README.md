@@ -19,7 +19,7 @@ There is also an optional, **off-by-default 5e conversion** that rewrites each s
 - [Requirements](#requirements) · [Install](#install) · [Quick start](#quick-start)
 - [Building the loot pools](#building-the-loot-pools) · [Prices](#prices) · [Rarity](#rarity) · [Level bands](#level-bands)
 - [Roll tables](#roll-tables) · [Item flags](#item-flags) · [Public API and hooks](#public-api-and-hooks)
-- [Item tooltip (hold Shift)](#item-tooltip-hold-shift) · [5e conversion (preview)](#5e-conversion-preview) · [License](#license)
+- [Merchant tables](#merchant-tables) · [Item tooltip (hold Shift)](#item-tooltip-hold-shift) · [5e conversion (preview)](#5e-conversion-preview) · [License](#license)
 
 ## Requirements
 
@@ -197,8 +197,51 @@ await ll.findTable({ band: 4, type: "jewelry" });   // the RollTable document
 `humanoid` `undead` `elemental` `dragonkin` `demon` `giant` `mechanical`). With none of them it rolls
 the band's mixed drop. A `loot-ledger.ready` hook fires on ready with the API as its argument.
 
-`build`, `convertToPack`, `roll`, `findTable` and `auditHandAuthored` are GM only: on a player's client they show a warning
+`api.merchants` (experimental, 0.3.0): `plan`, `apply`, `restock`, `setMapping`, `unmap`, `defaults`, `setDefaults`, `open`, `health`, `cleanupPlan`,
+`removeData`; see [Merchant tables](#merchant-tables). `api.healthReport({ timeoutMs })` (experimental) returns the health
+lines in core's shape (`[]` for players).
+
+`build`, `convertToPack`, `roll`, `findTable`, `auditHandAuthored`, `healthReport` and every `api.merchants` member are GM only: on a player's client they show a warning
 and return `undefined`. `sellPrice`, `bandForLevel`, `formatCoins`, `convert` and the constant lists work for everyone.
+
+## Merchant tables
+
+Needs **Item Piles** (optional for the rest of the module). World setting **Merchant tables** (on by default) adds a
+**Merchants** button under Configure Settings → Loot Ledger (GM). Turn it off and the window, the menu and `api.merchants`
+are gone.
+
+- **Vendor types** (16): general, food, inn, reagents, trade, weapons, ammo, bows, guns, armor-heavy, armor-light, arcane,
+  healer, tinker, fence, special (hand-stocked: prices are set, no tables, never restocked).
+- **Tables are found by name** among the world's roll tables: `Shop · <type> · B<band> · <basics|stock|rare>`, kept by
+  convention in a folder "Merchant stock" with a subfolder per type. Loot Ledger does **not** create them yet (that comes
+  with the item sweep); the window and the health check list the missing ones.
+- **Per merchant** (grouped by actor folder, with a bulk set per folder): vendor types, level band (B1 = required level 1–10
+  … B6 = 51–60), size (city, town, outpost, wandering) and optional buy/sell price overrides. A wandering merchant's band can
+  be picked when you apply.
+- **Apply tables** writes the merchant's Item Piles *Populate items* list: the basics table with every result once, the
+  stock table rolled by size (city `2d4+2`, town `1d4+2`, outpost `1d4`, wandering `1d4+1`), the rare table (`1d2`, `1d2-1`,
+  `0`, `1d2-1`). Tables in that list that are not shop tables are kept. It also sets the merchant's buy/sell price modifiers,
+  *hide new items* and *purchase only* (defaults: buy ×1.0, sell ×0.25; arcane and healer buy ×1.1; fence buy ×1.25, sell
+  ×0.5, hides new items).
+- **Restock now** (per merchant, folder or all): deletes the merchant's items that are not marked *Keep on merchant* (or
+  *keep if zero*, or services), rolls its tables through Item Piles, then marks the new basics *infinite quantity* and *can't
+  be sold to merchants* on the merchant's copy only. Item Piles' own "remove existing items" refresh is not used (in 3.3.4 it
+  doubles quantities and deletes kept items). There is no timed restock: it needs a calendar module.
+- **Dry run** shows the same summary without writing. Every run posts a summary card whispered to the GMs.
+- The mapping and the defaults are world settings (`merchantMap`, `merchantDefaults`; nothing secret in them). **Remove
+  merchant data** (in the window) resets both, deletes the summary cards and removes Loot Ledger's `merchantBasic` tag from
+  merchant items. Item Piles' own settings and stock are never touched by it.
+
+```js
+const m = game.modules.get("loot-ledger").api.merchants;   // undefined while the setting is off
+m.plan();                                // read-only: rows, missing tables, duplicate names
+await m.setMapping([actorId], { types: ["weapons"], band: 2, size: "town" });
+await m.apply();                         // every mapped merchant; m.apply([id], { dryRun: true, band: 3 })
+await m.restock([id]);                   // m.restock(null, { dryRun: true })
+m.defaults();                            // prices per type, size formulas, bands (world data)
+await m.setDefaults({ ...m.defaults(), sizes: { ...m.defaults().sizes, city: { stock: "3d4+2", rare: "1d2" } } });
+await m.health();                        // [{ title, lines: [{ level, text }] }]
+```
 
 ## Item tooltip (hold Shift)
 

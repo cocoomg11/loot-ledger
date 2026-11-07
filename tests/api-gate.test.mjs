@@ -38,7 +38,7 @@ test("gateApi: a GM call passes arguments and the result through; the check is m
 
 test("every API entry that reads, writes or rolls is gated for players; pure helpers stay open", async () => {
   const api = createApi();
-  assert.deepEqual([...GM_ONLY].sort(), ["auditHandAuthored", "build", "convertToPack", "findTable", "roll"]);
+  assert.deepEqual([...GM_ONLY].sort(), ["auditHandAuthored", "build", "convertToPack", "findTable", "healthReport", "roll"]);
   for (const name of GM_ONLY) {
     warnings = [];
     assert.equal(typeof api[name], "function", name);

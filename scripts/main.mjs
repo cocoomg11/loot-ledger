@@ -5,6 +5,8 @@ import { MODULE_ID, SOURCE_MODULE, BANDS } from "./data.mjs";
 import { build, ITEMS_PACK, TABLES_PACK } from "./build.mjs";
 import { createApi, registerTableIndexHooks } from "./api.mjs";
 import { shouldShowHint } from "./hint-model.mjs";
+import { registerMerchantSettings, merchantsOn } from "./merchants.mjs";
+import { MerchantsApp } from "./merchants-app.mjs";
 import { registerTooltipSetting, setTooltipEnabled, SETTING as TOOLTIP_SETTING } from "./tooltip.mjs";
 
 const { ApplicationV2 } = foundry.applications.api;
@@ -101,6 +103,18 @@ Hooks.once("init", () => {
     type: BuildMenu,
     restricted: true
   });
+
+  registerMerchantSettings();
+  if (merchantsOn()) {
+    game.settings.registerMenu(MODULE_ID, "merchants", {
+      name: "Merchant tables",
+      label: "Merchants",
+      hint: "Point Item Piles merchants at shop roll tables by vendor type and level band, apply them and restock (GM).",
+      icon: "fa-solid fa-store",
+      type: MerchantsApp,
+      restricted: true
+    });
+  }
 
   const module = game.modules.get(MODULE_ID);
   if (module) module.api = createApi();

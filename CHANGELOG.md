@@ -1,5 +1,50 @@
 # Changelog
 
+## 0.3.0 (2026-11-07)
+
+Merchant tables groundwork (needs Item Piles; GM only). No shop tables are made yet: they come with the item sweep.
+
+- **New: Merchants window** (Configure Settings → Loot Ledger → Merchants). Lists the world's Item Piles merchants by folder.
+  Per merchant (or for a whole folder at once): vendor types (16: general, food, inn, reagents, trade, weapons, ammo, bows,
+  guns, armor-heavy, armor-light, arcane, healer, tinker, fence, special), level band (B1–B6 by required level 1–10 … 51–60),
+  size (city, town, outpost, wandering) and optional buy/sell price overrides. Shows which shop tables exist and which are
+  missing.
+- **Apply tables** writes each merchant's Item Piles *Populate items* list from roll tables named
+  `Shop · <type> · B<n> · <basics|stock|rare>` (basics: every result once; stock and rare: rolled a number of times set by
+  size) and its prices (buy ×1.0 / sell ×0.25 by default; arcane and healer buy ×1.1; fence buy ×1.25, sell ×0.5 and hides new
+  items). Other tables already on the merchant are kept. Wandering merchants: pick the band when you apply.
+- **Restock now** (per merchant, folder or all): deletes the merchant's items not marked *Keep on merchant* (or *keep if
+  zero*, or services), rolls its tables, then marks the new basics infinite and not sellable back, on the merchant's copy
+  only. It does not use Item Piles' "remove existing items" refresh, which is unreliable in Item Piles 3.3.4.
+- **Dry run** previews both without writing. Each run posts a summary card whispered to the GMs.
+- All numbers (prices per type, roll formulas per size, bands) are world data with these as defaults, editable through
+  `api.merchants.setDefaults()`. New world setting **Merchant tables** (on by default) turns the whole tool off.
+- **Remove merchant data** (in the window) resets the mapping and defaults, deletes the summary cards and removes Loot
+  Ledger's tag from merchant items; Item Piles' own data is left alone.
+- API (GM only, experimental): `api.merchants.plan/apply/restock/setMapping/unmap/defaults/setDefaults/open/health/
+  cleanupPlan/removeData`, `api.healthReport({ timeoutMs })`.
+- Under the hood: `scripts/merchants-model.mjs` (pure, tested in `tests/merchants.test.mjs`), `scripts/merchants.mjs`,
+  `scripts/merchants-app.mjs`; world settings `merchantTables`, `merchantMap` (`{ v: 1, merchants }`, ≤ 500),
+  `merchantDefaults` (`{ v: 1, types, sizes, bands }`); Item Piles added to `relationships.recommends`.
+
+### Untested in Foundry
+- [ ] With Item Piles 3.3.4 active: Configure Settings → Loot Ledger → Merchants opens; merchants appear by folder; a world
+  without Item Piles shows the "not active" line instead.
+- [ ] Pick types / band / size on a merchant and with the folder's Set: the choices stick after closing and reopening.
+- [ ] Make by hand a table `Shop · general · B1 · basics` (two items) and `Shop · general · B1 · stock` (several items). Apply on a
+  town general merchant: its Item Piles config → Populate items shows the basics table with *add all* and both results at 1, the
+  stock table with `1d4+2`; a hand-added table there is still listed; buy/sell modifiers are 1 / 0.25. The missing rare table is
+  listed in the window and on the card.
+- [ ] Restock: items marked *Keep on merchant* and services stay; others are gone; new stock arrived once (no doubled
+  quantities); the basics show infinite quantity and can't be sold to the merchant; the source table items are unchanged.
+- [ ] Dry run (row, folder, all) changes nothing and posts a "(dry run)" card to GMs only.
+- [ ] Wandering merchant with no band: Apply says "pick a band"; with the window's wandering band set it applies that band.
+- [ ] Fence: buy 1.25, sell 0.5, *hide new items* on. Special only: Apply sets prices, Restock skips it.
+- [ ] As a player: `game.modules.get("loot-ledger").api.merchants.apply()` warns "only a GM" and returns undefined.
+- [ ] Setting **Merchant tables** off (reload): no Merchants menu, `api.merchants` is undefined.
+- [ ] `await api.healthReport()` lists merchants mapped and missing tables; Remove merchant data resets the mapping and deletes
+  the cards, and Item Piles' Populate items lists stay as they were.
+
 ## 0.2.5 (2026-11-07)
 
 Security and speed. Nothing to do after updating.
