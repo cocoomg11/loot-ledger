@@ -4,6 +4,30 @@
 import { MODULE_ID, BANDS, QUALITIES, CATEGORIES, CREATURES, bandForLevel, formatCoins, vendorCopperOf } from "./data.mjs";
 import { build, convertToPack, TABLES_PACK } from "./build.mjs";
 import { convertItem, parseSource, auditHandAuthored } from "./convert.mjs";
+import { gateApi } from "./gm.mjs";
+
+/** Cached table indexes, by pack collection id: { pack, index: Promise }. Cleared by any RollTable create/update/delete. */
+const tableIndexes = new Map();
+
+/** Forget the cached table indexes (all of them; table writes are rare, a rebuild writes hundreds). */
+export function clearTableIndexCache() {
+  tableIndexes.clear();
+}
+
+/** Clear the table index cache whenever a roll table is created, changed or deleted (world or compendium). Call once at init. */
+export function registerTableIndexHooks() {
+  for (const hook of ["createRollTable", "updateRollTable", "deleteRollTable"]) Hooks.on(hook, clearTableIndexCache);
+}
+
+/** The pack's index with Loot Ledger flags, read once and reused until a table changes (or the pack object is replaced). */
+async function tableIndex(tables) {
+  const hit = tableIndexes.get(tables.collection);
+  if (hit && hit.pack === tables) return hit.index;
+  const index = tables.getIndex({ fields: [`flags.${MODULE_ID}`] });
+  tableIndexes.set(tables.collection, { pack: tables, index });
+  index.catch(() => { if (tableIndexes.get(tables.collection)?.index === index) tableIndexes.delete(tables.collection); });
+  return index;
+}
 
 /** Find the generated table matching a query. */
 export async function findTable({ band = null, level = null, quality = null, type = null, creature = null, pack = TABLES_PACK.name } = {}) {
@@ -12,7 +36,7 @@ export async function findTable({ band = null, level = null, quality = null, typ
   if (band === null || band === undefined) band = level ? bandForLevel(level) : 1;
   band = Number(band);
   const kind = creature ? "creature" : type ? "type" : quality ? "quality" : "drop";
-  const index = await tables.getIndex({ fields: [`flags.${MODULE_ID}`] });
+  const index = await tableIndex(tables);
   const match = index.find(e => {
     const f = e.flags?.[MODULE_ID];
     if (!f || f.kind !== kind) return false;
@@ -67,14 +91,21 @@ export function sellPrice(item) {
   return { copper, text: copper ? formatCoins(copper) : "—", noSell: !copper };
 }
 
+/** API members that read or write documents or roll: GM only (players get a warning and undefined). */
+export const GM_ONLY = ["build", "convertToPack", "roll", "findTable", "auditHandAuthored"];
+
 export function createApi() {
-  return {
+  const gated = gateApi({
     build: (options) => build(options),
-    convert: (item, options) => convertItem(item, options),
     auditHandAuthored: (item) => auditHandAuthored(parseSource(item)),
     convertToPack: (options) => convertToPack(options),
     roll,
-    findTable,
+    findTable
+  });
+  return {
+    ...gated,
+    // Pure helpers and constants: open to everyone.
+    convert: (item, options) => convertItem(item, options),
     sellPrice,
     bandForLevel,
     formatCoins,

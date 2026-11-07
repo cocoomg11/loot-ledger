@@ -154,11 +154,12 @@ export async function convertToPack({ names = null, filter = null, pack = { name
   const target = await ensurePack(pack, "Item");
   await clearPack(target);
   const payload = [], rows = [];
+  const indexes = new Map(); // each official/SRD pack's index, read once for this run
   for (const doc of docs) {
     const meta = analyse(doc);
     if (filter && !filter(doc, meta)) continue;
     const pre = convertItem(doc, { ratio, ...options });
-    const official = pre.basedOn ? await findOfficial(pre.basedOn) : null;
+    const official = pre.basedOn ? await findOfficial(pre.basedOn, indexes) : null;
     const { data, row } = convertedItem(doc, meta, ratio, { ...options, official });
     if (pre.basedOn && !official) row.result.fallback = `${pre.basedOn.name} not found in any installed compendium; tier rules kept`;
     data._id = doc.id;
@@ -171,17 +172,26 @@ export async function convertToPack({ names = null, filter = null, pack = { name
   return { pack: target.collection, rows };
 }
 
-/** An official item from the user's installed compendium (by id, then name), else the SRD by name; or null. */
-export async function findOfficial(ref) {
+/**
+ * An official item from the user's installed compendium (by id, then name), else the SRD by name; or null.
+ * @param {object} ref       {pack, id?, name}
+ * @param {Map}    [indexes] per-run cache of pack indexes (collection id -> Promise of index); pass one Map for a whole run so each
+ *                           pack's index is read once, not once per item
+ */
+export async function findOfficial(ref, indexes = new Map()) {
+  const indexOf = pack => {
+    if (!indexes.has(pack.collection)) indexes.set(pack.collection, pack.getIndex());
+    return indexes.get(pack.collection);
+  };
   const own = game.packs.get(ref.pack);
   if (own) {
-    const id = ref.id ?? (await own.getIndex()).find(e => e.name === ref.name)?._id;
+    const id = ref.id ?? (await indexOf(own)).find(e => e.name === ref.name)?._id;
     const doc = id ? await own.getDocument(id) : null;
     if (doc) return doc;
   }
   for (const key of SRD_PACKS) {
     const pack = game.packs.get(key);
-    const e = pack && (await pack.getIndex()).find(x => x.name === ref.name);
+    const e = pack && (await indexOf(pack)).find(x => x.name === ref.name);
     if (e) return pack.getDocument(e._id);
   }
   return null;

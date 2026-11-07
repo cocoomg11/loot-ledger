@@ -1,5 +1,30 @@
 # Changelog
 
+## 0.2.5 (2026-11-07)
+
+Security and speed. Nothing to do after updating.
+
+- **The API is GM only where it matters.** `build`, `convertToPack`, `roll`, `findTable` and `auditHandAuthored` on
+  `game.modules.get("loot-ledger").api` now check for a GM when called: on a player's client they show a warning and return
+  `undefined` without doing anything. The pure helpers (`convert`, `sellPrice`, `bandForLevel`, `formatCoins`) and the constant
+  lists stay open to everyone.
+- **Faster conversion.** `convertToPack` reads each official and SRD compendium's index once per run instead of once per item.
+- **Faster table lookups.** `roll` / `findTable` keep the tables compendium's index between calls; it is read again after any
+  roll table is created, changed or deleted.
+- Under the hood: new `scripts/gm.mjs` (`gateApi`), `GM_ONLY` list in `api.mjs`, lang key `LOOTLEDGER.Notice.GmOnly`, tests in
+  `tests/api-gate.test.mjs`. The Release workflow now has a read-only build job and a separate upload job (the only one that can
+  write), with every action pinned by commit SHA.
+
+### Untested in Foundry
+- [ ] As a player, in the console: `game.modules.get("loot-ledger").api.roll({ level: 5 })` shows "Loot Ledger: only a GM can do
+  that." and returns `undefined`; the same for `build()`, `convertToPack()`, `findTable()`, `auditHandAuthored(item)`.
+  `api.sellPrice(item)` and `api.formatCoins(150)` still work for the player.
+- [ ] As a GM: `api.roll({ level: 5, chat: true })` still draws to chat; a second roll right after is quick (no new index read).
+- [ ] As a GM: Build loot pools, then `api.roll(...)` immediately afterwards finds the new tables (the cache was cleared by the
+  rebuild). Edit one table, roll from it again: works.
+- [ ] As a GM: `api.convertToPack({ names: [...a few reflavoured items...] })` still links the official/SRD base items; the run is
+  no slower with many items.
+
 ## 0.2.4 (2026-11-01)
 
 - Fix: the tooltip description no longer repeats the price. A trailing "Sell Price: ..." line from the item's own text is left

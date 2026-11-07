@@ -3,7 +3,7 @@
  */
 import { MODULE_ID, SOURCE_MODULE, BANDS } from "./data.mjs";
 import { build, ITEMS_PACK, TABLES_PACK } from "./build.mjs";
-import { createApi } from "./api.mjs";
+import { createApi, registerTableIndexHooks } from "./api.mjs";
 import { shouldShowHint } from "./hint-model.mjs";
 import { registerTooltipSetting, setTooltipEnabled, SETTING as TOOLTIP_SETTING } from "./tooltip.mjs";
 
@@ -104,6 +104,7 @@ Hooks.once("init", () => {
 
   const module = game.modules.get(MODULE_ID);
   if (module) module.api = createApi();
+  registerTableIndexHooks();
 });
 
 Hooks.once("ready", () => {

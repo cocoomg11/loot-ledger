@@ -197,6 +197,9 @@ await ll.findTable({ band: 4, type: "jewelry" });   // the RollTable document
 `humanoid` `undead` `elemental` `dragonkin` `demon` `giant` `mechanical`). With none of them it rolls
 the band's mixed drop. A `loot-ledger.ready` hook fires on ready with the API as its argument.
 
+`build`, `convertToPack`, `roll`, `findTable` and `auditHandAuthored` are GM only: on a player's client they show a warning
+and return `undefined`. `sellPrice`, `bandForLevel`, `formatCoins`, `convert` and the constant lists work for everyone.
+
 ## Item tooltip (hold Shift)
 
 An optional MMO-style tooltip for dnd5e items. It is a **client setting, off by default**

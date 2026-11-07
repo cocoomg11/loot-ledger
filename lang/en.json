@@ -53,6 +53,9 @@
       "Weight": "Weight",
       "AvgDamage": "Average damage",
       "CompareWith": "Compared with"
+    },
+    "Notice": {
+      "GmOnly": "Loot Ledger: only a GM can do that."
     }
   }
 }
