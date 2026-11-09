@@ -2,6 +2,76 @@
 
 ## 0.4.0 (unreleased): former v0.3.0 development work
 
+Conversion rework in three parts (official bases, stat variants and line rules, collapse and review board). Conversion
+stays off by default; every new option is a setting that can be turned off. How it works: [docs/conversion.md](docs/conversion.md).
+
+### Unreleased: official bases (phase 1, conversion only)
+- **Official bases.** When converting, an item can be re-based on a matching official item from your installed
+  compendiums (scored by the lines it covers, with a confidence; accept / suggest / tooltip conversion). It keeps
+  its own name, icon, price, quality and rarity; lines the base lacks become one extra effect. Weapons, chest
+  armour and shields can use the +N template. Mechanics are read from your compendium at build time; Loot Ledger
+  stores no official text.
+- New world settings, each can be turned off: **Official bases**, **Base compendiums** (priority order),
+  **Book compendium** (exact-name matches used as is; only price, quality and focus added), **Base confidence**,
+  **Ability-score bases**, **Gap-fills on bases**, **Hand-made items** (names / UUIDs Build leaves alone; also
+  `flags.loot-ledger.handmade`).
+- Converted items carry `flags.loot-ledger.base`, `gapFills` and `converted.route`
+  (base | convert-auto | convert-review | baseline | book | handmade); `basedOn` is kept as an alias for one version.
+- Changed: rule values from the book review (level bands, Legendary-only attunement tier, armour with features,
+  weapon rider dice, Resistance from Very Rare, uses per Long Rest, Initiative, mana potion slots). Removed: the
+  random reflavour pick and the per-item AC effect. Converter version 5 (unreviewed converted items are rewritten
+  on the next Build).
+
+### Unreleased: stat variants and line rules (phase 2, conversion only)
+- **Stat variants.** The main stat becomes exactly one flat bonus chosen by slot (skills, saves, Initiative, max HP,
+  Concentration, spell save DC, Grapple / Shove DC, Hit Point Dice healing); never an ability score or weapon
+  damage. Advantage instead of the bonus only by a per-item opt-in (`flags.loot-ledger.overrides.advantage`).
+  Green / blue items whose only benefit is the variant need no attunement.
+- **Line budget**: green 1, blue 2, purple / orange 3 benefits beyond the +N; the weakest extra line is listed as
+  not converted. Profession lines are free.
+- **Line rules**: critical-hit dice, parry / dodge reaction, mana regeneration (slot recovery or Concentration),
+  health regeneration, resistance on jewellery and cloaks, protection for several small resistances, passive
+  "when struck" riders, spell surges, +1 AC from trinket defence lines (now actually applied), +hit on non-weapons
+  from Very Rare (attuned).
+- **Weapons**: +1 / +1 / +2 / +3 at every tier (the +1 always wins at green), scimitar by name, blasts from 2x a
+  normal hit; an endgame +1 step only by override (`flags.loot-ledger.overrides.raise`).
+- New world settings, each can be turned off: **Critical-hit dice**, **Profession bonuses**, **Mana regeneration**,
+  **Parry reaction**, **Blast threshold**. Converter version 6.
+
+### Unreleased: collapse and review board (phase 3, conversion only)
+- **Collapse.** Converted items that follow the same rule (shape, slot, type, quality, tier band, official base,
+  bonus and gap-fills; white / grey gear by shape, slot, type and band) are grouped (`flags.loot-ledger.collapse`)
+  and reviewed once; every item keeps its own name, icon, price, item level, tooltip and quality. Book, hand-made
+  and source-text items never collapse; a member with an override, a Tweak or an explicit split stands alone.
+  New world setting **Collapse same-rule items** (shared | off).
+- **Review board.** Every converted item is on the board. New kind filters (suggested base, no base, collapsed
+  group, source-text item, flagged); a group is one entry with its members and a decision applies to all of them;
+  new actions: accept base, use another candidate, drop base, split from group, Advantage opt-in (epic / legendary),
+  endgame +1 raise. These write `flags.loot-ledger.overrides` (and `collapse.split`); the next Build rewrites the
+  item from them (the overrides are part of the conversion hash).
+- **Review flags** raised at build (`converted.flags`): no vendor price, source text replaced by the rules,
+  non-damage proc turned into a feature, stand-in fist weapon, stackable thrown weapon, proc parts not converted,
+  protection / health-regeneration base not found, suggested base.
+- **Build Report**: an "Official bases" page (matched share, by route, collapse groups, lowest-confidence bases);
+  `build({ dryRun: true })` returns `plan.items` with route, base, confidence, candidates, gap-fills and collapse per
+  item. Base candidates are stored on every matched item (`baseCandidates`). Converter version 7.
+- Docs: `docs/conversion.md` rewritten for the whole rework; README conversion section and troubleshooting updated; a test
+  keeps the doc's rule names in sync with `rules.mjs`.
+
+### Unreleased: dry-run fix round (conversion only)
+- **Source text vs decided rules.** The source module's hand text now wins only where no rule is decided: weapons
+  keep a hand text that passes the audit; other items use the rules when any line became a rider, and the hand
+  text is listed as replaced (review flag). A weapon's own critical-hit rule traces to its damage line.
+- **Untyped procs.** "N to M damage" procs with no school convert in the weapon's own damage type (they were
+  dropped to review before); procs that also do something else are flagged.
+- **Matcher.** Staves use the +N template only; magic entries with no rarity are never candidates; decided-rule
+  bases outside their quality range are not free candidates; a wand base no longer gets a cantrip gap-fill.
+  Shortlisted candidates are read in full once per build so their Active Effects reach the matcher (the pack index
+  has no effect changes); Foundry 14 `system.changes` is read.
+- **Variants.** Main-stat ties: quality-gated jewellery row, then armour order (plate / mail: Stamina first), then
+  slot rule, then stat order. The endgame raise override now also raises chest armour and shields.
+- Converter version 8, matcher version 2 (unreviewed converted items are rewritten on the next Build).
+
 ### Added
 - **Convert items to 5e when building** world setting (off by default). When on, Build runs the 5e converter
   over every copied item, writes the results to a new compendium **Loot Ledger · Converted Items**, and points

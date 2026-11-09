@@ -58,14 +58,17 @@ function sourcePart(src) {
  * Hash of everything that decides one item's output. Equal hash => the stored item is current and Build skips it.
  * @param {object} src  source item (plain data or document)
  * @param {object} opts {mode: "copy"|"convert", ratio, converterVersion, rules (fingerprint), replace (bool),
- *                       officialPacks (sorted list of installed official / SRD pack ids), dnd5eMajor}
+ *                       officialPacks (base source pack ids in priority order: order decides duplicates),
+ *                       bases (fingerprint of the base settings and every indexed base's id + _stats.modifiedTime),
+ *                       overrides (the item's review-board overrides, so changing one rewrites it), dnd5eMajor}
  */
 export function sourceHash(src, opts = {}) {
   const o = {
     mode: opts.mode ?? "copy", ratio: opts.ratio ?? "100",
     ...(opts.mode === "convert"
       ? { v: opts.converterVersion ?? 0, rules: opts.rules ?? rulesFingerprint(), replace: !!opts.replace,
-          official: [...(opts.officialPacks ?? [])].sort(), dnd5e: opts.dnd5eMajor ?? null }
+          official: [...(opts.officialPacks ?? [])], bases: opts.bases ?? null, dnd5e: opts.dnd5eMajor ?? null,
+          overrides: opts.overrides ?? null }
       : { v: COPY_VERSION, rarity: RULES.RARITY_BY_QUALITY, price: RULES.PRICE_RULE, dnd5e: opts.dnd5eMajor ?? null })
   };
   return hashString(canonical({ src: sourcePart(src), o }));
@@ -172,8 +175,54 @@ export function reportRow(id, name, flags, uuid) {
     id, name, uuid, quality: flags?.quality ?? "", band: flags?.band ?? null,
     reviewLines: c.review ?? [], replacedWhy: c.handAuthoredReplaced ?? [], replaceList: !!c.replaceList,
     status: flags?.review?.status ?? "pending",
+    route: c.route ?? (c.handAuthoredKept ? "convert-review" : "convert-auto"),
+    base: flags?.base ? { name: flags.base.name ?? "", status: flags.base.status ?? "", confidence: Number(flags.base.confidence ?? 0) || 0, source: flags.base.source ?? "" } : null,
+    collapse: flags?.collapse ?? null,
+    flags: (c.flags ?? []).map(f => f.kind),
     ...route(flags)
   };
+}
+
+/**
+ * The "Official bases" numbers for the Build Report: how many converted items took which route, how many were
+ * re-based, the collapse groups and the least confident bases.
+ * @param {object[]} rows      reportRow() rows
+ * @param {object[]} [groups]  collapse.mjs groupSummary() rows
+ */
+export function basesSummary(rows, groups = [], { lowest = 20 } = {}) {
+  const conv = rows.filter(r => r.route);
+  const byRoute = {};
+  for (const r of conv) byRoute[r.route] = (byRoute[r.route] ?? 0) + 1;
+  const based = conv.filter(r => ["base", "book"].includes(r.route)).length;
+  const suggested = conv.filter(r => r.base?.status === "suggest").length;
+  const flagged = conv.filter(r => r.flags?.length).length;
+  const withBase = conv.filter(r => r.base && r.base.status !== "exact" && r.base.confidence > 0)
+    .sort((a, b) => a.base.confidence - b.base.confidence || a.name.localeCompare(b.name));
+  const collapsed = groups.reduce((n, g) => n + g.size, 0);
+  return {
+    total: conv.length, based, matchedPct: conv.length ? Math.round(1000 * based / conv.length) / 10 : 0,
+    byRoute, suggested, flagged, groups: groups.length, collapsed,
+    lowest: withBase.slice(0, lowest).map(r => ({ id: r.id, name: r.name, uuid: r.uuid, base: r.base.name, status: r.base.status, confidence: r.base.confidence }))
+  };
+}
+
+/** Journal page HTML for basesSummary(). */
+export function basesPageHtml(b, groups = []) {
+  const routes = Object.entries(b.byRoute).sort((x, y) => y[1] - x[1]).map(([k, n]) => `<li><strong>${esc(k)}:</strong> ${n}</li>`).join("");
+  const low = b.lowest.length
+    ? `<table><thead><tr><th>Item</th><th>Base</th><th>Status</th><th>Confidence</th></tr></thead><tbody>` +
+      b.lowest.map(r => `<tr><td>${r.uuid ? `@UUID[${r.uuid}]{${esc(r.name)}}` : esc(r.name)}</td><td>${esc(r.base)}</td><td>${esc(r.status)}</td><td>${r.confidence}</td></tr>`).join("") + `</tbody></table>`
+    : "<p>None.</p>";
+  const grp = groups.length
+    ? `<table><thead><tr><th>Group</th><th>Members</th><th>Reviewed as</th></tr></thead><tbody>` +
+      groups.slice(0, 200).map(g => `<tr><td>${esc(g.group)}</td><td>${g.size}</td><td>${esc(g.canonical)}</td></tr>`).join("") + `</tbody></table>` +
+      (groups.length > 200 ? `<p>… ${groups.length - 200} more groups.</p>` : "")
+    : "<p>No groups (nothing shares a rule, or collapse is off).</p>";
+  return `<p><strong>${b.based}</strong> of ${b.total} converted items (${b.matchedPct}%) use an official or book item as their base; ` +
+    `${b.suggested} have a suggested base awaiting a decision; ${b.flagged} carry a review flag.</p>` +
+    `<h3>By route</h3><ul>${routes}</ul>` +
+    `<h3>Collapse groups (${b.groups} groups, ${b.collapsed} items)</h3><p>Items in a group follow the same rule and are reviewed once, on the item named here; a decision applies to every member.</p>${grp}` +
+    `<h3>Lowest-confidence bases</h3>${low}`;
 }
 
 /* -------------------------------------------- */
@@ -225,7 +274,7 @@ export function summaryHtml(counts, { convertOn, tables, seconds, reportUuid = n
 }
 
 /** Build Report journal pages: [{name, html}]. */
-export function reportPages(counts, rows, { convertOn, replaceList, tables, seconds, suffixes = null, date = new Date().toISOString() } = {}) {
+export function reportPages(counts, rows, { convertOn, replaceList, tables, seconds, suffixes = null, bases = null, groups = [], date = new Date().toISOString() } = {}) {
   const link = r => r.uuid ? `@UUID[${r.uuid}]{${esc(r.name)}}` : esc(r.name);
   const summary = `<p>Build finished ${esc(date)}${seconds !== undefined ? ` in ${seconds}s` : ""}.</p>` +
     summaryHtml(counts, { convertOn, tables }).replace(/^<h3>[^<]*<\/h3>/, "") +
@@ -255,6 +304,8 @@ export function reportPages(counts, rows, { convertOn, replaceList, tables, seco
       : "<p>None.</p>") +
       `<h3>Kept (passes the traceability audit)</h3>` + (kept.length ? `<p>${kept.map(link).join(", ")}</p>` : "<p>None.</p>")
   });
+  // Official bases: matched share, routes, collapse groups, least confident bases.
+  if (bases) pages.push({ name: `Official bases (${bases.matchedPct}%)`, html: basesPageHtml(bases, groups) });
   // Random suffixes (suffix.mjs): the table and how many source items carry the random enchantment line.
   if (suffixes) pages.push({ name: `Random suffixes (${suffixes.sourceCount ?? 0})`, html: suffixPageHtml(suffixes) });
   return pages;

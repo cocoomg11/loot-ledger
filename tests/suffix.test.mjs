@@ -114,7 +114,7 @@ test("price bump by power", () => {
   assert.deepEqual(S.suffixPrice({ value: 0, denomination: "gp" }, 4), { value: 0, denomination: "gp" });
 });
 
-const girdle = () => srcItem({ name: "Test Banded Girdle", quality: "uncommon", lines: ["Waist", "Plate", "180 Armor", RND, "Item Level 44"] });
+const girdle = () => srcItem({ name: "Test Banded Girdle", quality: "uncommon", lines: ["Waist", "Plate", "180 Armor", RND, "Item Level 50"] });
 
 test("converter flags random-line items with their group; others unflagged", () => {
   const d = convertItem(girdle(), { dnd5eMajor: 6 }).data;

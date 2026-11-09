@@ -9,7 +9,9 @@
 import { MODULE_ID } from "./data.mjs";
 
 /** Every world setting key Loot Ledger registers (a test checks this list against the register calls). */
-export const SETTING_KEYS = ["coinRatio", "convertOnBuild", "reviewBoard", "qualityColours", "qualityRarityFallback", "qualityPicker", "randomSuffixes", "suffixMode", "tooltipHint", "tooltipHintSeen", "merchantTables", "merchantMap", "merchantDefaults"];
+export const SETTING_KEYS = ["coinRatio", "convertOnBuild", "reviewBoard", "qualityColours", "qualityRarityFallback", "qualityPicker", "randomSuffixes", "suffixMode", "tooltipHint", "tooltipHintSeen", "merchantTables", "merchantMap", "merchantDefaults",
+  "officialBases", "baseSources", "bookPack", "baseConfidence", "scoreItems", "gapFills", "handmadeExclude",
+  "critDice", "flavourBonuses", "manaRegen", "parryReaction", "blastThreshold", "collapseMode"];
 export const PACK_NAMES = ["loot-ledger-items", "loot-ledger-converted-items", "loot-ledger-tables"];
 
 /**

@@ -56,6 +56,10 @@ a.content-link.ll-q { font-weight: 600; }
 .llrb-rules { font-size: 0.95em; }
 .llrb-note { display: flex; flex-direction: column; gap: 0.2rem; }
 .llrb-note textarea { resize: vertical; min-height: 2.6rem; }
+.llrb-bases { margin-top: 0.4rem; border-top: 1px solid var(--color-border-light-2, #999); padding-top: 0.3rem; }
+.llrb-override { display: flex; gap: 0.3rem; flex-wrap: wrap; align-items: center; }
+.llrb-override button, .llrb-bases button { flex: 0 0 auto; width: auto; }
+.llrb-override select { flex: 1 1 10rem; min-width: 8rem; }
 .llrb-actions { display: flex; gap: 0.3rem; flex-wrap: wrap; }
 .llrb-actions button { flex: 1 1 auto; width: auto; }
 .llrb-help { font-size: 0.85em; opacity: 0.85; margin: 0; }

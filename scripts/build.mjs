@@ -6,11 +6,14 @@ import {
   MODULE_ID, SOURCE_PACK, QUALITY_BY_KEY, DROP_QUALITIES, BANDS, CATEGORIES, CREATURES,
   analyse, priceFor, formatCoins, bandLabel, creatureRegex
 } from "./data.mjs";
-import { convertItem, reviewRow, applyOfficial, SRD_PACKS, OFFICIAL_PACKS, CONVERTER_VERSION } from "./convert.mjs";
+import { convertItem, reviewRow, applyOfficial, bookItem, CONVERTER_VERSION, RULE_OPTIONS } from "./convert.mjs";
+import { INDEX_FIELDS, MATCHER_VERSION, indexBases, bookEntry, parseConfidence, parseList, isHandmade, enrichEntry } from "./base-match.mjs";
+import { OFFICIAL_BASES } from "./rules.mjs";
 import {
   sourceHash, rulesFingerprint, planSync, indexReplaceList, replaceEntry, replaceListStatus, reportRow, errorRow,
-  summaryCounts, summaryHtml, reportPages
+  summaryCounts, summaryHtml, reportPages, basesSummary
 } from "./ledger.mjs";
+import { collapseGroups, collapseUpdates, groupSummary } from "./collapse.mjs";
 import { REPLACE_LIST } from "./replace-list.mjs";
 import { protectReviewed, carryReview, isRejected } from "./review-model.mjs";
 import { CREATURE_TABLE } from "./rules.mjs";
@@ -150,8 +153,15 @@ export function transformItem(src, meta, ratio) {
  * @returns {{data: object, result: object, row: object}}
  */
 export function convertedItem(src, meta, ratio, options = {}) {
+  if (options.book) {
+    const data = bookItem(src, options.book, { ratio });
+    const desc = data.system.description ?? {};
+    data.system.description = { ...desc, value: (desc.value ?? "") + descriptionSuffix(meta) };
+    return { data, result: { route: "book", basedOn: data.name }, row: { name: src.name, quality: meta.quality, result: { route: "book", basedOn: options.book.name } } };
+  }
   const conv = convertItem(src, { ratio, ...options });
   if (options.official) applyOfficial(conv, options.official);
+  else if (conv.basedOn) conv.data.flags[MODULE_ID].converted.fallback = `${conv.basedOn.name} could not be loaded from its compendium; tooltip conversion kept`;
   const desc = conv.data.system.description ?? {};
   conv.data.system.description = { ...desc, value: (desc.value ?? "") + descriptionSuffix(meta) };
   return { data: conv.data, result: conv.result, row: reviewRow(src, conv) };
@@ -181,19 +191,20 @@ export async function convertToPack({ names = null, filter = null, pack = { name
   await clearPack(target);
   const payload = [], rows = [];
   const replaceIndex = indexReplaceList(REPLACE_LIST);
-  const indexes = new Map(); // each official/SRD pack's index, read once for this run
+  const bs = baseSettings();
+  const bases = await loadBases(bs);
   for (const doc of docs) {
     const meta = analyse(doc);
     if (filter && !filter(doc, meta)) continue;
-    const opts = { ratio, forceReplace: !!replaceEntry(doc, replaceIndex), ...options };
-    const pre = convertItem(doc, opts);
-    const official = pre.basedOn ? await findOfficial(pre.basedOn, indexes) : null;
-    const { data, row } = convertedItem(doc, meta, ratio, { ...opts, official });
-    if (pre.basedOn && !official) row.result.fallback = `${pre.basedOn.name} not found in any installed compendium; tier rules kept`;
+    if (isHandmade(doc, bs.handmade)) continue;
+    const opts = { ratio, forceReplace: !!replaceEntry(doc, replaceIndex), ...bases.options, ...options };
+    const { data, row } = await convertOne(doc, meta, ratio, opts, bases);
     data._id = doc.id;
     payload.push(data);
     rows.push(row);
   }
+  const { flags: collapse } = collapseGroups(payload.map(d => ({ id: d._id, name: d.name, flags: d.flags?.[MODULE_ID] ?? {}, system: d.system })), { mode: bs.collapse });
+  for (const d of payload) { const c = collapse.get(d._id); if (c) d.flags[MODULE_ID].collapse = c; }
   for (let i = 0; i < payload.length; i += ITEM_CHUNK) {
     await Item.createDocuments(payload.slice(i, i + ITEM_CHUNK), { pack: target.collection, keepId: true });
   }
@@ -201,28 +212,117 @@ export async function convertToPack({ names = null, filter = null, pack = { name
 }
 
 /**
- * An official item from the user's installed compendium (by id, then name), else the SRD by name; or null.
- * @param {object} ref       {pack, id?, name}
- * @param {Map}    [indexes] per-run cache of pack indexes (collection id -> Promise of index); pass one Map for a whole run so each
- *                           pack's index is read once, not once per item
+ * The official-base settings (each can be turned off; missing registrations read as defaults, e.g. in tests).
+ * @returns {{on:boolean, sources:string[], book:string, confidence:object, scoreItems:boolean, gapFills:boolean, handmade:string[], collapse:string, rules:object}}
  */
-export async function findOfficial(ref, indexes = new Map()) {
-  const indexOf = pack => {
-    if (!indexes.has(pack.collection)) indexes.set(pack.collection, pack.getIndex());
-    return indexes.get(pack.collection);
+export function baseSettings() {
+  const get = (k, d) => { try { const v = game.settings.get(MODULE_ID, k); return v ?? d; } catch { return d; } };
+  return {
+    on: get("officialBases", true) !== false,
+    sources: parseList(get("baseSources", "")),
+    book: String(get("bookPack", "") ?? "").trim(),
+    confidence: parseConfidence(get("baseConfidence", "")),
+    scoreItems: get("scoreItems", true) !== false,
+    gapFills: get("gapFills", true) !== false,
+    handmade: parseList(get("handmadeExclude", "")),
+    collapse: get("collapseMode", "shared") === "off" ? "off" : "shared",
+    rules: ruleSettings(get)
   };
-  const own = game.packs.get(ref.pack);
-  if (own) {
-    const id = ref.id ?? (await indexOf(own)).find(e => e.name === ref.name)?._id;
-    const doc = id ? await own.getDocument(id) : null;
-    if (doc) return doc;
+}
+
+/** The rule-family settings as converter options (convert.mjs RULE_OPTIONS). */
+export function ruleSettings(get) {
+  const t = Number(String(get("blastThreshold", "") ?? "").trim());
+  return {
+    critDice: get("critDice", true) !== false, flavourBonuses: get("flavourBonuses", true) !== false,
+    manaRegen: get("manaRegen", true) !== false, parryReaction: get("parryReaction", true) !== false,
+    blastThreshold: Number.isFinite(t) && t > 1 ? t : RULE_OPTIONS.blastThreshold
+  };
+}
+
+/** Base source packs in priority order: the book pack first, then the baseSources setting (or the defaults). */
+export function baseSourceOrder(bs) {
+  const listed = bs.sources.length ? bs.sources : OFFICIAL_BASES.defaultSources;
+  return [...new Set([...(bs.book ? [bs.book] : []), ...listed])].filter(k => game.packs.has(k));
+}
+
+/**
+ * Index every base source once per build (pack indexes; full documents only for accepted bases and for each item's
+ * shortlisted candidates, whose Active Effects the index lacks; both cached for the build).
+ * Returns the matcher options, the book index and a fingerprint for the source hash.
+ */
+export async function loadBases(bs) {
+  const order = bs.on ? baseSourceOrder(bs) : (bs.book && game.packs.has(bs.book) ? [bs.book] : []);
+  const sources = [];
+  for (const key of order) {
+    const index = await game.packs.get(key).getIndex({ fields: INDEX_FIELDS });
+    sources.push({ pack: key, entries: [...index].map(e => ({ ...e, uuid: e.uuid ?? `Compendium.${key}.Item.${e._id}` })) });
   }
-  for (const key of SRD_PACKS) {
-    const pack = game.packs.get(key);
-    const e = pack && (await indexOf(pack)).find(x => x.name === ref.name);
-    if (e) return pack.getDocument(e._id);
+  const book = bs.book ? sources.find(x => x.pack === bs.book)?.entries ?? [] : [];
+  const index = bs.on ? indexBases(sources) : null;
+  const docs = new Map();
+  return {
+    book, index, order,
+    options: { officialBases: bs.on, bases: index, baseConfidence: bs.confidence, scoreItems: bs.scoreItems, gapFills: bs.gapFills, rules: bs.rules },
+    fingerprint: canonicalBases(bs, order, index),
+    /** Load one base / book document (cached for the build). */
+    async doc(uuid, pack, id) {
+      if (!docs.has(uuid)) docs.set(uuid, (await game.packs.get(pack)?.getDocument(id)) ?? null);
+      return docs.get(uuid);
+    },
+    /**
+     * Read the Active Effects of shortlisted candidates from their full documents (the pack index has none of
+     * their changes); each entry is loaded at most once per build. Read-only. Returns true when any tag changed.
+     */
+    async enrich(entries = []) {
+      let changed = false;
+      for (const e of entries) {
+        if (e.enriched) continue;
+        let d = null;
+        try { d = await this.doc(e.uuid, e.pack, e.id); } catch { d = null; }
+        if (enrichEntry(e, d)) changed = true;
+      }
+      return changed;
+    }
+  };
+}
+
+function canonicalBases(bs, order, index) {
+  return JSON.stringify({ on: bs.on, order, book: bs.book, c: bs.confidence, s: bs.scoreItems, g: bs.gapFills, r: bs.rules ?? null, m: MATCHER_VERSION, fp: index?.fingerprint ?? "" });
+}
+
+/**
+ * Review-board data a rewritten converted item carries forward from its stored version: the overrides (advantage,
+ * raise, base) and an explicit split from its collapse group. Both are GM decisions, never build output.
+ */
+export function carryOverrides(stored) {
+  const out = {};
+  const o = stored?.overrides;
+  if (o && typeof o === "object" && Object.keys(o).length) out.overrides = { ...o };
+  if (stored?.collapse?.split === true) out.collapse = { split: true };
+  return out;
+}
+
+/** Write collapse flag changes to stored items in batches (one update per item; dry runs never get here). */
+async function applyCollapse(pack, updates, dryRun = false) {
+  noWrites(dryRun, "applyCollapse");
+  if (!updates.length) return;
+  const data = updates.map(u => ({ _id: u.id, [`flags.${MODULE_ID}.${u.collapse ? "collapse" : "-=collapse"}`]: u.collapse ?? null }));
+  for (let i = 0; i < data.length; i += ITEM_CHUNK) await Item.updateDocuments(data.slice(i, i + ITEM_CHUNK), { pack: pack.collection });
+}
+
+/** Convert one source item: book route, else the converter plus an accepted official base. */
+async function convertOne(doc, meta, ratio, opts, bases) {
+  const hit = bases.book.length ? bookEntry(bases.book, doc.name) : null;
+  if (hit) {
+    const book = await bases.doc(hit.uuid, bases.order[0], hit._id);
+    if (book) return convertedItem(doc, meta, ratio, { ...opts, book });
   }
-  return null;
+  let pre = convertItem(doc, opts);
+  // Shortlisted candidates are read in full once (their effect changes); match again when that changed any tag.
+  if (pre.match?.shortlist?.length && await bases.enrich(pre.match.shortlist)) pre = convertItem(doc, opts);
+  const off = pre.basedOn ? await bases.doc(pre.basedOn.uuid, pre.basedOn.pack, pre.basedOn.uuid?.split(".").pop()) : null;
+  return convertedItem(doc, meta, ratio, { ...opts, official: off });
 }
 
 /** Turn a list of weighted results into RollTable source data with contiguous ranges. */
@@ -365,6 +465,19 @@ async function ensureItemFolders(pack, dryRun = false) {
 }
 
 /** id -> stored hash for every document in one of our item packs, plus the stored Loot Ledger flags. */
+/**
+ * Hand-made items: never created, replaced or removed by Build. Ids on the list, and stored items carrying
+ * flags.loot-ledger.handmade, are moved to `skip`.
+ */
+export function keepHandmade(plan, ids, stored = new Map()) {
+  const keep = new Set(ids);
+  for (const [id, v] of stored) if (v?.flags?.handmade === true) keep.add(id);
+  if (!keep.size) return plan;
+  const drop = list => list.filter(id => !keep.has(id));
+  const skip = [...plan.skip, ...[...plan.replace, ...plan.remove].filter(id => keep.has(id))];
+  return { create: drop(plan.create), replace: drop(plan.replace), skip, remove: drop(plan.remove), handmade: [...keep].filter(id => stored.has(id)) };
+}
+
 async function packState(pack) {
   if (!pack) return { hashes: new Map(), flags: new Map() }; // dry run and the pack does not exist yet
   const index = await pack.getIndex({ fields: [`flags.${MODULE_ID}`] });
@@ -493,15 +606,21 @@ export async function build({
     const convFolders = convert ? await ensureItemFolders(conv, dryRun) : null;
     const itemsId = worldCollection(itemsPack), convId = worldCollection(convertedPack), tablesId = worldCollection(tablesPack);
 
-    // Analyse and hash every source item.
+    // Analyse and hash every source item. Base sources are indexed once per build (conversion only).
     const rules = rulesFingerprint();
-    const officialPacks = [...Object.values(OFFICIAL_PACKS), ...SRD_PACKS].filter(k => game.packs.has(k));
+    const bs = baseSettings();
+    const bases = convert ? await loadBases(bs) : null;
+    const officialPacks = bases?.order ?? [];
     const replaceIndex = indexReplaceList(REPLACE_LIST);
-    const byId = new Map(), copyWant = [], convWant = [], replaceHits = [];
+    // Stored converted items are read once here: their review-board overrides are part of the conversion hash.
+    const convStored0 = convert ? (await packState(conv)).flags : new Map();
+    const byId = new Map(), copyWant = [], convWant = [], replaceHits = [], handmade = [];
     let randomLines = 0;
     for (const doc of docs) {
       const meta = analyse(doc);
       if (filter && !filter(doc, meta)) continue;
+      // Hand-made items stay outside the automatic build: not copied, converted or rolled; stored copies are kept.
+      if (isHandmade(doc, bs.handmade)) { handmade.push(doc.id); continue; }
       if (hasRandomLine(doc.system?.description?.value)) randomLines++;
       const entry = replaceEntry(doc, replaceIndex);
       if (entry) replaceHits.push({ entry, handAuthored: !!doc.flags?.["wow-classic-items"]?.handAuthored });
@@ -511,7 +630,8 @@ export async function build({
       };
       copyWant.push({ id: doc.id, hash: rec.copyHash });
       if (convert) {
-        rec.convHash = sourceHash(doc, { mode: "convert", ratio, converterVersion: CONVERTER_VERSION, rules, replace: rec.replace, officialPacks, dnd5eMajor });
+        rec.overrides = convStored0.get(doc.id)?.flags?.overrides ?? null;
+        rec.convHash = sourceHash(doc, { mode: "convert", ratio, converterVersion: CONVERTER_VERSION, rules, replace: rec.replace, officialPacks, bases: bases.fingerprint, dnd5eMajor, overrides: rec.overrides });
         convWant.push({ id: doc.id, hash: rec.convHash });
       }
       byId.set(doc.id, rec);
@@ -520,7 +640,7 @@ export async function build({
 
     // 1. Plain copies.
     const copyState = await packState(items);
-    const copyPlan = planSync(force ? new Map([...copyState.hashes].map(([k]) => [k, null])) : copyState.hashes, copyWant, { prune });
+    const copyPlan = keepHandmade(planSync(force ? new Map([...copyState.hashes].map(([k]) => [k, null])) : copyState.hashes, copyWant, { prune }), handmade, copyState.flags);
     bar.update(0.08, `Loot Ledger: copying ${copyPlan.create.length + copyPlan.replace.length} items (${copyPlan.skip.length} unchanged)…`);
     await applySync(items, copyPlan, id => {
       const { doc, meta, copyHash } = byId.get(id);
@@ -535,32 +655,24 @@ export async function build({
     let convPlan = null, convProduced = new Map(), reviewProtected = [];
     const failed = new Map();
     if (convert) {
-      const convState = await packState(conv);
-      const planned = planSync(force ? new Map([...convState.hashes].map(([k]) => [k, null])) : convState.hashes, convWant, { prune });
+      const convState = { hashes: new Map([...convStored0].map(([id, v]) => [id, v.flags?.hash ?? null])), flags: convStored0 };
+      const planned = keepHandmade(planSync(force ? new Map([...convState.hashes].map(([k]) => [k, null])) : convState.hashes, convWant, { prune }), handmade, convState.flags);
       // Accepted / tweaked items keep the stored (possibly hand-edited) version unless force.
       ({ plan: convPlan, protected: reviewProtected } = protectReviewed(planned, convState.flags, { force }));
       bar.update(0.36, `Loot Ledger: converting ${convPlan.create.length + convPlan.replace.length} items (${convPlan.skip.length} unchanged)…`);
-      const officialCache = new Map();
-      const officialIndexes = new Map(); // each pack's index read once per build
-      const official = async ref => {
-        const key = `${ref.pack}|${ref.id ?? ""}|${ref.name}`;
-        if (!officialCache.has(key)) officialCache.set(key, await findOfficial(ref, officialIndexes));
-        return officialCache.get(key);
-      };
       // Items the converter throws on go to GM review; their stale conversion is removed (tables use the plain copy).
       convProduced = await applySync(conv, convPlan, async id => {
-        const { doc, meta, replace, convHash } = byId.get(id);
+        const { doc, meta, replace, convHash, overrides } = byId.get(id);
         try {
-          const opts = { ratio, dnd5eMajor, forceReplace: replace };
-          const pre = convertItem(doc, opts);
-          const off = pre.basedOn ? await official(pre.basedOn) : null;
-          const { data } = convertedItem(doc, meta, ratio, { ...opts, official: off });
-          if (pre.basedOn && !off) data.flags[MODULE_ID].converted.fallback = `${pre.basedOn.name} not found in any installed compendium; tier rules kept`;
+          const opts = { ratio, dnd5eMajor, forceReplace: replace, ...bases.options, overrides: overrides ?? null };
+          const { data } = await convertOne(doc, meta, ratio, opts, bases);
           data._id = doc.id;
           data.folder = convFolders[meta.category] ?? null;
           data.flags[MODULE_ID].hash = convHash;
-          const review = carryReview(convState.flags.get(id)?.flags?.review, { force });
+          const prev = convState.flags.get(id)?.flags;
+          const review = carryReview(prev?.review, { force });
           if (review) data.flags[MODULE_ID].review = review;
+          Object.assign(data.flags[MODULE_ID], carryOverrides(prev));
           return data;
         } catch (err) {
           console.error(`${MODULE_ID} | conversion failed for ${doc.name}`, err);
@@ -570,13 +682,35 @@ export async function build({
       }, { dryRun, label: "Loot Ledger: converted", onProgress: (f, m) => bar.update(0.36 + 0.34 * f, m) });
     }
 
-    // 3. Roll tables: converted versions when available, plain copies otherwise.
-    // Dry run: what the converted pack would hold after this build (stored items, minus removals, plus freshly converted ones).
-    const convStored = convert ? (await packState(conv)).flags : new Map();
+    // 2b. Collapse (collapse.mjs): group same-rule converted items. What the converted pack holds after this build
+    // (stored items, minus removals, plus freshly converted ones); the dry run reads the same set without writing.
+    const convStored = convert ? (dryRun ? new Map(convStored0) : (await packState(conv)).flags) : new Map();
+    let groups = [], collapseChanged = 0;
     if (dryRun && convert) {
       for (const id of convPlan.remove) convStored.delete(id);
       for (const [id, d] of convProduced) convStored.set(id, { name: d.name, flags: d.flags?.[MODULE_ID] ?? {} });
     }
+    if (convert) {
+      const systems = new Map(convProduced.size ? [...convProduced].map(([id, d]) => [id, d.system]) : []);
+      if (!dryRun) {
+        // Stored items' type and +N come from a second index read (small fields only).
+        const idx = await conv.getIndex({ fields: ["system.type", "system.magicalBonus", "system.armor.magicalBonus"] });
+        for (const e of idx) if (!systems.has(e._id)) systems.set(e._id, e.system ?? {});
+      }
+      const members = [...convStored].filter(([id]) => byId.has(id) && !failed.has(id) && !handmade.includes(id))
+        .map(([id, v]) => ({ id, name: v.name, flags: v.flags, system: systems.get(id) ?? {} }));
+      const grouped = collapseGroups(members, { mode: bs.collapse });
+      const updates = collapseUpdates(grouped.flags, new Map(members.map(m => [m.id, m.flags])));
+      collapseChanged = updates.length;
+      if (!dryRun && updates.length) {
+        noWrites(dryRun, "collapse flags");
+        await applyCollapse(conv, updates);
+      }
+      for (const u of updates) { const v = convStored.get(u.id); if (v) { if (u.collapse) v.flags.collapse = u.collapse; else delete v.flags.collapse; } }
+      groups = groupSummary(grouped.groups, id => convStored.get(id)?.name ?? id);
+    }
+
+    // 3. Roll tables: converted versions when available, plain copies otherwise.
     // Items rejected on the review board stay out of the tables (the decision lives on the converted item, which
     // is read even when conversion is now off).
     const reviewFlags = convert ? convStored : (await packState(game.packs.get(convId) ?? null)).flags;
@@ -617,6 +751,7 @@ export async function build({
       }
     }
     const rl = convert ? replaceListStatus(REPLACE_LIST, replaceHits) : null;
+    const basesReport = convert ? basesSummary(rows, groups) : null;
     const seconds = Math.round((performance.now() - t0) / 100) / 10;
     const counts = summaryCounts({ copy: copyPlan, convert: convPlan, rows, protected: reviewProtected.length, rejected: rejected.size });
     const suffixes = convert ? suffixReport(randomLines) : null;
@@ -628,19 +763,31 @@ export async function build({
     }, {});
     let reportUuid = null;
     if (dryRun) {
-      const pages = reportPages(counts, rows, { convertOn: convert, replaceList: rl, tables: plan.length, seconds, suffixes });
+      const pages = reportPages(counts, rows, { convertOn: convert, replaceList: rl, tables: plan.length, seconds, suffixes, bases: basesReport, groups });
+      // Per-item conversion plan: route, base, confidence, gap-fills and collapse group for every converted item.
+      const itemPlan = convert ? rows.filter(r => r.route).map(r => {
+        const f = convStored.get(r.id)?.flags ?? {};
+        return { id: r.id, name: r.name, fresh: convProduced.has(r.id), route: r.route, quality: r.quality,
+          base: f.base ? { name: f.base.name, uuid: f.base.uuid ?? null, status: f.base.status, confidence: f.base.confidence } : null,
+          candidates: f.baseCandidates ?? f.base?.candidates ?? [],
+          gapFills: (f.gapFills ?? []).map(g => [g.kind, g.detail].filter(Boolean).join(":")),
+          collapse: f.collapse ? { group: f.collapse.group, canonical: f.collapse.canonical, size: f.collapse.size } : null,
+          flags: r.flags, review: r.reviewLines };
+      }) : [];
       const result = {
         dryRun: true, items: copyWant.length, rollable: metas.filter(m => m.rollable).length, tables: plan.length, counts: kinds,
-        build: counts, convert, replaceList: rl, seconds, randomSuffixLines: randomLines,
+        build: counts, convert, replaceList: rl, seconds, randomSuffixLines: randomLines, handmade: handmade.length,
+        bases: bases ? { sources: bases.order, book: bs.book || null, indexed: bases.index?.entries.length ?? 0, ...(basesReport ?? {}) } : null,
+        collapse: { mode: bs.collapse, groups: groups.length, changed: collapseChanged },
         itemsPack: itemsId, convertedPack: convert ? convId : null, tablesPack: tablesId,
-        plan: { copy: copyPlan, convert: convPlan, tables: plan },
+        plan: { copy: copyPlan, convert: convPlan, tables: plan, items: itemPlan },
         report: { rows, pages, summaryHtml: summaryHtml(counts, { convertOn: convert, tables: plan.length, seconds }) }
       };
       console.info(`${MODULE_ID} | dry run: nothing was written.`, result.build);
       return result;
     }
     if (report) {
-      const pages = reportPages(counts, rows, { convertOn: convert, replaceList: rl, tables: plan.length, seconds, suffixes });
+      const pages = reportPages(counts, rows, { convertOn: convert, replaceList: rl, tables: plan.length, seconds, suffixes, bases: basesReport, groups });
       noWrites(dryRun, "report");
       const entry = await writeReport(pages);
       reportUuid = entry.uuid;
@@ -654,7 +801,8 @@ export async function build({
 
     const summary = {
       items: copyWant.length, rollable: metas.filter(m => m.rollable).length, tables: plan.length, counts: kinds,
-      build: counts, convert, replaceList: rl, reportUuid, randomSuffixLines: randomLines,
+      build: counts, convert, replaceList: rl, reportUuid, randomSuffixLines: randomLines, handmade: handmade.length,
+      bases: basesReport, collapse: { mode: bs.collapse, groups: groups.length, changed: collapseChanged },
       seconds, itemsPack: items.collection, convertedPack: conv?.collection ?? null, tablesPack: tables.collection
     };
     bar.done(`Loot Ledger: built ${summary.items} items and ${summary.tables} tables.`);

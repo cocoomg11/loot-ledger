@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { gateApi } from "../scripts/gm.mjs";
 import { createApi, findTable, clearTableIndexCache, registerTableIndexHooks, GM_ONLY, GM_ONLY_MEMBERS, OPEN_MEMBERS } from "../scripts/api.mjs";
-import { findOfficial } from "../scripts/build.mjs";
+import { loadBases } from "../scripts/build.mjs";
 
 const read = p => readFileSync(new URL(`../${p}`, import.meta.url), "utf8");
 
@@ -81,26 +81,25 @@ function fakePack(collection, entries, docs = {}) {
   };
 }
 
-test("findOfficial: with one Map per run, each pack's index is read once", async () => {
-  const own = fakePack("dnd-dungeon-masters-guide.equipment", [{ _id: "a", name: "Boots of Speed" }, { _id: "b", name: "Cloak of Protection" }]);
+test("loadBases: each base source pack's index is read once per run and documents are cached", async () => {
+  const own = fakePack("my-book.equipment", [{ _id: "a", name: "Boots A" }, { _id: "b", name: "Cloak B" }]);
   const srd = fakePack("dnd5e.equipment24", [{ _id: "s", name: "Rope" }]);
+  let docReads = 0;
+  own.getDocument = async id => { docReads++; return { id }; };
   globalThis.game.packs = new Map([[own.collection, own], [srd.collection, srd]]);
-  const indexes = new Map();
-  assert.equal((await findOfficial({ pack: own.collection, name: "Boots of Speed" }, indexes)).id, "a");
-  assert.equal((await findOfficial({ pack: own.collection, name: "Cloak of Protection" }, indexes)).id, "b");
-  assert.equal((await findOfficial({ pack: own.collection, name: "Rope" }, indexes)).id, "s");
-  assert.equal(await findOfficial({ pack: own.collection, name: "Nothing" }, indexes), null);
+  const bases = await loadBases({ on: true, sources: [own.collection, srd.collection], book: "", confidence: {}, scoreItems: false, gapFills: true, handmade: [], rules: {} });
   assert.equal(own.reads, 1);
   assert.equal(srd.reads, 1);
-  // Without a Map (old call shape) it still works.
-  assert.equal((await findOfficial({ pack: own.collection, name: "Boots of Speed" })).id, "a");
+  assert.equal((await bases.doc("u1", own.collection, "a")).id, "a");
+  assert.equal((await bases.doc("u1", own.collection, "a")).id, "a");
+  assert.equal(docReads, 1, "one document read per base per run");
 });
 
-test("source: convertToPack passes one index cache to findOfficial for the whole run", () => {
+test("source: convertToPack loads the bases once for the whole run (the 0.2.5 one-index-per-run rule)", () => {
   const src = read("scripts/build.mjs");
-  const body = src.slice(src.indexOf("export async function convertToPack"), src.indexOf("export async function findOfficial"));
-  assert.match(body, /const indexes = new Map\(\)/);
-  assert.match(body, /findOfficial\(pre\.basedOn, indexes\)/);
+  const body = src.slice(src.indexOf("export async function convertToPack"), src.indexOf("export function baseSettings"));
+  assert.match(body, /const bases = await loadBases\(bs\);/);
+  assert.ok(body.indexOf("loadBases(bs)") < body.indexOf("for (const doc of docs)"), "outside the item loop");
 });
 
 test("findTable: the index is cached and cleared by RollTable create/update/delete hooks", async () => {
