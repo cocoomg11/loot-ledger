@@ -1,31 +1,12 @@
 # Loot Ledger
 
-A Foundry VTT module for **dnd5e** that turns a classic MMO item compendium into **priced, rollable loot pools**.
-
-Loot Ledger ships no item data of its own. It reads the item compendium from the
-[`wow-classic-items`](#requirements) module at runtime and generates, inside your world:
-
-- **Loot Ledger · Items**: a world compendium with a copy of every source item, re-priced so that
-  selling it gives exactly the original vendor sell price, with dnd5e rarity set from item quality.
-- **Loot Ledger · Tables**: a world compendium of roll tables by level band, quality, item type,
-  mixed drop and creature type. Every result links to an item in the items compendium.
-
-The source module and its compendium are never modified.
-
-There is also an optional, **off-by-default 5e conversion** that rewrites each source item as a dnd5e (2024 rules) item from its own tooltip lines, flagging anything it can't translate for the GM to review. It is an early preview: see [5e conversion (preview)](#5e-conversion-preview). Work on tuning it, and on resumable builds and review pages, is in progress and not part of the current release.
-
-## Contents
-
-- [Requirements](#requirements) · [Install](#install) · [Quick start](#quick-start)
-- [Building the loot pools](#building-the-loot-pools) · [Prices](#prices) · [Rarity](#rarity) · [Level bands](#level-bands)
-- [Roll tables](#roll-tables) · [Item flags](#item-flags) · [Public API and hooks](#public-api-and-hooks)
-- [Merchant tables](#merchant-tables) · [Item tooltip (hold Shift)](#item-tooltip-hold-shift) · [5e conversion (preview)](#5e-conversion-preview) · [License](#license)
+A Foundry VTT module for **dnd5e** that turns a classic MMO item compendium into **priced, rollable loot pools**. It ships no item data: it reads the `wow-classic-items` module at runtime.
 
 ## Requirements
 
 | | |
 |---|---|
-| Foundry VTT | v13 or later (verified on v14) |
+| Foundry VTT | v14 (minimum 14, verified 14) |
 | System | dnd5e 5.x or 6.x |
 | Module | `wow-classic-items` (provides the source item compendium), enabled in the world |
 
@@ -39,6 +20,28 @@ https://github.com/cocoomg11/loot-ledger/releases/latest/download/module.json
 
 Enable **Loot Ledger** and `wow-classic-items` in your world.
 
+## Contents
+
+- [Quick start](#quick-start) · [How to use](#how-to-use) · [Settings](#settings) · [Troubleshooting](#troubleshooting)
+- [Removing its data](#removing-its-data) · [The Wanderer's family](#the-wanderers-family) · [For developers](#for-developers) · [License](#license)
+
+## What it builds
+
+Inside your world it generates:
+
+- **Loot Ledger · Items**: a world compendium with a copy of every source item, re-priced so that
+  selling it gives exactly the original vendor sell price, with dnd5e rarity set from item quality.
+- **Loot Ledger · Converted Items** (only when 5e conversion is on): every item converted to dnd5e rules.
+- **Loot Ledger · Tables**: a world compendium of roll tables by level band, quality, item type,
+  mixed drop and creature type. Every result links to an item in the converted compendium when conversion is
+  on, otherwise in the items compendium.
+- **Loot Ledger · Build Report**: a journal entry with the last build's summary and the GM review list.
+
+The source module and its compendium are never modified.
+
+There is also an optional, **off-by-default 5e conversion** that rewrites each source item as a dnd5e (2024 rules) item from its own tooltip lines, flagging anything it can't translate for the GM to review; see [5e conversion](#5e-conversion).
+
+
 ## Quick start
 
 1. **Install the source module first.** Loot Ledger ships no items. Install and enable `wow-classic-items` (its item compendium is what gets copied), then enable **Loot Ledger**. You need a dnd5e world and you must be the GM.
@@ -46,27 +49,58 @@ Enable **Loot Ledger** and `wow-classic-items` in your world.
 3. **Build.** Click **Build loot pools** (under *Loot pools*) and confirm. A progress bar runs for a few minutes. Nothing outside the two Loot Ledger compendiums is touched.
 4. **Find your tables.** Open the **Compendium Packs** sidebar and look for **Loot Ledger · Tables**. Open one, for example `Loot · Band 2 (L3–5) · Drop (mixed)`, and click **Roll** or **Draw**. Each result links to an item.
 5. **Hand out the loot.** Drag an item from **Loot Ledger · Items** onto a character sheet or an NPC. Its price is already set so that selling it pays the original vendor amount.
-6. **Roll from a macro (optional).** Make a script macro with `game.modules.get("loot-ledger").api.roll({ level: 6, chat: true })` to draw a mixed drop for a level 6 party and post it to chat. See [Public API and hooks](#public-api-and-hooks) for more.
+6. **Roll from a macro (optional).** Make a script macro with `game.modules.get("loot-ledger").api.roll({ level: 6, chat: true })` to draw a mixed drop for a level 6 party and post it to chat. See [For developers](#for-developers) for more.
 
 <!-- screenshot: the Loot Ledger settings page with Coin ratio and the Build loot pools button -->
 <!-- screenshot: the Loot Ledger · Tables compendium open on a mixed-drop table -->
 
-## Building the loot pools
+
+## How to use
+
+### Building the loot pools
 
 1. As GM, open **Game Settings → Configure Settings → Loot Ledger**.
-2. Choose a **Coin ratio** (see below).
+2. Choose a **Coin ratio** (see below) and whether to **Convert items to 5e when building** (see below).
 3. Click **Build loot pools** and confirm.
 
-A progress bar shows the copy (about 12,000 items in batches of 500) and table generation. It takes a
-few minutes. Re-running the build **replaces** the contents of the two Loot Ledger compendiums (it asks
-first) and touches nothing else in the world. Item ids are kept from the source compendium and table
-ids are derived from table names, so UUID links stay valid across rebuilds.
+A progress bar shows the copy (about 12,000 items in batches of 500), the 5e conversion when it is on, and
+table generation. The first build takes a few minutes.
 
-Change the coin ratio or update the source module? Just build again.
+**Re-running is incremental.** Every item Loot Ledger writes carries a hash of its source item and of every
+setting and rule that shaped it (coin ratio, the values in `scripts/rules.mjs`, converter version, replace
+list, installed official compendiums). A re-run skips items whose hash is unchanged, rewrites the ones that
+changed, and removes items that are no longer in the source. Running it twice never duplicates anything, and a
+build that stops part-way (closed tab, server restart) picks up where it left off the next time. Roll tables
+are regenerated every time. Item ids are kept from the source compendium and table ids are derived from table
+names, so UUID links stay valid across rebuilds. Nothing else in the world is touched apart from the Build
+Report journal entry.
+
+Change the coin ratio, update the source module or edit a rule? Just build again. To rewrite everything
+anyway: `game.modules.get("loot-ledger").api.build({ force: true })`.
+
+After each build the GM gets a chat whisper with the counts (copied, converted, GM review needed, hand-written
+rules replaced, skipped as unchanged) and a link to the **Loot Ledger · Build Report** journal entry.
+
+#### Convert items to 5e when building
+
+World setting, **off by default** in this version. When on, Build also runs the 5e converter (see
+[5e conversion](#5e-conversion)) over every copied item and writes the results to **Loot Ledger · Converted
+Items**; the roll tables then point at the converted versions. The plain copies in **Loot Ledger · Items** are
+kept, so turning the setting off and building again points the tables back at them.
+
+#### GM review list
+
+The converter never invents a feature. A tooltip line it has no rule for stays as flavour on the item (marked
+**GM review** in the item's description) and the item is listed on the **GM review** page of the Build Report,
+with the exact lines to look at and a link to the item. Very Rare or better items that end up with nothing beyond
+their base item are listed too. An item the converter fails on outright is listed with the error, and the tables
+use its plain copy. The **Hand-written** page lists source items whose own 5e rules were replaced (with the
+reason) or kept.
 
 <!-- screenshot: a Loot Ledger item sheet showing its price and the "Sells for" line -->
 
-## Prices
+
+### Prices
 
 The source data records each item's vendor sell price (gold / silver / copper, 100 copper = 1 silver,
 100 silver = 1 gold). In dnd5e, characters usually sell items for **half** their listed price, so Loot
@@ -91,7 +125,8 @@ decimals, so they can hide the last copper.
 Items with no vendor price get price 0 and the flag `noSell: true`. Each copied item also gets a small
 "Sells for 1g 2s 3c" line at the end of its description.
 
-## Rarity
+
+### Rarity
 
 | Item quality | dnd5e rarity |
 |---|---|
@@ -105,7 +140,8 @@ Items with no vendor price get price 0 and the flag `noSell: true`. Each copied 
 Quality is read from the tooltip title colour in the source data. The original quality is kept in the
 item flags.
 
-## Level bands
+
+### Level bands
 
 Items are banded by item level (or required level when the item level is missing). Bands are mapped to
 character levels for a 1–20 game:
@@ -120,7 +156,8 @@ character levels for a 1–20 game:
 | 6 | 51–60 | L11–14 | 11–14 |
 | 7 | 61+ | L15+ | 15–20 |
 
-## Roll tables
+
+### Roll tables
 
 Tables are named so they sort cleanly, e.g. `Loot · Band 2 (L3–5) · Uncommon`. Empty tables are skipped.
 
@@ -153,58 +190,35 @@ Creature keyword lists (matched at the start of a word in the item name, case-in
 Not rolled: unsellable non-gear items (mostly quest items) and internal placeholder entries. They are still
 copied into the items compendium.
 
-## Item flags
 
-Each copied item carries `flags["loot-ledger"]`:
+### Review board
+
+GM only (setting **Review board**, on by default). Open it from the Loot Ledger settings window, the button on
+the **Loot Ledger · Build Report** journal entry, or `api.reviewBoard()`. It lists every converted item that
+needs review, with filters (status, quality, item type, slot, reason, search) and progress counts. For each item
+it shows the source tooltip with the unconverted lines highlighted, the converted result and a note field.
+Actions: **Accept** (A), **Tweak** (T: opens the item sheet, marked tweaked on close), **Skip** (S), **Reject**
+(R: left out of the roll tables from the next build); arrow keys move between items.
+
+
+### Quality colours
+
+Setting **Quality colours** (on by default): item names show in their quality colour on actor and item sheets,
+chat item cards, content links, roll tables, the Items sidebar, Item compendiums and Item Piles windows. Items
+with no quality are coloured by dnd5e rarity (setting, on by default); a physical item below common (no rarity, or
+"mundane") shows grey, like a poor item. An unknown (homebrew) rarity and items that have no rarity at all (spells,
+features) stay uncoloured. GMs can set a quality on any item, for
+example homebrew or book items: the **Quality** dropdown in the item sheet header, **Set quality** in the Items
+sidebar / compendium context menu, or:
 
 ```js
-{
-  sourceUuid,        // UUID of the original item in the source compendium
-  quality,           // poor | common | uncommon | rare | epic | legendary | artifact
-  itemLevel,         // number or null
-  requiredLevel,     // only when the item has one
-  vendorSellCopper,  // classic sell price in copper
-  vendorSell,        // e.g. "1g 2s 3c"
-  noSell,            // true when it cannot be sold
-  slot,              // e.g. "Chest", "Two-Hand", null
-  category,          // item-type table key
-  band,              // 1–7
-  coinRatio          // "100" or "10", the setting used for this build
-}
+await ll.setQuality(items, "epic");   // documents or UUIDs; poor | common | uncommon | rare | epic | legendary | artifact | heirloom
+await ll.setQuality(items, null);     // clear (falls back to rarity)
+await ll.qualityOf(item);             // the quality the item shows
 ```
 
-## Public API and hooks
 
-```js
-const ll = game.modules.get("loot-ledger").api;
-
-await ll.build();                                   // same as the settings button (asks to confirm)
-await ll.build({ confirm: false });                 // scripted rebuild
-
-await ll.roll({ level: 6 });                        // mixed drop for a level 6 party → Item[]
-await ll.roll({ band: 3, quality: "rare" });        // rare items, band 3
-await ll.roll({ band: 2, type: "weapon", count: 3 });
-await ll.roll({ level: 12, creature: "undead", chat: true });  // also posts the draw to chat
-
-ll.sellPrice(item);     // { copper: 10203, text: "1g 2s 3c", noSell: false }
-ll.bandForLevel(9);     // 5
-await ll.findTable({ band: 4, type: "jewelry" });   // the RollTable document
-```
-
-`roll()` query keys: `band` (1–7) or `level` (1–20), and at most one of `quality`
-(`poor` `common` `uncommon` `rare` `epic` `legendary`), `type` (`weapon` `armor-head` `armor-body`
-`armor-limbs` `armor-back` `shield` `jewelry` `consumable` `goods` `junk`) or `creature` (`beast`
-`humanoid` `undead` `elemental` `dragonkin` `demon` `giant` `mechanical`). With none of them it rolls
-the band's mixed drop. A `loot-ledger.ready` hook fires on ready with the API as its argument.
-
-`api.merchants` (experimental, 0.3.0): `plan`, `apply`, `restock`, `setMapping`, `unmap`, `defaults`, `setDefaults`, `open`, `health`, `cleanupPlan`,
-`removeData`; see [Merchant tables](#merchant-tables). `api.healthReport({ timeoutMs })` (experimental) returns the health
-lines in core's shape (`[]` for players).
-
-`build`, `convertToPack`, `roll`, `findTable`, `auditHandAuthored`, `healthReport` and every `api.merchants` member are GM only: on a player's client they show a warning
-and return `undefined`. `sellPrice`, `bandForLevel`, `formatCoins`, `convert` and the constant lists work for everyone.
-
-## Merchant tables
+### Merchant tables
 
 Needs **Item Piles** (optional for the rest of the module). World setting **Merchant tables** (on by default) adds a
 **Merchants** button under Configure Settings → Loot Ledger (GM). Turn it off and the window, the menu and `api.merchants`
@@ -243,12 +257,12 @@ await m.setDefaults({ ...m.defaults(), sizes: { ...m.defaults().sizes, city: { s
 await m.health();                        // [{ title, lines: [{ level, text }] }]
 ```
 
-## Item tooltip (hold Shift)
+### Item tooltip (hold Shift)
 
 An optional MMO-style tooltip for dnd5e items. It is a **client setting, off by default**
 (*Configure Settings → Loot Ledger → Item tooltip (hold Shift)*), so each user turns it on for themselves.
 When it is on, **hold Shift** while hovering an item; releasing Shift, clicking, scrolling or moving off the item hides it.
-Without Shift nothing changes, and dnd5e's own tooltips work as before. So players find out it exists, each browser that has it off gets a one-time notification (switch it off with the world setting **Tell players about the item tooltip**, on by default).
+Without Shift nothing changes, and dnd5e's own tooltips work as before. So players find out it exists, each browser that has it off gets a one-time notification (switch it off with the world setting **Tell players about the item tooltip**).
 
 It works on any item, not just Loot Ledger's copies, wherever the item's row carries its id or UUID: actor sheets
 (including the dnd5e 6 sheets), the Items sidebar, compendium windows, the dnd5e compendium browser, chat item cards and
@@ -275,10 +289,11 @@ Unidentified items show only their unidentified name and description to players 
 light / dark theme of the window it is shown over, never takes focus, ignores the mouse and does not move any layout.
 It only reads documents; it never writes anything.
 
-## 5e conversion (preview)
 
-`scripts/convert.mjs` turns each source item into a dnd5e (2024 rules) item. It is off by default and its
-rules are still being tuned. The ground rules:
+### 5e conversion
+
+`scripts/convert.mjs` turns each source item into a dnd5e (2024 rules) item. Build runs it when the **Convert
+items to 5e when building** setting is on (off by default; its rules are still being tuned). The ground rules:
 
 - **Traceable.** Every feature comes from one specific tooltip line (a stat line, an Equip / Use /
   Chance-on-hit line, a resistance, the weapon damage line, or the item type and slot). Quality on its own
@@ -294,18 +309,174 @@ rules are still being tuned. The ground rules:
   uses dnd5e's own `magicalBonus` field.
 
 Items the source module converted by hand are kept only when every mechanic in their rules traces to the
-tooltip (`auditHandAuthored`); otherwise Loot Ledger's own conversion replaces them. Every rule is a table at
-the top of the file (`WEAPON_RULES`, `CHEST_RULES`, `CLOTH_CHEST`, `SLOT_EQUIPMENT`,
-`GEAR_BONUS`, `STAT_RULE`, `TRINKET_RULE`, `HIT_RULE`, `DEFENSE_RULE`, `SPELL_RULE`, `RESIST_RULE`, `PROC_RULE`, `NOT_CONVERTED`, potion and
-food tables).
+tooltip (`auditHandAuthored`) and the item is not on the replace list; otherwise Loot Ledger's own conversion
+replaces them.
+
+
+## Settings
+
+Open **Game Settings › Configure Settings › Loot Ledger**.
+
+| Setting | What it does |
+|---|---|
+| **Coin ratio** | *100:1* for three-coin worlds, or *Standard 5e (10:1)*. Applied the next time you build. |
+| **Convert items to 5e when building** | Off by default. Also writes **Loot Ledger · Converted Items** and points the tables at them. |
+| **Review board** | On by default. The GM review window (reload needed). |
+| **Quality colours** | On by default. Item names in their quality colour (reload needed). |
+| **Colour by 5e rarity when no quality is set** | On by default. Colours items by dnd5e rarity when they have no quality of their own. |
+| **Quality picker for GMs** | The quality dropdown on item sheets (reload needed). |
+| **Random suffix enchantments** | On by default; works only with 5e conversion on (reload needed). |
+| **Random suffixes: who picks** | *Roll on drop* or *GM picks*. |
+| **Item tooltip (hold Shift)** | Per user, off by default. |
+| **Tell players about the item tooltip** | On by default. Shows a one-time notification (once per browser) to players who have the tooltip off, saying where to turn it on. Does not turn it on. |
+| **Build loot pools** (button) | Runs the build. |
+
+
+## Troubleshooting
+
+- **The Build button says the source items were not found.** Install and enable `wow-classic-items` in this world, then reload.
+- **A table is empty or missing.** Empty tables are skipped. Build again after changing the source module or a setting.
+- **Prices look rounded.** The item sheet shows the exact value; the inventory column rounds to three decimals.
+- **Names are not coloured.** Check that **Quality colours** is on and the world was reloaded. Unknown (homebrew) rarities stay uncoloured; set a quality with the picker.
+- **A converted item is flagged GM review.** The converter had no rule for one of its lines. Open the **Review board** from the settings window.
+- **Something looks wrong after an update.** Run **Build loot pools** again; it only rewrites what changed.
+
+
+## Removing its data
+
+### Where Loot Ledger keeps its data
+
+- World compendiums **Loot Ledger · Items**, **· Converted Items** and **· Tables**.
+- The **Loot Ledger · Build Report** journal entry.
+- World settings (all small: booleans and one short string; nothing grows over time).
+- Item flags under `flags["loot-ledger"]` (source link, quality, price, hash, review decision, random suffix).
+  They live on the items in those compendiums and on any item you copied out of them.
+
+Everything is stored under its own `loot-ledger` namespace. To remove it, run `await ll.removeData()` for a dry
+run (it lists what would go), then `await ll.removeData({ dryRun: false })` to delete the compendiums, the Build
+Report and the settings after a confirm dialog. Add `itemFlags: true` to also clear `flags["loot-ledger"]` from
+world and actor items (this removes hand-set qualities too). Export a backup first.
+
+
+## The Wanderer's family
+Five free modules that work on their own and fit together. Each one switches on only what you use.
+
+| Module | What it does |
+|---|---|
+| [Wanderer's Toolkit](https://github.com/cocoomg11/wayfarers-toolkit) | GM kit for D&D 5e: quest log, travel and flights, inns, loot rolls, boss frames, a three-coin economy. |
+| [Red Book](https://github.com/cocoomg11/red-book) | Session prep: a live session log, next-session board, scene readiness check, Session Start. |
+| [Wanderer's Satchel](https://github.com/cocoomg11/wanderers-satchel) | Optional hub: one window for the family, update check, combined health check, settings backup. |
+| [Ringmaker](https://github.com/cocoomg11/ringmaker) | Your own ring image for Foundry's dynamic token rings. Any game system. |
+| [Loot Ledger](https://github.com/cocoomg11/loot-ledger) | Priced, rollable loot pools and roll tables for D&D 5e, built from a classic-MMO item compendium. |
+
+They share one look that follows Foundry's light and dark themes. None of them needs the others.
+
+
+## For developers
+
+Everything below is reached through `game.modules.get("loot-ledger").api` or the hooks listed here.
+
+### Public API and hooks
+
+Do not import the module's scripts or read its settings directly. **Stable** = kept compatible across 0.x releases;
+**experimental** = may change in any release.
+
+| Name | Status | What it does |
+| --- | --- | --- |
+| `api.build(options)`, `api.roll(query)`, `api.findTable(query)` | stable | Build the pools; roll loot; find a generated table. GM only. |
+| `api.sellPrice(item)`, `api.bandForLevel(level)`, `api.formatCoins(copper)` | stable | Price and band helpers. |
+| `api.BANDS`, `api.QUALITIES`, `api.TYPES`, `api.CREATURES` | stable | Lookup lists. |
+| `api.setQuality(items, quality)`, `api.qualityOf(item)` | stable | Quality colours (undefined `setQuality` while the setting is off). |
+| `api.convert`, `api.convertToPack`, `api.rules()`, `api.replaceList()`, `api.auditHandWritten()`, `api.auditHandAuthored()` | experimental | 5e conversion and calibration tools. |
+| `api.reviewBoard()`, `api.rollSuffix(item, options)`, `api.suffixes()` | experimental | Review board and random suffixes. |
+| `api.removeData({ dryRun, confirm, itemFlags })` | experimental | GM: remove Loot Ledger's data (see below). |
+| `api.merchants` (`plan`, `apply`, `restock`, `setMapping`, `unmap`, `defaults`, `setDefaults`, `open`, `health`, `cleanupPlan`, `removeData`), `api.healthReport({ timeoutMs })` | experimental | Merchant tables (undefined while the setting is off) and health lines in core's shape (`[]` for players). GM only. |
+| Hook `loot-ledger.ready` (argument: the API) | stable | Fires on `ready`. |
+| Hook `loot-ledger.itemDropped` | experimental | Fires when a Loot Ledger item is rolled or lands on an actor. |
+
+**GM only:** `build`, `roll`, `findTable`, `convertToPack`, `auditHandAuthored`, `auditHandWritten`, `replaceList`, `rollSuffix`, `removeData`, `reviewBoard`, `setQuality`, `healthReport` and every `api.merchants` member show a "GM only" notice and return `undefined` for players. The pure helpers (`convert`, `rules`, `suffixes`, `qualityOf`, `sellPrice`, `bandForLevel`, `formatCoins` and the lookup lists) stay open. Random suffixes are rolled only for items created by a GM user.
+
+```js
+// source "roll": api.roll() drew the item from a table.
+// source "actor": a Loot Ledger item was created on an actor or Item Piles pile (active GM's client only).
+Hooks.on("loot-ledger.itemDropped", ({ item, source, actor, table, query }) => {
+  console.log(source, item.name);
+});
+```
+
+The payload is one object: `item` (the Item document) and `source` always; `actor` for `"actor"`; `table` and
+`query` for `"roll"`. Fired with `Hooks.callAll`, so return values are ignored.
+
+### API examples
 
 ```js
 const ll = game.modules.get("loot-ledger").api;
-ll.convert(sourceItem);                                    // → { data, result } without saving anything
-ll.auditHandAuthored(sourceItem);                          // → { pass, problems } for a hand-written source item
-await ll.convertToPack({ names: ["Some Item"], pack: { name: "my-test", label: "My Test" } });
-await ll.build({ convert: true });                         // full build with converted items
+
+await ll.build();                                   // same as the settings button (asks to confirm)
+await ll.build({ confirm: false });                 // scripted rebuild (incremental)
+await ll.build({ confirm: false, convert: true });  // override the conversion setting for this run
+await ll.build({ confirm: false, force: true });    // ignore stored hashes, rewrite every item
+
+await ll.roll({ level: 6 });                        // mixed drop for a level 6 party → Item[]
+await ll.roll({ band: 3, quality: "rare" });        // rare items, band 3
+await ll.roll({ band: 2, type: "weapon", count: 3 });
+await ll.roll({ level: 12, creature: "undead", chat: true });  // also posts the draw to chat
+
+ll.sellPrice(item);     // { copper: 10203, text: "1g 2s 3c", noSell: false }
+ll.bandForLevel(9);     // 5
+await ll.findTable({ band: 4, type: "jewelry" });   // the RollTable document
 ```
+
+`roll()` query keys: `band` (1–7) or `level` (1–20), and at most one of `quality`
+(`poor` `common` `uncommon` `rare` `epic` `legendary`), `type` (`weapon` `armor-head` `armor-body`
+`armor-limbs` `armor-back` `shield` `jewelry` `consumable` `goods` `junk`) or `creature` (`beast`
+`humanoid` `undead` `elemental` `dragonkin` `demon` `giant` `mechanical`). With none of them it rolls
+the band's mixed drop. A `loot-ledger.ready` hook fires on ready with the API as its argument.
+
+### Item flags
+
+Each copied item carries `flags["loot-ledger"]`:
+
+```js
+{
+  sourceUuid,        // UUID of the original item in the source compendium
+  quality,           // poor | common | uncommon | rare | epic | legendary | artifact
+  itemLevel,         // number or null
+  requiredLevel,     // only when the item has one
+  vendorSellCopper,  // classic sell price in copper
+  vendorSell,        // e.g. "1g 2s 3c"
+  noSell,            // true when it cannot be sold
+  slot,              // e.g. "Chest", "Two-Hand", null
+  category,          // item-type table key
+  band,              // 1–7
+  coinRatio,         // "100" or "10", the setting used for this build
+  hash               // build fingerprint: source + settings + rules; unchanged hash = skipped on rebuild
+}
+```
+
+Converted items also carry `riders` and `converted` (`needsReview`, `review`, `notConverted`,
+`handAuthored`, `handAuthoredKept`, `handAuthoredReplaced`, `replaceList`, `summary`, `version`).
+
+Review board decisions are stored on the converted item as `review` (`status`: pending, accepted, tweaked,
+skipped or rejected; `note`, `by`, `at`). Accepted and tweaked items are not rewritten by later builds unless
+`build({ force: true })`; rejected items are left out of the roll tables.
+
+
+### 5e conversion: calibration and replace list
+
+Every tunable number lives in `scripts/rules.mjs`, and `scripts/replace-list.mjs` names hand-written source items that Loot Ledger's own conversion replaces. Details, the calibration report tool and API examples are in [docs/conversion.md](docs/conversion.md).
+
+### Development
+```sh
+npm run check   # node --check every script and test
+npm run lint    # eslint (the only dev dependency)
+npm test        # node --test tests/*.test.mjs
+```
+
+The tests cover the rules tables, build hashing and the sync plan, the replace list, review routing and the
+report, and run `build()` end to end against a small in-memory Foundry stand-in (`tests/_foundry.mjs`) with
+made-up items (`tests/_fixtures.mjs`). GitHub Actions runs them on every push and pull request.
+
 
 ## License
 
@@ -319,3 +490,4 @@ This work includes material from the System Reference Document 5.2 ("SRD 5.2") b
 available at https://www.dndbeyond.com/srd. The SRD 5.2 is licensed under the Creative Commons Attribution 4.0
 International License, available at https://creativecommons.org/licenses/by/4.0/legalcode. (Used: weapon and
 armour statistics in `scripts/convert.mjs`.)
+

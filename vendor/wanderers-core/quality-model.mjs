@@ -1,12 +1,14 @@
 /**
- * Item quality: the seven quality keys behind the `--wc-q-*` colour tokens and the `.wc-item-slot` / `.wc-q-text` classes of the
+ * Item quality: the eight quality keys behind the `--wc-q-*` colour tokens and the `.wc-item-slot` / `.wc-q-text` classes of the
  * shared stylesheet (docs/ui.md), and the mapping from a dnd5e rarity key. Pure: no Foundry calls, tested in Node.
  */
 import { esc } from "./text.mjs";
 
 /**
  * The qualities, lowest first: `key` (the `data-quality` value and the `wc-q-<key>` class), a plain `label`, and the dnd5e `rarity`
- * key it comes from (null: no dnd5e rarity maps only here).
+ * key it comes from (null: no dnd5e rarity maps here). `heirloom` (0.5.2) is last, after artifact: appending keeps every existing
+ * key's index, so code that compares positions of the first seven reads the same; it has no rarity, so `quality()` only returns it
+ * for the key itself. Treat it as a separate kind of item rather than a tier above artifact when ranking.
  * @type {ReadonlyArray<Readonly<{ key: string, label: string, rarity: string | null }>>}
  */
 export const QUALITIES = Object.freeze([
@@ -16,7 +18,8 @@ export const QUALITIES = Object.freeze([
   Object.freeze({ key: "rare", label: "Rare", rarity: "rare" }),
   Object.freeze({ key: "epic", label: "Epic", rarity: "veryRare" }),
   Object.freeze({ key: "legendary", label: "Legendary", rarity: "legendary" }),
-  Object.freeze({ key: "artifact", label: "Artifact", rarity: "artifact" })
+  Object.freeze({ key: "artifact", label: "Artifact", rarity: "artifact" }),
+  Object.freeze({ key: "heirloom", label: "Heirloom", rarity: null })
 ]);
 
 /** The quality keys, lowest first. */
@@ -26,13 +29,13 @@ export const QUALITY_KEYS = Object.freeze(QUALITIES.map(q => q.key));
 const FROM_RARITY = /** @type {Record<string, string>} */ ({
   "": "poor", mundane: "poor", none: "poor", poor: "poor", junk: "poor",
   common: "common", uncommon: "uncommon", rare: "rare",
-  veryrare: "epic", epic: "epic", legendary: "legendary", artifact: "artifact"
+  veryrare: "epic", epic: "epic", legendary: "legendary", artifact: "artifact", heirloom: "heirloom"
 });
 
 /**
  * The quality key for a dnd5e item rarity (`item.system.rarity`): "" / mundane → poor, common, uncommon, rare, veryRare → epic,
- * legendary, artifact. Case, spaces and punctuation are ignored ("Very Rare", "very_rare"); a quality key maps to itself. Never
- * throws: an unknown value (a homebrew rarity) reads as "common".
+ * legendary, artifact. Case, spaces and punctuation are ignored ("Very Rare", "very_rare"); a quality key maps to itself
+ * (so does "heirloom", which no rarity reaches). Never throws: an unknown value (a homebrew rarity) reads as "common".
  * @param {unknown} rarity
  * @returns {string}
  */

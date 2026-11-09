@@ -1,11 +1,18 @@
 /**
  * Public API, exposed as game.modules.get("loot-ledger").api
  */
-import { MODULE_ID, BANDS, QUALITIES, CATEGORIES, CREATURES, bandForLevel, formatCoins, vendorCopperOf } from "./data.mjs";
+import { MODULE_ID, SOURCE_PACK, BANDS, QUALITIES, CATEGORIES, CREATURES, bandForLevel, formatCoins, vendorCopperOf } from "./data.mjs";
 import { build, convertToPack, TABLES_PACK } from "./build.mjs";
+import { REPLACE_LIST, REPLACE_LIST_EXPECTED } from "./replace-list.mjs";
+import { handWrittenAudit, replaceListSnippet, auditPageHtml } from "./ledger.mjs";
+import * as RULES from "./rules.mjs";
 import { convertItem, parseSource, auditHandAuthored } from "./convert.mjs";
 import { gateApi } from "./gm.mjs";
 import { MERCHANT_API, merchantsOn, healthReport } from "./merchants.mjs";
+import { rollSuffix, listSuffixes } from "./suffix-hooks.mjs";
+import { announceDrop } from "./events.mjs";
+import { removeModuleData } from "./cleanup.mjs";
+import { gateMembers, requireGM } from "./gate.mjs";
 
 /** Cached table indexes, by pack collection id: { pack, index: Promise }. Cleared by any RollTable create/update/delete. */
 const tableIndexes = new Map();
@@ -30,8 +37,19 @@ async function tableIndex(tables) {
   return index;
 }
 
+/**
+ * API members that return world documents, read packs, roll or touch world data: GM only (a player gets a notice and undefined).
+ * The rest are pure helpers (no world data) and stay open. tests/gate.test.mjs and tests/api-gate.test.mjs require every function
+ * member to be in exactly one of these two lists. `auditHandAuthored` stays gated as released in 0.2.5.
+ */
+export const GM_ONLY_MEMBERS = ["reviewBoard", "setQuality", "build", "convertToPack", "auditHandAuthored", "auditHandWritten", "replaceList", "roll", "findTable", "rollSuffix", "removeData", "healthReport"];
+export const OPEN_MEMBERS = ["qualityOf", "convert", "rules", "suffixes", "sellPrice", "bandForLevel", "formatCoins"];
+/** 0.2.5 name, kept for callers of the old export. */
+export const GM_ONLY = GM_ONLY_MEMBERS;
+
 /** Find the generated table matching a query. */
 export async function findTable({ band = null, level = null, quality = null, type = null, creature = null, pack = TABLES_PACK.name } = {}) {
+  if (!requireGM()) return undefined;
   const tables = game.packs.get(`world.${pack}`);
   if (!tables) throw new Error("Loot Ledger: no tables compendium yet. Run Build loot pools first.");
   if (band === null || band === undefined) band = level ? bandForLevel(level) : 1;
@@ -76,7 +94,7 @@ export async function roll(query = {}) {
     for (const r of res.results) {
       if (r.type !== "document" || !r.documentUuid) continue;
       const doc = await fromUuid(r.documentUuid);
-      if (doc instanceof Item) items.push(doc);
+      if (doc instanceof Item) { items.push(doc); announceDrop({ item: doc, source: "roll", table, query }); }
     }
   }
   return items;
@@ -92,25 +110,73 @@ export function sellPrice(item) {
   return { copper, text: copper ? formatCoins(copper) : "—", noSell: !copper };
 }
 
-/** API members that read or write documents or roll: GM only (players get a warning and undefined). */
-export const GM_ONLY = ["build", "convertToPack", "roll", "findTable", "auditHandAuthored", "healthReport"];
 /** Every `api.merchants` member is GM only too (0.3.0); `api.merchants` is undefined while the Merchant tables setting is off. */
 export const MERCHANT_GM_ONLY = Object.keys(MERCHANT_API);
 
+/**
+ * Book day: list every hand-written conversion in the source module, flag the ones that fail the traceability
+ * audit, and say which are not on the replace list yet. Read-only (writes nothing unless `journal` is true).
+ * @param {object}   [options]
+ * @param {boolean}  [options.journal=false]  also write the result as a page "Hand-written audit" in the Build Report
+ * @param {string[]} [options.add=[]]         names of PASSING items you judged failing on review: included in the
+ *                                            snippet alongside the failing, unlisted ones
+ * @param {boolean}  [options.log=true]       console.table the failing rows and print the snippet
+ * @returns {Promise<object>} handWrittenAudit() result plus `snippet` (lines to paste into scripts/replace-list.mjs)
+ */
+export async function auditHandWritten({ journal = false, add = [], log = true } = {}) {
+  if (!requireGM()) return undefined; // also guards the Build Report journal write below
+  const pack = game.packs.get(SOURCE_PACK);
+  if (!pack) throw new Error(`Loot Ledger: source compendium ${SOURCE_PACK} not found.`);
+  const docs = await pack.getDocuments();
+  const res = handWrittenAudit(docs, REPLACE_LIST, d => auditHandAuthored(parseSource(d)));
+  const extra = new Set(add.map(n => String(n).toLowerCase()));
+  const picked = [...res.unlisted, ...res.passing.filter(r => !r.onList && extra.has(r.name.toLowerCase()))];
+  res.snippet = replaceListSnippet(picked);
+  res.expected = REPLACE_LIST_EXPECTED;
+  if (log) {
+    console.log(`Loot Ledger | ${res.handWritten} hand-written, ${res.failing.length} failing, ${res.listed} on the replace list (review total ${REPLACE_LIST_EXPECTED}).`);
+    console.table(res.failing.map(r => ({ name: r.name, itemId: r.itemId, onList: r.onList, problems: r.problems.join(" | ") })));
+    console.log(`Loot Ledger | paste into scripts/replace-list.mjs (REPLACE_LIST):\n${res.snippet}`);
+  }
+  if (journal) {
+    const { REPORT_NAME } = await import("./build.mjs");
+    let entry = game.journal.find(j => j.getFlag(MODULE_ID, "buildReport")) ?? game.journal.getName(REPORT_NAME);
+    entry ??= await JournalEntry.create({ name: REPORT_NAME, flags: { [MODULE_ID]: { buildReport: true } }, ownership: { default: 0 } });
+    const old = entry.pages.filter(p => p.name === "Hand-written audit").map(p => p.id);
+    if (old.length) await entry.deleteEmbeddedDocuments("JournalEntryPage", old);
+    await entry.createEmbeddedDocuments("JournalEntryPage", [{
+      name: "Hand-written audit", type: "text", sort: 900, text: { content: auditPageHtml(res, { expected: REPLACE_LIST_EXPECTED }) + `<h3>Snippet</h3><pre>${res.snippet.replace(/&/g, "&amp;").replace(/</g, "&lt;")}</pre>`, format: 1 }
+    }]);
+    res.journalUuid = entry.uuid;
+  }
+  return res;
+}
+
 export function createApi() {
-  const gated = gateApi({
+  const on = key => { try { return !!game.settings.get(MODULE_ID, key); } catch { return false; } };
+  const api = gateMembers({
+    /** Open the GM review board (undefined when the "Review board" setting is off). */
+    reviewBoard: on("reviewBoard") ? async () => (await import("./review.mjs")).ReviewBoard.open() : undefined,
+    /** Set (or clear with null) the quality of items or UUIDs (undefined when "Quality colours" is off). */
+    setQuality: on("qualityColours") ? async (items, quality) => (await import("./quality.mjs")).setQuality(items, quality) : undefined,
+    /** The quality an item shows (explicit flag, else rarity when the fallback setting is on). */
+    qualityOf: async (item) => (await import("./quality-model.mjs")).resolveQuality(item, { rarityFallback: on("qualityRarityFallback") }),
     build: (options) => build(options),
+    convert: (item, options) => convertItem(item, options),
     auditHandAuthored: (item) => auditHandAuthored(parseSource(item)),
+    auditHandWritten: (options) => auditHandWritten(options),
     convertToPack: (options) => convertToPack(options),
+    /** Read-only copies of the calibration tables (edit scripts/rules.mjs to change them). */
+    rules: () => foundry.utils.deepClone(RULES),
+    replaceList: () => REPLACE_LIST.map(e => ({ ...e })),
     roll,
     findTable,
-    healthReport: (options) => healthReport(options)
-  });
-  const merchants = Object.freeze(gateApi(MERCHANT_API));
-  const api = {
-    ...gated,
-    // Pure helpers and constants: open to everyone.
-    convert: (item, options) => convertItem(item, options),
+    /** Random suffixes: (re)roll one item (optionally a chosen suffix id), and list the suffix table. GM only. */
+    rollSuffix: (item, options) => rollSuffix(item, options),
+    suffixes: () => listSuffixes(),
+    /** GM: delete Loot Ledger's compendiums, Build Report and settings (dry run by default; { dryRun: false } deletes). */
+    removeData: (options) => removeModuleData(options),
+    healthReport: (options) => healthReport(options),
     sellPrice,
     bandForLevel,
     formatCoins,
@@ -118,7 +184,8 @@ export function createApi() {
     QUALITIES: QUALITIES.map(q => q.key),
     TYPES: CATEGORIES.map(c => c.key),
     CREATURES: CREATURES.map(c => c.key)
-  };
+  }, GM_ONLY_MEMBERS);
+  const merchants = Object.freeze(gateApi(MERCHANT_API));
   Object.defineProperty(api, "merchants", { enumerable: true, get: () => (merchantsOn() ? merchants : undefined) });
   return api;
 }

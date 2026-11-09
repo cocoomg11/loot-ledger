@@ -2,9 +2,7 @@ name: Tests
 
 on:
   push:
-    branches: [main]
   pull_request:
-    branches: [main]
   workflow_dispatch:
 
 permissions:
@@ -38,3 +36,8 @@ jobs:
 
       - name: Unit tests
         run: npm test
+
+      - name: module.json is valid and points at its own version
+        run: |
+          V=$(jq -r .version module.json)
+          jq -e --arg v "$V" '.download | endswith("/v\($v)/module.zip")' module.json

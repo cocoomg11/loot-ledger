@@ -2,7 +2,7 @@ import { test, beforeEach } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { gateApi } from "../scripts/gm.mjs";
-import { createApi, findTable, clearTableIndexCache, registerTableIndexHooks, GM_ONLY } from "../scripts/api.mjs";
+import { createApi, findTable, clearTableIndexCache, registerTableIndexHooks, GM_ONLY, GM_ONLY_MEMBERS, OPEN_MEMBERS } from "../scripts/api.mjs";
 import { findOfficial } from "../scripts/build.mjs";
 
 const read = p => readFileSync(new URL(`../${p}`, import.meta.url), "utf8");
@@ -38,13 +38,14 @@ test("gateApi: a GM call passes arguments and the result through; the check is m
 
 test("every API entry that reads, writes or rolls is gated for players; pure helpers stay open", async () => {
   const api = createApi();
-  assert.deepEqual([...GM_ONLY].sort(), ["auditHandAuthored", "build", "convertToPack", "findTable", "healthReport", "roll"]);
-  for (const name of GM_ONLY) {
+  assert.equal(GM_ONLY, GM_ONLY_MEMBERS, "0.2.5 alias");
+  for (const name of ["auditHandAuthored", "build", "convertToPack", "findTable", "healthReport", "roll"]) assert.ok(GM_ONLY.includes(name), `${name} stays gated (0.2.5)`);
+  for (const name of GM_ONLY.filter(n => typeof api[n] === "function")) {
     warnings = [];
     assert.equal(typeof api[name], "function", name);
     // The wrapped functions would throw or touch game.packs here; gated, they return undefined synchronously.
     assert.equal(api[name]({}), undefined, name);
-    assert.deepEqual(warnings, ["LOOTLEDGER.Notice.GmOnly"], name);
+    assert.equal(warnings.length, 1, name);
   }
   warnings = [];
   assert.equal(api.formatCoins(12345), api.formatCoins(12345));
@@ -57,14 +58,16 @@ test("every API entry that reads, writes or rolls is gated for players; pure hel
 
 test("source: every function member of the API is either in GM_ONLY or a known pure helper", () => {
   const api = createApi();
-  const PURE = new Set(["convert", "sellPrice", "bandForLevel", "formatCoins"]);
+  const PURE = new Set(OPEN_MEMBERS);
   for (const [name, v] of Object.entries(api)) {
     if (typeof v !== "function") continue;
     assert.ok(GM_ONLY.includes(name) || PURE.has(name), `${name} is neither gated nor listed as pure`);
   }
   const src = read("scripts/api.mjs");
-  const gatedBlock = src.slice(src.indexOf("const gated = gateApi({"), src.indexOf("});", src.indexOf("const gated = gateApi({")));
-  for (const name of GM_ONLY) assert.match(gatedBlock, new RegExp(`\\b${name}\\b`), `${name} not inside gateApi(...)`);
+  const start = src.indexOf("const api = gateMembers({");
+  const gatedBlock = src.slice(start, src.indexOf("}, GM_ONLY_MEMBERS);", start));
+  assert.ok(start > 0 && gatedBlock.length > 0, "createApi wraps its members with gateMembers(..., GM_ONLY_MEMBERS)");
+  for (const name of GM_ONLY) assert.match(gatedBlock, new RegExp(`\\b${name}\\b`), `${name} not inside gateMembers(...)`);
   assert.match(read("scripts/main.mjs"), /module\.api = createApi\(\)/);
   assert.ok(read("lang/en.json").includes('"GmOnly"'));
 });

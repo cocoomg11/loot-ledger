@@ -73,6 +73,8 @@ test("qualityOf: Loot Ledger quality key, else core quality() of the dnd5e rarit
   assert.equal(qualityOf({ system: { rarities: new Set(["legendary"]) } }), "legendary");
   assert.equal(qualityOf({ system: {} }), "poor");
   assert.equal(qualityOf({ flags: { "loot-ledger": { quality: "nonsense" } }, system: { rarity: "uncommon" } }), "uncommon");
+  assert.equal(qualityOf({ flags: { "loot-ledger": { quality: "Purple" } }, system: {} }), "epic", "aliases go through the shared normaliser");
+  assert.equal(qualityOf({ flags: { "loot-ledger": { quality: "heirloom" } }, system: { rarity: "rare" } }), "heirloom");
 });
 
 test("damage, AC and magical bonus", () => {

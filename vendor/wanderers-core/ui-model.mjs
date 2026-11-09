@@ -10,7 +10,7 @@ import { esc } from "./text.mjs";
 import { level } from "./health-model.mjs";
 
 /** Revision of the stylesheet's class contract. Bumped by every change to styles/wanderers-ui.css (a test checks the file). */
-export const UI_REVISION = 3;
+export const UI_REVISION = 4;
 /** The root classes a module puts on its window (ApplicationV2 `classes`) or container. */
 export const UI_CLASSES = /** @type {const} */ (["wc-ui", `wc-r${UI_REVISION}`]);
 /** Path of the stylesheet inside the vendored folder (module.json `styles`: "vendor/wanderers-core/" + this). */
