@@ -2,8 +2,12 @@
  * Loot Ledger: entry point. Registers settings, the "Build loot pools" menu and the API.
  */
 import { MODULE_ID, SOURCE_MODULE, BANDS } from "./data.mjs";
-import { build, ITEMS_PACK, TABLES_PACK } from "./build.mjs";
+import { build, ITEMS_PACK, CONVERTED_PACK, TABLES_PACK } from "./build.mjs";
 import { createApi, registerTableIndexHooks } from "./api.mjs";
+import { ReviewBoard, registerReviewBoard } from "./review.mjs";
+import { registerQualityColours } from "./quality.mjs";
+import { registerSuffixSettings, registerSuffixHooks, isActiveGM } from "./suffix-hooks.mjs";
+import { registerDropHook } from "./events.mjs";
 import { shouldShowHint } from "./hint-model.mjs";
 import { registerMerchantSettings, merchantsOn } from "./merchants.mjs";
 import { MerchantsApp } from "./merchants-app.mjs";
@@ -19,7 +23,7 @@ class BuildMenu extends ApplicationV2 {
     tag: "div",
     window: { title: "LOOTLEDGER.Menu.Title", icon: "fa-solid fa-coins" },
     position: { width: 480, height: "auto" },
-    actions: { build: BuildMenu.#onBuild }
+    actions: { build: BuildMenu.#onBuild, reviewBoard: () => ReviewBoard.open() }
   };
 
   async _renderHTML() {
@@ -28,6 +32,8 @@ class BuildMenu extends ApplicationV2 {
     const source = game.packs.get(`${SOURCE_MODULE}.items`);
     const items = game.packs.get(`world.${ITEMS_PACK.name}`);
     const tables = game.packs.get(`world.${TABLES_PACK.name}`);
+    const converted = game.packs.get(`world.${CONVERTED_PACK.name}`);
+    const convertOn = game.settings.get(MODULE_ID, "convertOnBuild");
     const bands = BANDS.map(b => `<li>Band ${b.band}: item level ${b.max === Infinity ? `${b.min}+` : `${b.min}–${b.max}`} → ${b.levels}</li>`).join("");
     return `
       <section class="loot-ledger-menu">
@@ -35,11 +41,16 @@ class BuildMenu extends ApplicationV2 {
         <ul class="loot-ledger-status">
           <li><strong>${i18n("LOOTLEDGER.Menu.Source")}:</strong> ${source ? `${source.index.size} items` : i18n("LOOTLEDGER.Menu.Missing")}</li>
           <li><strong>${i18n("LOOTLEDGER.Menu.Ratio")}:</strong> ${ratio === "10" ? i18n("LOOTLEDGER.Settings.Ratio.Ten") : i18n("LOOTLEDGER.Settings.Ratio.Hundred")}</li>
+          <li><strong>${i18n("LOOTLEDGER.Menu.Convert")}:</strong> ${convertOn ? i18n("LOOTLEDGER.Menu.On") : i18n("LOOTLEDGER.Menu.Off")}</li>
           <li><strong>${ITEMS_PACK.label}:</strong> ${items ? `${items.index.size} items` : i18n("LOOTLEDGER.Menu.NotBuilt")}</li>
+          ${convertOn || converted ? `<li><strong>${CONVERTED_PACK.label}:</strong> ${converted ? `${converted.index.size} items` : i18n("LOOTLEDGER.Menu.NotBuilt")}</li>` : ""}
           <li><strong>${TABLES_PACK.label}:</strong> ${tables ? `${tables.index.size} tables` : i18n("LOOTLEDGER.Menu.NotBuilt")}</li>
         </ul>
         <details><summary>${i18n("LOOTLEDGER.Menu.Bands")}</summary><ul>${bands}</ul></details>
         <footer class="form-footer">
+          ${game.settings.get(MODULE_ID, "reviewBoard") ? `<button type="button" data-action="reviewBoard" ${converted ? "" : "disabled"}>
+            <i class="fa-solid fa-clipboard-check"></i> Review board
+          </button>` : ""}
           <button type="button" data-action="build" ${source ? "" : "disabled"}>
             <i class="fa-solid fa-hammer"></i> ${i18n("LOOTLEDGER.Menu.Build")}
           </button>
@@ -76,6 +87,99 @@ Hooks.once("init", () => {
     default: "100"
   });
 
+  // Off on the v0.3.0 development branch; book day flips the default once the rules are calibrated.
+  game.settings.register(MODULE_ID, "convertOnBuild", {
+    name: "LOOTLEDGER.Settings.Convert.Name",
+    hint: "LOOTLEDGER.Settings.Convert.Hint",
+    scope: "world",
+    config: true,
+    type: Boolean,
+    default: false
+  });
+
+  // Review board (GM window over the converted items that need review). Off: nothing is registered.
+  game.settings.register(MODULE_ID, "reviewBoard", {
+    name: "Review board",
+    hint: "A GM window for working through converted items that need review (Accept / Tweak / Skip / Reject, with notes). Opens from these settings, the Build Report journal and api.reviewBoard(). Needs a reload.",
+    scope: "world", config: true, type: Boolean, default: true, requiresReload: true
+  });
+
+  // Quality colours. Off: no hooks, no picker, no context-menu entry.
+  game.settings.register(MODULE_ID, "qualityColours", {
+    name: "Quality colours",
+    hint: "Show item names in their quality colour (grey, white, green, blue, purple, orange, ...) on actor and item sheets, chat cards, content links, roll tables, the Items sidebar and compendiums, and Item Piles windows. Needs a reload.",
+    scope: "world", config: true, type: Boolean, default: true, requiresReload: true
+  });
+  game.settings.register(MODULE_ID, "qualityRarityFallback", {
+    name: "Colour by 5e rarity when no quality is set",
+    hint: "Items without a quality are coloured by their dnd5e rarity (below common / no rarity grey, common white, uncommon green, rare blue, very rare purple, legendary orange, artifact gold). An explicit quality always wins.",
+    scope: "world", config: true, type: Boolean, default: true
+  });
+  game.settings.register(MODULE_ID, "qualityPicker", {
+    name: "Quality picker for GMs",
+    hint: 'Adds a "Quality" dropdown to item sheet headers and a "Set quality" entry to the Items sidebar and compendium context menus (GM only). Needs a reload.',
+    scope: "world", config: true, type: Boolean, default: true, requiresReload: true
+  });
+
+  // Official bases (conversion only; each part can be turned off). Read by build.mjs baseSettings().
+  game.settings.register(MODULE_ID, "officialBases", {
+    name: "Official bases",
+    hint: "When converting, re-base items on a matching official item from your installed compendiums (it keeps its own name, icon, price and quality). Off: every item uses the tooltip conversion.",
+    scope: "world", config: true, type: Boolean, default: true
+  });
+  game.settings.register(MODULE_ID, "baseSources", {
+    name: "Base compendiums",
+    hint: "Compendium ids to search for bases, comma separated, highest priority first (the first one wins on duplicate names). Empty: the installed core rulebook compendiums and the 2024 SRD. The 2014 SRD (dnd5e.items) is only used when listed.",
+    scope: "world", config: true, type: String, default: ""
+  });
+  game.settings.register(MODULE_ID, "bookPack", {
+    name: "Book compendium",
+    hint: "Compendium id of a book whose items match source items by exact name. A match is used as is (its own rules and text); Loot Ledger only adds the price, quality and focus tag. Empty: off.",
+    scope: "world", config: true, type: String, default: ""
+  });
+  game.settings.register(MODULE_ID, "baseConfidence", {
+    name: "Base confidence",
+    hint: "Accept and suggest thresholds, e.g. \"0.6, 0.4\". At or above accept the item is re-based; between suggest and accept the base is recorded for review and the tooltip conversion is kept.",
+    scope: "world", config: true, type: String, default: "0.6, 0.4"
+  });
+  game.settings.register(MODULE_ID, "scoreItems", {
+    name: "Ability-score bases",
+    hint: "Allow ability-score bases for the items you mark as \"Score item\" on the Review board (one rarity above the base's own rarity). Main stats otherwise always become their stat variant. Off: no item gets a score base.",
+    scope: "world", config: true, type: Boolean, default: true
+  });
+  game.settings.register(MODULE_ID, "gapFills", {
+    name: "Gap-fills on bases",
+    hint: "A re-based item gets one extra effect for its lines the base does not cover. Off: re-based items use the base's effects only.",
+    scope: "world", config: true, type: Boolean, default: true
+  });
+  game.settings.register(MODULE_ID, "handmadeExclude", {
+    name: "Hand-made items",
+    hint: "Source item names or UUIDs (comma separated) that Build leaves alone: never copied, converted or overwritten. Items flagged loot-ledger.handmade are always left alone.",
+    scope: "world", config: true, type: String, default: ""
+  });
+
+  game.settings.register(MODULE_ID, "collapseMode", {
+    name: "Collapse same-rule items",
+    hint: "Converted items that follow the same rule (same shape, slot, type, quality, tier band, base, +N and gap-fills) are grouped so you review the rule once on the Review board; every item keeps its own name, icon, price and tooltip. Off: no groups.",
+    scope: "world", config: true, type: String, choices: { shared: "Shared (review once per group)", off: "Off" }, default: "shared"
+  });
+
+  // Conversion rule families (read by build.mjs baseSettings(); each can be turned off).
+  game.settings.register(MODULE_ID, "critDice", { name: "Critical-hit dice", hint: "Critical-strike lines become extra dice on a Critical Hit (not doubled). Off: listed as not converted.", scope: "world", config: true, type: Boolean, default: true });
+  game.settings.register(MODULE_ID, "flavourBonuses", { name: "Profession bonuses", hint: "Profession and flavour lines (mining, fishing, lockpicking, ...) become a small situational bonus. Off: listed as not converted.", scope: "world", config: true, type: Boolean, default: true });
+  game.settings.register(MODULE_ID, "manaRegen", { name: "Mana regeneration", hint: "Mana-over-time lines become spell-slot recovery (head, chest, jewellery, held items) or a Concentration bonus (other slots). Off: listed as not converted.", scope: "world", config: true, type: Boolean, default: true });
+  game.settings.register(MODULE_ID, "statDebuff", { name: "Stat-lowering procs", hint: "Proc clauses that lower all of the target's stats become a debuff: the target subtracts 1d4 from attack rolls and saving throws until the end of the wielder's next turn. Off: the clause is flagged for review and not converted.", scope: "world", config: true, type: Boolean, default: true });
+  game.settings.register(MODULE_ID, "parryReaction", { name: "Parry reaction", hint: "Dodge and parry lines become a Reaction that adds to AC against one attack. Off: listed as not converted.", scope: "world", config: true, type: Boolean, default: true });
+  game.settings.register(MODULE_ID, "blastThreshold", {
+    name: "Blast threshold",
+    hint: "A weapon proc at least this many times one normal hit becomes a limited-use blast; smaller procs deal extra damage once per turn (or on a Critical Hit below 1).",
+    scope: "world", config: true, type: String, default: "2"
+  });
+
+  if (game.settings.get(MODULE_ID, "reviewBoard")) registerReviewBoard();
+  if (game.settings.get(MODULE_ID, "qualityColours")) registerQualityColours();
+  // The picker without the colours would be invisible; it is part of the colours feature.
+  registerSuffixSettings();
   registerTooltipSetting();
 
   game.settings.register(MODULE_ID, "tooltipHint", {
@@ -122,6 +226,8 @@ Hooks.once("init", () => {
 });
 
 Hooks.once("ready", () => {
+  registerSuffixHooks();
+  registerDropHook(isActiveGM);
   setTooltipEnabled(game.settings.get(MODULE_ID, TOOLTIP_SETTING));
   setTimeout(showTooltipHint, 4000);
   Hooks.callAll(`${MODULE_ID}.ready`, game.modules.get(MODULE_ID)?.api);

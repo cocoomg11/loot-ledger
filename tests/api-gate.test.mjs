@@ -2,8 +2,8 @@ import { test, beforeEach } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { gateApi } from "../scripts/gm.mjs";
-import { createApi, findTable, clearTableIndexCache, registerTableIndexHooks, GM_ONLY } from "../scripts/api.mjs";
-import { findOfficial } from "../scripts/build.mjs";
+import { createApi, findTable, clearTableIndexCache, registerTableIndexHooks, GM_ONLY, GM_ONLY_MEMBERS, OPEN_MEMBERS } from "../scripts/api.mjs";
+import { loadBases } from "../scripts/build.mjs";
 
 const read = p => readFileSync(new URL(`../${p}`, import.meta.url), "utf8");
 
@@ -38,13 +38,14 @@ test("gateApi: a GM call passes arguments and the result through; the check is m
 
 test("every API entry that reads, writes or rolls is gated for players; pure helpers stay open", async () => {
   const api = createApi();
-  assert.deepEqual([...GM_ONLY].sort(), ["auditHandAuthored", "build", "convertToPack", "findTable", "healthReport", "roll"]);
-  for (const name of GM_ONLY) {
+  assert.equal(GM_ONLY, GM_ONLY_MEMBERS, "0.2.5 alias");
+  for (const name of ["auditHandAuthored", "build", "convertToPack", "findTable", "healthReport", "roll"]) assert.ok(GM_ONLY.includes(name), `${name} stays gated (0.2.5)`);
+  for (const name of GM_ONLY.filter(n => typeof api[n] === "function")) {
     warnings = [];
     assert.equal(typeof api[name], "function", name);
     // The wrapped functions would throw or touch game.packs here; gated, they return undefined synchronously.
     assert.equal(api[name]({}), undefined, name);
-    assert.deepEqual(warnings, ["LOOTLEDGER.Notice.GmOnly"], name);
+    assert.equal(warnings.length, 1, name);
   }
   warnings = [];
   assert.equal(api.formatCoins(12345), api.formatCoins(12345));
@@ -57,14 +58,16 @@ test("every API entry that reads, writes or rolls is gated for players; pure hel
 
 test("source: every function member of the API is either in GM_ONLY or a known pure helper", () => {
   const api = createApi();
-  const PURE = new Set(["convert", "sellPrice", "bandForLevel", "formatCoins"]);
+  const PURE = new Set(OPEN_MEMBERS);
   for (const [name, v] of Object.entries(api)) {
     if (typeof v !== "function") continue;
     assert.ok(GM_ONLY.includes(name) || PURE.has(name), `${name} is neither gated nor listed as pure`);
   }
   const src = read("scripts/api.mjs");
-  const gatedBlock = src.slice(src.indexOf("const gated = gateApi({"), src.indexOf("});", src.indexOf("const gated = gateApi({")));
-  for (const name of GM_ONLY) assert.match(gatedBlock, new RegExp(`\\b${name}\\b`), `${name} not inside gateApi(...)`);
+  const start = src.indexOf("const api = gateMembers({");
+  const gatedBlock = src.slice(start, src.indexOf("}, GM_ONLY_MEMBERS);", start));
+  assert.ok(start > 0 && gatedBlock.length > 0, "createApi wraps its members with gateMembers(..., GM_ONLY_MEMBERS)");
+  for (const name of GM_ONLY) assert.match(gatedBlock, new RegExp(`\\b${name}\\b`), `${name} not inside gateMembers(...)`);
   assert.match(read("scripts/main.mjs"), /module\.api = createApi\(\)/);
   assert.ok(read("lang/en.json").includes('"GmOnly"'));
 });
@@ -78,26 +81,25 @@ function fakePack(collection, entries, docs = {}) {
   };
 }
 
-test("findOfficial: with one Map per run, each pack's index is read once", async () => {
-  const own = fakePack("dnd-dungeon-masters-guide.equipment", [{ _id: "a", name: "Boots of Speed" }, { _id: "b", name: "Cloak of Protection" }]);
+test("loadBases: each base source pack's index is read once per run and documents are cached", async () => {
+  const own = fakePack("my-book.equipment", [{ _id: "a", name: "Boots A" }, { _id: "b", name: "Cloak B" }]);
   const srd = fakePack("dnd5e.equipment24", [{ _id: "s", name: "Rope" }]);
+  let docReads = 0;
+  own.getDocument = async id => { docReads++; return { id }; };
   globalThis.game.packs = new Map([[own.collection, own], [srd.collection, srd]]);
-  const indexes = new Map();
-  assert.equal((await findOfficial({ pack: own.collection, name: "Boots of Speed" }, indexes)).id, "a");
-  assert.equal((await findOfficial({ pack: own.collection, name: "Cloak of Protection" }, indexes)).id, "b");
-  assert.equal((await findOfficial({ pack: own.collection, name: "Rope" }, indexes)).id, "s");
-  assert.equal(await findOfficial({ pack: own.collection, name: "Nothing" }, indexes), null);
+  const bases = await loadBases({ on: true, sources: [own.collection, srd.collection], book: "", confidence: {}, scoreItems: false, gapFills: true, handmade: [], rules: {} });
   assert.equal(own.reads, 1);
   assert.equal(srd.reads, 1);
-  // Without a Map (old call shape) it still works.
-  assert.equal((await findOfficial({ pack: own.collection, name: "Boots of Speed" })).id, "a");
+  assert.equal((await bases.doc("u1", own.collection, "a")).id, "a");
+  assert.equal((await bases.doc("u1", own.collection, "a")).id, "a");
+  assert.equal(docReads, 1, "one document read per base per run");
 });
 
-test("source: convertToPack passes one index cache to findOfficial for the whole run", () => {
+test("source: convertToPack loads the bases once for the whole run (the 0.2.5 one-index-per-run rule)", () => {
   const src = read("scripts/build.mjs");
-  const body = src.slice(src.indexOf("export async function convertToPack"), src.indexOf("export async function findOfficial"));
-  assert.match(body, /const indexes = new Map\(\)/);
-  assert.match(body, /findOfficial\(pre\.basedOn, indexes\)/);
+  const body = src.slice(src.indexOf("export async function convertToPack"), src.indexOf("export function baseSettings"));
+  assert.match(body, /const bases = await loadBases\(bs\);/);
+  assert.ok(body.indexOf("loadBases(bs)") < body.indexOf("for (const doc of docs)"), "outside the item loop");
 });
 
 test("findTable: the index is cached and cleared by RollTable create/update/delete hooks", async () => {

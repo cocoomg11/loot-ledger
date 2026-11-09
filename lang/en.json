@@ -7,6 +7,10 @@
         "Hundred": "100:1 (classic MMO, matches three-coin economies)",
         "Ten": "Standard 5e (10:1, converted by value; small amounts lose precision)"
       },
+      "Convert": {
+        "Name": "Convert items to 5e when building",
+        "Hint": "When on, Build also converts every copied item to dnd5e rules into the Loot Ledger · Converted Items compendium and points the roll tables at the converted versions. Lines the converter has no rule for are listed for GM review in the Loot Ledger · Build Report journal instead of being invented. Applied the next time you build."
+      },
       "Tooltip": {
         "Name": "Item tooltip (hold Shift)",
         "Hint": "Off by default. While on, hold Shift and hover an item on a sheet, in the Items sidebar, a compendium or a chat card to see a tooltip with its rarity colour, stats, price, weight and a comparison with your character's equipped item in the same slot. Only affects you."
@@ -25,12 +29,15 @@
       "Title": "Loot Ledger",
       "Hint": "Copy every classic MMO item into a world compendium with sell-accurate prices and generate rollable loot tables.",
       "Build": "Build loot pools",
-      "Intro": "Builds two world compendiums from the source item module: a priced copy of every item, and roll tables by quality, item type, mixed drop and creature type. Re-running replaces their contents; nothing else in the world is touched.",
+      "Intro": "Builds world compendiums from the source item module: a priced copy of every item, optionally a 5e conversion of every item, and roll tables by quality, item type, mixed drop and creature type. Re-running updates only what changed; nothing else in the world is touched apart from the Build Report journal.",
       "Source": "Source items",
       "Ratio": "Coin ratio",
       "Missing": "not found (enable wow-classic-items)",
       "NotBuilt": "not built yet",
-      "Bands": "Level bands"
+      "Bands": "Level bands",
+      "Convert": "Convert to 5e",
+      "On": "on",
+      "Off": "off"
     },
     "Hint": {
       "Message": "Loot Ledger: you can turn on an item tooltip. In Configure Settings, find Loot Ledger and enable \"Item tooltip (hold Shift)\", then hold Shift while pointing at an item to see its stats, price and a comparison with what you have equipped."

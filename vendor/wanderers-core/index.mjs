@@ -32,8 +32,12 @@ export {
   readPlacements, getPlacement, setPlacement, removePlacement, samePlacement, clampPlacement, placementOf, debouncer
 } from "./window-model.mjs";
 export { KEY_MODIFIERS, ACTION_RE, KEY_CODE_RE, defineOpenKeybinding, keybindingConfig } from "./keybinding-model.mjs";
-export { DATA_FOLDER_NAME, DATA_FOLDER_TYPE, DATA_FOLDER_SORT, pickDataFolder, dataFolderData, dataFolderPlan, folderEmptyAfter, SHOW_SETTING, dataFolderShown, dataFolderIds } from "./data-folder-model.mjs";
+export { DATA_FOLDER_NAME, DATA_FOLDER_TYPE, DATA_FOLDER_SORT, dataFolders, pickDataFolder, dataFolderData, dataFolderPlan, folderEmptyAfter, SHOW_SETTING, dataFolderShown, dataFolderIds, dataFolderMergePlan } from "./data-folder-model.mjs";
 export {
   STORE_MAX_BYTES, STORE_DELETE_DEPTH, STORE_FILED_FLAG, defineStore, isStoreEntry, storeEntries, rawData as storeRawData, storeCreateData,
   needsFiling, storeKeys, storeGet, storeWith, storeWithKey, storeDeletions, deletionKeys, storeSize
 } from "./store-model.mjs";
+export {
+  PAGE_ID_RE, PAGE_ID_MAX, PAGE_LABEL_MAX, PAGE_HINT_MAX, PAGE_ICON_MAX, PAGE_PATH_RE, PAGE_FA_RE, PAGE_GUESTS_MAX, PAGE_RENDER_MS,
+  readPageDef, orderPages, createPageHost, renderGuest, activateGuest
+} from "./pages-model.mjs";

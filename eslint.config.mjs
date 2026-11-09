@@ -40,5 +40,5 @@ export default [
     }
   },
   { files: ["scripts/**/*.mjs"], languageOptions: { globals: { ...ro(COMMON), ...ro(BROWSER), ...ro(FOUNDRY) } } },
-  { files: ["tests/**/*.mjs", "*.mjs"], languageOptions: { globals: { ...ro(COMMON), ...ro(NODE) } } }
+  { files: ["tests/**/*.mjs", "tools/**/*.mjs", "*.mjs"], languageOptions: { globals: { ...ro(COMMON), ...ro(NODE) } } }
 ];

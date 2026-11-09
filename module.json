@@ -1,15 +1,15 @@
 {
   "id": "loot-ledger",
   "title": "Loot Ledger",
-  "description": "Priced, rollable loot pools for dnd5e, built from a classic-MMO item compendium module: sell prices that match the source's vendor prices, rarity from item quality, and roll tables by level band, quality, item type, mixed drop and creature type. An optional 5e item conversion is available as an early preview and is off by default.",
-  "version": "0.3.0",
+  "description": "Priced, rollable loot pools for dnd5e, built from a classic-MMO item compendium module: sell prices that match the source's vendor prices, rarity from item quality, and roll tables by level band, quality, item type, mixed drop and creature type. An optional 5e conversion of every item, with a GM review board, is off by default.",
+  "version": "0.4.0",
   "authors": [
     {
       "name": "cocoomg11"
     }
   ],
   "compatibility": {
-    "minimum": "13",
+    "minimum": "14",
     "verified": "14"
   },
   "relationships": {
@@ -18,8 +18,15 @@
         "id": "dnd5e",
         "type": "system",
         "compatibility": {
-          "minimum": "5.0.0"
+          "minimum": "5.0.0",
+          "verified": "6.0.6"
         }
+      }
+    ],
+    "requires": [
+      {
+        "id": "wow-classic-items",
+        "type": "module"
       }
     ],
     "recommends": [
@@ -27,11 +34,9 @@
         "id": "item-piles",
         "type": "module",
         "reason": "Merchant tables: Item Piles merchants are pointed at shop roll tables and restocked from them."
-      }
-    ],
-    "requires": [
+      },
       {
-        "id": "wow-classic-items",
+        "id": "wayfarers-toolkit",
         "type": "module"
       }
     ]
@@ -52,7 +57,7 @@
   ],
   "url": "https://github.com/cocoomg11/loot-ledger",
   "manifest": "https://github.com/cocoomg11/loot-ledger/releases/latest/download/module.json",
-  "download": "https://github.com/cocoomg11/loot-ledger/releases/download/v0.3.0/module.zip",
+  "download": "https://github.com/cocoomg11/loot-ledger/releases/download/v0.4.0/module.zip",
   "bugs": "https://github.com/cocoomg11/loot-ledger/issues",
   "license": "LICENSE",
   "readme": "README.md"
