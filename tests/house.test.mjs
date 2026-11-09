@@ -115,3 +115,16 @@ test("docs: conversion.md names only rules exports that exist, and public docs c
     assert.ok(!banned.test(text), `${f} mentions a publisher or official item name`);
   }
 });
+
+test("CI: core's reusable checks at the pinned core version, with a committed lockfile", () => {
+  const lock = JSON.parse(read("wanderers-core.lock.json"));
+  const wf = read(".github/workflows/test.yml");
+  assert.match(wf, new RegExp(`cocoomg11/wanderers-core/\\.github/workflows/module-checks\\.yml@v${lock.version.replace(/\./g, "\\.")}\\b`));
+  const pkg = JSON.parse(read("package.json"));
+  const pl = JSON.parse(read("package-lock.json"));
+  assert.equal(pl.version, pkg.version, "package-lock follows package.json");
+  assert.equal(pl.packages[""].version, pkg.version);
+  assert.deepEqual(pl.packages[""].devDependencies, pkg.devDependencies);
+  assert.equal(pl.packages["node_modules/eslint"].version, pkg.devDependencies.eslint);
+  assert.equal(JSON.parse(read("module.json")).version, pkg.version, "module.json and package.json agree");
+});
