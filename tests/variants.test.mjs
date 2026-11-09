@@ -13,7 +13,7 @@ import { srcItem } from "./_fixtures.mjs";
 const conv = (o, opts = {}) => convertItem(srcItem(o), { dnd5eMajor: 6, ...opts });
 const riders = c => c.data.flags["loot-ledger"].riders;
 const rider = (c, type) => riders(c).find(r => r.type === type);
-const keys = c => c.data.effects.flatMap(e => e.changes.map(x => `${x.key}=${x.value}`));
+const keys = c => c.data.effects.flatMap(e => (e.system?.changes ?? e.changes).map(x => `${x.key}=${x.value}`));
 const variantOf = c => rider(c, "variant")?.variant ?? null;
 const attuned = c => c.data.system.attunement === "required";
 const facts = (slot, armor, shape = "gear") => V.slotFacts({ slot, wowType: armor }, shape);
@@ -70,7 +70,7 @@ test("variant sizes: checks/saves +1/+1/+2/+2, Initiative +1/+2/+2/+3, HP per le
 
 test("Advantage swap: never by default; only with the opt-in override and from purple", () => {
   const src = { name: "Test Swift Ring", quality: "epic", lines: ["Finger", "+20 Agility", "Item Level 60"] };
-  assert.ok(keys(conv(src)).includes("system.attributes.init.bonus=+ 2"));
+  assert.ok(keys(conv(src)).includes("system.attributes.init.roll.bonus=+ 2"));
   const opt = conv(src, { overrides: { advantage: true } });
   assert.ok(keys(opt).includes("system.attributes.init.roll.mode=1"));
   assert.equal(rider(opt, "variant").advantage, true);
@@ -80,10 +80,10 @@ test("Advantage swap: never by default; only with the opt-in override and from p
 
 test("AE keys: dnd5e keys per variant; grapple and Hit Dice are text only", () => {
   const k = (lines, q = "rare") => keys(conv({ name: "Test Gear", quality: q, lines: [...lines, "Item Level 40"] }));
-  assert.deepEqual(k(["Feet", "Leather", "+10 Strength"]), ["system.skills.ath.bonuses.check=+ 1"]);
+  assert.deepEqual(k(["Feet", "Leather", "+10 Strength"]), ["system.skills.ath.roll.bonus=+ 1"]);
   assert.deepEqual(k(["Chest", "Mail", "300 Armor", "+10 Stamina"]), ["system.attributes.hp.bonuses.overall=+ floor(@details.level / 2)"]);
   assert.deepEqual(k(["Wrist", "Cloth", "+10 Intellect"]), ["system.bonuses.spell.dc=1"]);
-  assert.deepEqual(k(["Held In Off-hand", "+10 Stamina"]), ["system.attributes.concentration.bonuses.save=+ 1"]);
+  assert.deepEqual(k(["Held In Off-hand", "+10 Stamina"]), ["system.attributes.concentration.roll.bonus=+ 1"]);
   assert.deepEqual(k(["Hands", "Plate", "+10 Strength"]), [], "grapple DC: text only");
   assert.deepEqual(k(["Legs", "Cloth", "+10 Spirit"]), [], "Hit Dice healing: text only");
 });
@@ -141,7 +141,7 @@ test("+hit on non-weapons: purple+ with attunement only; weapons covered by +N",
   assert.equal(rider(blue, "attackBonus"), undefined);
   const purple = conv({ name: "Test Aim Ring", quality: "epic", lines: ["Finger", line, "Item Level 60"] });
   assert.equal(rider(purple, "attackBonus").value, 1); assert.equal(attuned(purple), true);
-  assert.ok(keys(purple).includes("system.bonuses.mwak.attack=+ 1"));
+  assert.ok(keys(purple).includes("system.rolls.attack.mwak.bonus=+ 1"));
 });
 
 test("+Defense: +1 AC on trinkets, applied by the effect (attuned); elsewhere not converted", () => {
@@ -168,7 +168,7 @@ test("mana regen: slot recovery 1/3/4/5 by slot, Concentration elsewhere, uses o
   assert.deepEqual(hat.data.system.uses.recovery, [{ period: "lr", type: "recoverAll" }]);
   const boots = conv({ name: "Test Calm Boots", quality: "rare", lines: ["Feet", "Cloth", line, "Item Level 40"] });
   assert.equal(rider(boots, "concentration").value, 1);
-  assert.ok(keys(boots).includes("system.attributes.concentration.bonuses.save=+ 1"));
+  assert.ok(keys(boots).includes("system.attributes.concentration.roll.bonus=+ 1"));
   assert.equal(rider(conv({ name: "Test Wise Hood", quality: "epic", lines: ["Head", "Cloth", line, "Item Level 60"] }, { rules: { manaRegen: false } }), "slotRecovery"), undefined);
 });
 

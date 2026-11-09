@@ -8,6 +8,7 @@
  * collapse keys. All wording is Loot Ledger's own.
  */
 import { VARIANT_RULE, VARIANT_SLOTS, STAT_RULE, LINE_BUDGET, FREE_RIDERS, LINE_WEIGHT } from "./rules.mjs";
+import { KEYS } from "./effects.mjs";
 
 export const STAT_ORDER = ["str", "dex", "con", "int", "wis"];
 const LABEL = { str: "Strength", dex: "Dexterity", con: "Constitution", int: "Intelligence", wis: "Wisdom" };
@@ -63,21 +64,24 @@ export function mainStat(p, facts, tier) {
   return { ability, value: top, line: p.statLines?.[ability] ?? `+${top} ${ability}`, sub: top < statThreshold(p.itemLevel) };
 }
 
-/** AE change keys (dnd5e: legacy keys, shimmed by 6.x) for flat variants and their Advantage form. */
+/**
+ * AE change keys for flat variants and their Advantage form: dnd5e 6.x `roll` fields (effects.mjs KEYS; the old
+ * `bonuses.check` / `bonuses.save` keys are shims removed in dnd5e 7.0 and are never written).
+ */
 const VARIANT_KEYS = {
-  athletics: { flat: "system.skills.ath.bonuses.check", adv: "system.skills.ath.roll.mode" },
-  moveSaves: { flat: "system.abilities.str.bonuses.save", adv: "system.abilities.str.save.roll.mode" },
-  initiative: { flat: "system.attributes.init.bonus", adv: "system.attributes.init.roll.mode" },
-  stealth: { flat: "system.skills.ste.bonuses.check", adv: "system.skills.ste.roll.mode" },
-  acrobatics: { flat: "system.skills.acr.bonuses.check", adv: "system.skills.acr.roll.mode" },
-  hpMax: { flat: "system.attributes.hp.bonuses.overall" },
-  conSaves: { flat: "system.abilities.con.bonuses.save", adv: "system.abilities.con.save.roll.mode" },
-  concentration: { flat: "system.attributes.concentration.bonuses.save", adv: "system.attributes.concentration.roll.mode" },
-  spellDC: { flat: "system.bonuses.spell.dc" },
-  arcana: { flat: "system.skills.arc.bonuses.check", adv: "system.skills.arc.roll.mode" },
-  investigation: { flat: "system.skills.inv.bonuses.check", adv: "system.skills.inv.roll.mode" },
-  wisSaves: { flat: "system.abilities.wis.bonuses.save", adv: "system.abilities.wis.save.roll.mode" },
-  perception: { flat: "system.skills.prc.bonuses.check", adv: "system.skills.prc.roll.mode" }
+  athletics: { flat: KEYS.skill("ath"), adv: KEYS.skillMode("ath") },
+  moveSaves: { flat: KEYS.abilitySave("str"), adv: KEYS.abilitySaveMode("str") },
+  initiative: { flat: KEYS.init, adv: KEYS.initMode },
+  stealth: { flat: KEYS.skill("ste"), adv: KEYS.skillMode("ste") },
+  acrobatics: { flat: KEYS.skill("acr"), adv: KEYS.skillMode("acr") },
+  hpMax: { flat: KEYS.hpMax },
+  conSaves: { flat: KEYS.abilitySave("con"), adv: KEYS.abilitySaveMode("con") },
+  concentration: { flat: KEYS.concentration, adv: KEYS.concentrationMode },
+  spellDC: { flat: KEYS.spellDC },
+  arcana: { flat: KEYS.skill("arc"), adv: KEYS.skillMode("arc") },
+  investigation: { flat: KEYS.skill("inv"), adv: KEYS.skillMode("inv") },
+  wisSaves: { flat: KEYS.abilitySave("wis"), adv: KEYS.abilitySaveMode("wis") },
+  perception: { flat: KEYS.skill("prc"), adv: KEYS.skillMode("prc") }
   // grapple (the Unarmed Strike Grapple / Shove DC) and hitDice (Hit Point Dice healing) have no actor field: text only.
 };
 export const variantKeys = v => VARIANT_KEYS[v] ?? null;
@@ -153,8 +157,15 @@ export function overBudget(benefits, tier, { weapon = false } = {}) {
   return drop;
 }
 
-/** Weight of a rider type in the budget (LINE_WEIGHT; unknown = 1). Free riders never count. */
-export const lineWeight = type => LINE_WEIGHT[type] ?? 1;
+/**
+ * Weight of a rider (or rider type) in the budget (LINE_WEIGHT; unknown = 1). Free riders never count. A bleed weighs as
+ * the damage it replaced: a blast-band bleed as a blast, a critical / on-hit bleed as extra damage.
+ */
+export const lineWeight = r => {
+  const type = typeof r === "string" ? r : r?.type;
+  if (type === "bleed" && typeof r === "object") return LINE_WEIGHT[r.band === "blast" ? "burstDamage" : "extraDamage"] ?? 1;
+  return LINE_WEIGHT[type] ?? 1;
+};
 export const isFree = type => FREE_RIDERS.has(type);
 
 /**

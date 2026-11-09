@@ -92,7 +92,7 @@ export function onBoard(flags) {
 export const ADVANTAGE_QUALITIES = new Set(["epic", "legendary"]);
 
 /** Override actions and the flag changes they make (see overrideUpdate). */
-export const OVERRIDE_ACTIONS = ["acceptBase", "pickBase", "dropBase", "split", "advantage", "raise"];
+export const OVERRIDE_ACTIONS = ["acceptBase", "pickBase", "dropBase", "split", "advantage", "raise", "scoreItem"];
 
 /**
  * The flag changes for a review-board override action on one item. Pure: returns {overrides?, collapse?} to merge
@@ -100,7 +100,9 @@ export const OVERRIDE_ACTIONS = ["acceptBase", "pickBase", "dropBase", "split", 
  * @param {object} flags   the item's current flags["loot-ledger"]
  * @param {string} action  acceptBase (the suggested / matched base becomes accepted) | pickBase (one of the stored
  *                         candidates, by uuid) | dropBase (tooltip conversion) | split (leave the collapse group) |
- *                         advantage (toggle; epic / legendary only) | raise (toggle the endgame +1 step)
+ *                         advantage (toggle; epic / legendary only) | raise (toggle the endgame +1 step) |
+ *                         scoreItem (toggle: the build gives this item the ability-score base for its main stat, one
+ *                         rarity above the base; the GM's own pick, never automatic)
  * @param {{uuid?:string}} [o]
  */
 export function overrideUpdate(flags, action, { uuid = null } = {}) {
@@ -125,6 +127,7 @@ export function overrideUpdate(flags, action, { uuid = null } = {}) {
       return { overrides: clean({ ...prev, advantage: !prev.advantage }) };
     }
     case "raise": return { overrides: clean({ ...prev, raise: !prev.raise }) };
+    case "scoreItem": return { overrides: clean({ ...prev, scoreItem: !prev.scoreItem }) };
     default: throw new Error(`Loot Ledger: unknown override action "${action}"`);
   }
 }
@@ -165,7 +168,9 @@ export function boardEntry(id, name, flags, img = null) {
     candidates: flags?.baseCandidates ?? b?.candidates ?? [],
     collapse: flags?.collapse ? { group: flags.collapse.group, canonical: !!flags.collapse.canonical, canonicalId: flags.collapse.canonicalId, size: flags.collapse.size ?? 1, split: !!flags.collapse.split } : null,
     flags: (c.flags ?? []).map(f => ({ kind: f.kind, why: f.why })),
-    overrides: { ...(flags?.overrides ?? {}) }
+    overrides: { ...(flags?.overrides ?? {}) },
+    sourceTextConflict: !!c.sourceTextConflict,
+    scoreItem: b?.scoreItem ?? null
   };
 }
 
@@ -175,6 +180,8 @@ export const KINDS = {
   nobase: { label: "No base (review)", test: e => e.route === "convert-review" && e.base?.status !== "suggest" },
   group: { label: "Collapsed group", test: e => !!e.collapse && e.collapse.size > 1 && !e.collapse.split },
   sourceText: { label: "Source-text item", test: e => e.sourceText },
+  sourceTextConflict: { label: "Source text replaced", test: e => e.sourceTextConflict || e.flags.some(f => f.kind === "sourceTextConflict") },
+  scoreItem: { label: "Score item (picked)", test: e => !!e.overrides.scoreItem },
   flagged: { label: "Flagged", test: e => e.flags.length > 0 }
 };
 
@@ -223,9 +230,15 @@ export function filterQueue(entries, f = {}) {
 
 const ORDER = { pending: 0, skipped: 1, tweaked: 2, accepted: 3, rejected: 4 };
 
-/** Queue order: pending first, then skipped (come back later), then decided items; by name within a status. */
+/** Members a folded entry stands for (1 for singletons and split members). */
+const groupSize = e => e.members?.length ?? (e.collapse && !e.collapse.split ? e.collapse.size ?? 1 : 1);
+
+/**
+ * Queue order: pending first, then skipped (come back later), then decided items; within a status the biggest collapse
+ * groups first (one decision covers the most items), then by name.
+ */
 export function sortQueue(entries) {
-  return [...entries].sort((a, b) => (ORDER[a.status] - ORDER[b.status]) || a.name.localeCompare(b.name));
+  return [...entries].sort((a, b) => (ORDER[a.status] - ORDER[b.status]) || (groupSize(b) - groupSize(a)) || a.name.localeCompare(b.name));
 }
 
 /** Progress counts over every entry: {total, pending, accepted, tweaked, skipped, rejected, done}. */

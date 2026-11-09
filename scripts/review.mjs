@@ -9,6 +9,7 @@ import * as R from "./review-model.mjs";
 import * as Q from "./quality-model.mjs";
 
 const { ApplicationV2 } = foundry.applications.api;
+const ABILITY_NAME = { str: "Strength", dex: "Dexterity", con: "Constitution", int: "Intelligence", wis: "Wisdom", cha: "Charisma" };
 const esc = R.esc;
 const LIST_LIMIT = 300;
 const STATUS_LABEL = { pending: "Pending", accepted: "Accepted", tweaked: "Tweaked", skipped: "Skipped", rejected: "Rejected" };
@@ -41,7 +42,8 @@ export class ReviewBoard extends ApplicationV2 {
       dropBase() { this.override("dropBase"); },
       split() { this.override("split"); },
       advantage() { this.override("advantage"); },
-      raise() { this.override("raise"); }
+      raise() { this.override("raise"); },
+      scoreItem() { this.override("scoreItem"); }
     }
   };
 
@@ -110,7 +112,8 @@ export class ReviewBoard extends ApplicationV2 {
     if (!pack) return;
     const entry = this.entries.find(e => e.id === this.current);
     if (!entry) return;
-    const ids = action === "split" ? [entry.id] : R.groupIds(this.entries, entry);
+    // A split and a score-item pick are per item; other overrides apply to the whole collapse group.
+    const ids = action === "split" || action === "scoreItem" ? [entry.id] : R.groupIds(this.entries, entry);
     const updates = [];
     try {
       for (const id of ids) {
@@ -287,8 +290,10 @@ export class ReviewBoard extends ApplicationV2 {
             ${b || o.base ? `<button type="button" data-action="dropBase" data-tooltip="Use the tooltip conversion instead">Drop base</button>` : ""}
             ${canAdvantage ? `<button type="button" data-action="advantage">${o.advantage ? "Advantage: on" : "Advantage: off"}</button>` : ""}
             <button type="button" data-action="raise" data-tooltip="Endgame +1 step on the item's +N (weapon, chest armour, shield)">${o.raise ? "Raise: on" : "Raise: off"}</button>
+            <button type="button" data-action="scoreItem" data-tooltip="Give this one item the ability-score base for its main stat (one rarity above the base), instead of its stat variant. For a few story items only.">${o.scoreItem ? "Score item: on" : "Score item: off"}</button>
           </div>
           ${entry.members ? `<p><strong>Group of ${entry.members.length}:</strong> ${entry.members.map(m => esc(m.name)).join(", ")}. A decision here applies to all of them. <button type="button" data-action="split" data-tooltip="Review this item on its own">Split this item</button></p>` : ""}
+          ${entry.scoreItem ? `<p><strong>Score item:</strong> uses the ${esc(ABILITY_NAME[entry.scoreItem] ?? entry.scoreItem)} score base.</p>` : o.scoreItem ? `<p><strong>Score item:</strong> picked; no matching score base was found in your compendiums for this item's main stat, slot and rarity (it keeps its variant).</p>` : ""}
           ${entry.flags.length ? `<p><strong>Flags:</strong> ${entry.flags.map(f => esc(f.why)).join("; ")}</p>` : ""}
           <p class="llrb-help">Overrides take effect on the next Build (the item is rewritten from them).</p>
         </section>`;

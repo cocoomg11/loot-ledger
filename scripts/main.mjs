@@ -144,7 +144,7 @@ Hooks.once("init", () => {
   });
   game.settings.register(MODULE_ID, "scoreItems", {
     name: "Ability-score bases",
-    hint: "Allow bases that set an ability score for items with a big main stat, one rarity above the base's own rarity.",
+    hint: "Allow ability-score bases for the items you mark as \"Score item\" on the Review board (one rarity above the base's own rarity). Main stats otherwise always become their stat variant. Off: no item gets a score base.",
     scope: "world", config: true, type: Boolean, default: true
   });
   game.settings.register(MODULE_ID, "gapFills", {
@@ -168,6 +168,7 @@ Hooks.once("init", () => {
   game.settings.register(MODULE_ID, "critDice", { name: "Critical-hit dice", hint: "Critical-strike lines become extra dice on a Critical Hit (not doubled). Off: listed as not converted.", scope: "world", config: true, type: Boolean, default: true });
   game.settings.register(MODULE_ID, "flavourBonuses", { name: "Profession bonuses", hint: "Profession and flavour lines (mining, fishing, lockpicking, ...) become a small situational bonus. Off: listed as not converted.", scope: "world", config: true, type: Boolean, default: true });
   game.settings.register(MODULE_ID, "manaRegen", { name: "Mana regeneration", hint: "Mana-over-time lines become spell-slot recovery (head, chest, jewellery, held items) or a Concentration bonus (other slots). Off: listed as not converted.", scope: "world", config: true, type: Boolean, default: true });
+  game.settings.register(MODULE_ID, "statDebuff", { name: "Stat-lowering procs", hint: "Proc clauses that lower all of the target's stats become a debuff: the target subtracts 1d4 from attack rolls and saving throws until the end of the wielder's next turn. Off: the clause is flagged for review and not converted.", scope: "world", config: true, type: Boolean, default: true });
   game.settings.register(MODULE_ID, "parryReaction", { name: "Parry reaction", hint: "Dodge and parry lines become a Reaction that adds to AC against one attack. Off: listed as not converted.", scope: "world", config: true, type: Boolean, default: true });
   game.settings.register(MODULE_ID, "blastThreshold", {
     name: "Blast threshold",

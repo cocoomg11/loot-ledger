@@ -13,10 +13,12 @@
  * item and its riders (`matchBase`).
  */
 import { VARIANT_TAGS } from "./variants.mjs";
+import { effectChanges, changeType } from "./effects.mjs";
+export { effectChanges };
 import { OFFICIAL_BASES, VARIANT_BASES, SCHOOL_MAP, PROC_RULE, RESIST_RULE, STAT_RULE, SPELL_RULE, POTION_REFLAVOUR } from "./rules.mjs";
 
 /** Bump when matching logic changes (stored on every matched item as base.matcherVersion; part of the hash). */
-export const MATCHER_VERSION = 2;
+export const MATCHER_VERSION = 3;
 
 /** Fields read from each compendium index (one getIndex call per pack per build). */
 export const INDEX_FIELDS = [
@@ -79,11 +81,21 @@ export function baseSignals(e) {
       if (k === "system.attributes.ac.bonus") tags.add(slot === "armor" || slot === "shield" ? "plus" : "ac");
       else if (k === "system.bonuses.abilities.save") tags.add("saves");
       else if (k === "system.bonuses.abilities.check") tags.add("checks");
-      else if ((m = k.match(/^system\.abilities\.(\w+)\.bonuses\.(save|check)$/))) tags.add(`stat:${m[1]}`);
-      else if ((m = k.match(/^system\.abilities\.(\w+)\.value$/))) { tags.add(`score:${m[1]}`); scores[m[1]] = Number(c.value) || null; }
+      else if ((m = k.match(/^system\.abilities\.(\w+)\.(?:bonuses\.(?:save|check)|(?:save|check)\.roll\.bonus)$/))) tags.add(`stat:${m[1]}`);
+      else if ((m = k.match(/^system\.abilities\.(\w+)\.value$/))) {
+        // Only a change that SETS the score (upgrade / override, e.g. a headband or gauntlets) makes a score base; one that
+        // adds to it (an ioun stone, a belt that adds +2) is a stat bonus like any other.
+        if (["upgrade", "override"].includes(changeType(c))) { tags.add(`score:${m[1]}`); scores[m[1]] = Number(c.value) || null; }
+        else tags.add(`stat:${m[1]}`);
+      }
       else if (k === "system.traits.dr.value") String(c.value).split(/[,\s]+/).filter(Boolean).forEach(v => tags.add(`resist:${v.toLowerCase()}`));
       else if (/^system\.bonuses\.(spell\.dc|rsak|msak)/.test(k)) tags.add("spell");
       else if (/^system\.bonuses\.(mwak|rwak)\.attack/.test(k)) tags.add("attack");
+      else if (/^system\.rolls\.attack\.(mwak|rwak)\./.test(k)) tags.add("attack");
+      else if (/^system\.rolls\.attack\.(msak|rsak)\./.test(k)) tags.add("spell");
+      else if (k === "system.rolls.ability.save.bonus") tags.add("saves");
+      else if (k === "system.rolls.ability.check.bonus") tags.add("checks");
+      else if (k.startsWith("system.attributes.concentration")) tags.add("concentration");
       else if (k.startsWith("system.attributes.init")) tags.add("init");
       else if (k.startsWith("system.attributes.hp.bonuses")) tags.add("hpMax");
       else if ((m = k.match(/^system\.skills\.(\w+)\./))) tags.add(m[1] === "ste" ? "stealth" : `skill:${m[1]}`);
@@ -116,12 +128,6 @@ export function baseSignals(e) {
   }
   if (entryRarity(e) >= RARITY_TIER.artifact) tags.add("artifact");
   return { tags, damage, scores };
-}
-
-/** An Active Effect's changes (top-level `changes`, or `system.changes` on Foundry 14). */
-export function effectChanges(fx) {
-  const c = fx?.changes ?? fx?.system?.changes;
-  return Array.isArray(c) ? c : [];
 }
 
 /* -------------------------------------------- */
@@ -214,8 +220,21 @@ const W = () => OFFICIAL_BASES.weights;
  * type). Shared with convert.mjs.
  */
 export const PROC_DAMAGE = /(\d+)(?: to (\d+))? (?:(Fire|Frost|Nature|Shadow|Arcane|Holy) )?damage/i;
-const STAT_TAGS = { str: ["stat:str", "score:str", "skill:ath"], dex: ["stat:dex", "score:dex", "init", "stealth", "skill:acr"],
+/** A stat's whole tag family (any base with one of these is RELATED to the stat; it is not coverage, see statTags). */
+export const STAT_FAMILY = { str: ["stat:str", "score:str", "skill:ath"], dex: ["stat:dex", "score:dex", "init", "stealth", "skill:acr"],
   con: ["stat:con", "score:con", "hpMax"], int: ["stat:int", "score:int", "spell", "skill:arc", "skill:inv"], wis: ["stat:wis", "score:wis", "skill:prc", "hpRegen"] };
+
+/**
+ * What can cover a stat line (decided by the user 2026-11-08): `stat:X`, the item's own chosen variant's tag (main stat
+ * only), and `score:X` only for an item the GM picked as a score item. A base no longer covers a main stat just because
+ * it has any tag of that stat's family (a stealth cloak does not cover Agility on boots whose variant is Acrobatics).
+ */
+export function statTags(ability, item, main) {
+  const tags = [`stat:${ability}`];
+  if (main && item.variant && VARIANT_TAGS[item.variant]) tags.push(VARIANT_TAGS[item.variant]);
+  if (main && item.scoreItem) tags.push(`score:${ability}`);
+  return [...new Set(tags)];
+}
 
 /** Classify one Equip / Use / Chance-on-hit line into a need kind (or null: an unknown line, a gap nothing fills). */
 export function lineNeed(fx) {
@@ -240,9 +259,12 @@ export function itemNeeds(item) {
   if (bonus > 0 && ["weapon", "chest", "shield"].includes(shape)) out.push({ key: "plus", tags: ["plus"], weight: w.plus, needed: true, line: `+${bonus}` });
   const stats = Object.entries(p.stats ?? {}).sort((a, b) => b[1] - a[1]);
   const min = Math.max(STAT_RULE.minValue, Math.ceil((p.itemLevel ?? 1) / STAT_RULE.perItemLevel));
+  // The stat whose variant the converter chose (the main stat, also when it is below the threshold on an otherwise
+  // blank item) can be covered by that variant's tag.
+  const vAbility = (item.riders ?? []).find(r => r.type === "variant")?.ability ?? stats[0]?.[0];
   stats.forEach(([ab, v], i) => {
-    if (i === 0 && v >= min) out.push({ key: `stat:${ab}`, tags: STAT_TAGS[ab] ?? [`stat:${ab}`], weight: w.mainStat, needed: true, line: p.statLines?.[ab], ability: ab, value: v });
-    else out.push({ key: `stat:${ab}`, tags: STAT_TAGS[ab] ?? [], weight: w.secondaryStat, needed: false, line: p.statLines?.[ab], ability: ab, value: v });
+    if (i === 0 && v >= min) out.push({ key: `stat:${ab}`, tags: statTags(ab, item, true), weight: w.mainStat, needed: true, line: p.statLines?.[ab], ability: ab, value: v });
+    else out.push({ key: `stat:${ab}`, tags: statTags(ab, item, ab === vAbility), weight: w.secondaryStat, needed: false, line: p.statLines?.[ab], ability: ab, value: v });
   });
   const rmin = Math.max(RESIST_RULE.minValue, Math.ceil((p.itemLevel ?? 1) * RESIST_RULE.perItemLevel));
   for (const [school, v] of Object.entries(p.resist ?? {})) {
@@ -303,6 +325,7 @@ export function candidates(item, index) {
   return index.entries.filter(e => {
     if (e.excluded || e.rarity === null || e.slot !== slot || e.rarity > item.tier) return false;
     if (outOfRule(e, item)) return false;
+    if (!scoreFits(e, item)) return false;
     if (["weapon", "armor"].includes(slot) && (!e.family || e.family !== family)) return false;
     if (e.rarity === 0 && item.tier > 0 && !e.tags.size) return false; // a plain mundane item is the baseline, not a base
     return true;
@@ -316,6 +339,19 @@ export function candidates(item, index) {
 function outOfRule(e, item) {
   const n = String(e.name ?? "").toLowerCase();
   return VARIANT_BASES.some(r => r.kind === "need" && r.name.toLowerCase() === n && (item.tier < (r.minTier ?? 1) || item.tier > (r.maxTier ?? 4)));
+}
+
+/**
+ * A base that sets an ability score (a score: tag) is a candidate only for an item the GM picked as a score item, for
+ * that item's own main stat, and only stepsUp rarities below the item (decided by the user 2026-11-08). Every other
+ * base passes.
+ */
+export function scoreFits(e, item) {
+  const scores = [...(e.tags ?? [])].filter(t => t.startsWith("score:")).map(t => t.slice(6));
+  if (!scores.length) return true;
+  if (!item.scoreItem || item.scoreItems === false) return false;
+  const main = mainAbility(item.p ?? {});
+  return scores.includes(main) && e.rarity <= item.tier - OFFICIAL_BASES.scoreRule.stepsUp;
 }
 
 /** Specific-base strength guard: false when the base's extra damage is far stronger than the item's own line. */
@@ -366,7 +402,10 @@ export function plusTemplate(item, needs) {
 /*  Decided rules (VARIANT_BASES)               */
 /* -------------------------------------------- */
 
-/** Main stat big enough for an ability-score base (rules.mjs OFFICIAL_BASES.scoreRule). */
+/**
+ * Main stat big enough to suggest an ability-score base (rules.mjs OFFICIAL_BASES.scoreRule). Only a hint for the GM
+ * (score-item shortlist, review board): score bases apply only to items the GM picked (item.scoreItem).
+ */
 export function bigMainStat(p) {
   const R = OFFICIAL_BASES.scoreRule;
   const [ab, v] = Object.entries(p.stats ?? {}).sort((a, b) => b[1] - a[1])[0] ?? [];
@@ -378,7 +417,7 @@ export function bigMainStat(p) {
  * The first VARIANT_BASES rule that applies to the item, resolved against the index; or null.
  * Returns {rule, entry} (entry null for armorName / pattern rules, which need no compendium item).
  */
-export function tableBase(item, index, { scoreItems = true, variant = null } = {}) {
+export function tableBase(item, index, { scoreItems = true, variant = null, scoreItem = false } = {}) {
   const { p, shape, tier } = item;
   const lookup = name => index?.byName?.get(name.toLowerCase()) ?? null;
   const needs = new Set((p.effects ?? []).map(lineNeed).filter(Boolean));
@@ -402,7 +441,8 @@ export function tableBase(item, index, { scoreItems = true, variant = null } = {
     } else if (rule.kind === "armorName") {
       if (shape === "chest" && rule.nameRx.test(p.name)) return { rule, entry: null };
     } else if (rule.kind === "score") {
-      if (!scoreItems || bigMainStat(p) !== rule.ability) continue;
+      // Ability-score bases only for an item the GM picked as a score item, for its own main stat; never automatic.
+      if (!scoreItems || !scoreItem || mainAbility(p) !== rule.ability) continue;
       if (rule.belt) {
         const want = OFFICIAL_BASES.beltScore[tier];
         if (!want) continue;
@@ -414,6 +454,13 @@ export function tableBase(item, index, { scoreItems = true, variant = null } = {
     }
   }
   return null;
+}
+
+/** The item's main stat (largest stat, first in stat order on ties), or null. */
+export function mainAbility(p) {
+  const order = ["str", "dex", "con", "int", "wis"];
+  const e = Object.entries(p.stats ?? {}).filter(([, v]) => v > 0).sort((a, b) => b[1] - a[1] || order.indexOf(a[0]) - order.indexOf(b[0]))[0];
+  return e ? e[0] : null;
 }
 
 /** Official healing potion by item level (POTION_REFLAVOUR names), when the index has it. */
@@ -457,7 +504,9 @@ export function isHandmade(doc, list = []) {
   return [doc?.name, doc?.uuid, doc?._id, doc?.id].some(k => k && keys.has(String(k).toLowerCase()));
 }
 
-const asBase = (e, extra) => ({ uuid: e.uuid, name: e.name, pack: e.pack, source: "compendium", attune: !!e.attune, plus: 0, slot: e.slot ?? null, ...extra });
+/** A match result for an index entry. Carries the base's own tags, so gap-fills are judged against what the base does. */
+const asBase = (e, extra) => ({ uuid: e.uuid, name: e.name, pack: e.pack, source: "compendium", attune: !!e.attune, plus: 0, slot: e.slot ?? null,
+  tags: new Set(e.tags ?? []), ...extra });
 
 /**
  * Match one item.
@@ -467,17 +516,19 @@ const asBase = (e, extra) => ({ uuid: e.uuid, name: e.name, pack: e.pack, source
  * @returns {{status:"accept"|"suggest"|"none", base:object|null, candidates:object[], needs:object[], pattern?:string, armorBase?:string}}
  */
 export function matchBase(item, index, { thresholds = OFFICIAL_BASES.confidence, scoreItems = true, noTable = false } = {}) {
+  if (!scoreItems && item.scoreItems !== false) item = { ...item, scoreItems: false };
   const needs = itemNeeds(item);
   if (item.tier < 1) return { status: "none", base: null, candidates: [], needs, baseline: true };
   const potion = potionBase(item, index);
   if (potion) return { status: "accept", base: asBase(potion, { confidence: 1, covered: ["heal"], excess: 0 }), candidates: [], needs };
-  const table = noTable ? null : tableBase(item, index, { scoreItems, variant: item.variant ?? null });
+  const table = noTable ? null : tableBase(item, index, { scoreItems, variant: item.variant ?? null, scoreItem: !!item.scoreItem });
   if (table?.rule.kind === "armorName") return { ...matchBase({ ...item, armorKey: table.rule.armorBase }, index, { thresholds, scoreItems: false, noTable: true }), armorBase: table.rule.armorBase };
   if (table?.rule.pattern) return { status: "none", base: null, candidates: [], needs, pattern: table.rule.name };
   if (table?.entry) {
     const s = scoreBase(needs, table.entry, item);
     const confidence = Math.max(s.confidence, OFFICIAL_BASES.tableConfidence);
-    return { status: decide(confidence, thresholds), base: asBase(table.entry, { confidence, covered: s.covered, excess: s.excess, rule: table.rule.kind }), candidates: [], needs,
+    return { status: decide(confidence, thresholds), base: asBase(table.entry, { confidence, covered: s.covered, excess: s.excess, rule: table.rule.kind,
+      ...(table.rule.kind === "score" ? { scoreAbility: table.rule.ability } : {}) }), candidates: [], needs,
       shortlist: table.entry.enriched ? [] : [table.entry] };
   }
   const scored = candidates(item, index).filter(e => strengthGuard(needs, e))
@@ -488,22 +539,40 @@ export function matchBase(item, index, { thresholds = OFFICIAL_BASES.confidence,
     .sort((a, b) => b.score - a.score || b.confidence - a.confidence || a.name.localeCompare(b.name));
   const best = all[0] ?? null;
   const status = best ? decide(best.confidence, thresholds) : "none";
-  return { status, base: status === "none" ? null : best, candidates: all.slice(0, 3), needs, shortlist: index ? shortlist(item, index, needs) : [] };
+  // Related bases: official items that only share the main stat's family (e.g. stealth boots for Agility boots whose
+  // variant is Acrobatics). Never matched on their own; listed after the real candidates so the GM can still pick
+  // one on the review board ("Use this base").
+  const main = needs.find(n => n.needed && n.ability);
+  const family = new Set(main ? STAT_FAMILY[main.ability] ?? [] : []);
+  const seen = new Set(all.map(b => b.uuid));
+  const related = family.size ? candidates(item, index).filter(e => !seen.has(e.uuid) && strengthGuard(needs, e) && [...e.tags].some(t => family.has(t)))
+    .map(e => { const sc = scoreBase(needs.map(n => n === main ? { ...n, tags: [...family] } : n), e, item); return asBase(e, { confidence: sc.confidence, score: sc.score, covered: sc.covered, gaps: sc.gaps, excess: sc.excess, related: true }); })
+    .sort((a, b) => b.score - a.score || a.name.localeCompare(b.name)) : [];
+  const listed = [...all.slice(0, 3), ...related].slice(0, Math.max(3, Math.min(all.length, 3) + 1));
+  return { status, base: status === "none" ? null : best, candidates: listed, needs, shortlist: index ? shortlist(item, index, needs) : [] };
 }
 
 /**
- * Which riders the base does not cover: these become the item's gap-fills (one extra Active Effect).
+ * Which riders the base does not cover: these become the item's gap-fills (one extra Active Effect). Compared against
+ * the base's own tags (asBase carries them; never the need keys it was matched on), so a base never also gets a
+ * variant for something it already does (a stealth cloak gets no extra Stealth bonus). A hand-picked score item
+ * (base.scoreAbility) never also gets its own ability's variant.
  * @returns {object[]} riders left over
  */
 export function uncoveredRiders(riders, base) {
   if (!base) return riders;
   if (base.source === "template") return riders;
-  const tags = base.tags ?? new Set(base.covered ?? []);
-  // A wand base already is the wand's attack: the fallback cantrip is never added on top of it.
-  return riders.filter(r => !(r.type === "cantrip" && base.slot === "wand") && !riderTags(r).some(t => tags.has(t)));
+  const tags = base.tags instanceof Set ? base.tags : new Set(base.tags ?? []);
+  return riders.filter(r => {
+    if (r.type === "cantrip" && base.slot === "wand") return false; // a wand base already is the wand's attack
+    if (base.scoreAbility && r.type === "variant" && r.ability === base.scoreAbility) return false;
+    // A base the GM chose on the board for the item's main stat stands in for that stat's variant (no variant gap-fill).
+    if (base.coversVariant && r.type === "variant") return false;
+    return !riderTags(r).some(t => tags.has(t));
+  });
 }
 
-/** Tags a rider would be covered by. */
+/** Tags a rider would be covered by. A variant is covered by its own tag or by a score base for its ability. */
 export function riderTags(r) {
   switch (r.type) {
     case "resistance": return [`resist:${r.damageType}`];
@@ -511,12 +580,12 @@ export function riderTags(r) {
     case "saveBonus": case "checkBonus": return [`stat:${r.ability}`];
     case "spellBonus": case "healBonus": return ["spell"];
     case "attackBonus": return ["attack"];
-    case "statPassive": return STAT_TAGS[r.ability] ?? [];
-    case "variant": return [VARIANT_TAGS[r.variant] ?? r.variant];
+    case "statPassive": return [`stat:${r.ability}`, `score:${r.ability}`];
+    case "variant": return [VARIANT_TAGS[r.variant] ?? r.variant, ...(r.ability ? [`score:${r.ability}`] : [])];
     case "regeneration": return ["hpRegen"];
     case "critDice": return ["crit"];
     case "flavour": return ["minor"];
-    case "extraDamage": case "burstDamage": return [`damage:${r.damageType}`];
+    case "extraDamage": case "burstDamage": case "bleed": return [`damage:${r.damageType}`];
     default: return [r.type];
   }
 }

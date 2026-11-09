@@ -10,7 +10,8 @@ import { OFFICIAL_BASES, VARIANT_BASES } from "../scripts/rules.mjs";
 import { convertItem, parseSource, classify, applyOfficial, bookItem, auditHandAuthored, CONVERTER_VERSION, ROUTES } from "../scripts/convert.mjs";
 import { srcItem } from "./_fixtures.mjs";
 
-const ae = (...changes) => [{ name: "fx", transfer: true, changes: changes.map(([key, value]) => ({ key, mode: 2, value: String(value) })) }];
+/** Fixture effect, Foundry 14 shape (system.changes); a third element sets the change type (default "add"). */
+const ae = (...changes) => [{ name: "fx", transfer: true, system: { changes: changes.map(([key, value, type = "add"]) => ({ key, type, value: String(value), phase: "initial", priority: null })) } }];
 const entry = (id, name, o = {}) => ({
   _id: id, name, type: o.type ?? "equipment",
   system: { rarities: [o.rarity ?? "rare"], type: { value: o.t ?? "trinket", baseItem: o.family ?? "" }, attunement: o.attune ? "required" : "",
@@ -39,7 +40,7 @@ test("base signals: tags from Active Effect keys and a keyword pass; no text kep
   assert.deepEqual(sword.damage, [{ type: "fire", avg: 7, freq: "always" }]);
   const crit = M.baseSignals(entry("c", "Fixture Crit Axe", { type: "weapon", text: "On a Critical Hit the target takes an extra 1d6 cold damage." }));
   assert.equal(crit.damage[0].freq, "crit");
-  const score = M.baseSignals(entry("s", "Fixture Belt", { effects: ae(["system.abilities.str.value", 21]) }));
+  const score = M.baseSignals(entry("s", "Fixture Belt", { effects: ae(["system.abilities.str.value", 21, "upgrade"]) }));
   assert.ok(score.tags.has("score:str")); assert.equal(score.scores.str, 21);
   const idx = fixtureIndex();
   assert.ok(!JSON.stringify(idx.entries, (k, v) => v instanceof Set ? [...v] : v).includes("While lit"), "rules text is not stored in the index");
@@ -148,25 +149,47 @@ test("decided table: stealth variant, protection, school wand, armour by name", 
   assert.equal(m.base.source, "template");
 });
 
-test("ability-score bases: big main stat only, one rarity step up, belt by tier, setting off", () => {
+test("ability-score bases: only for a picked score item, its own main stat, one rarity step up, belt by tier, setting off", () => {
   const gauntlets = vb("score").find(r => r.slot === "Hands"), belt = vb("score").find(r => r.belt);
+  const up = ([k, v]) => ae([k, v, "upgrade"]);
   const idx = M.indexBases([{ pack: "t", entries: [
-    entry("g1", gauntlets.name, { t: "clothing", rarity: "uncommon", attune: true, effects: ae(["system.abilities.str.value", 19]) }),
-    entry("bh", `${belt.name} (Fixture Hill)`, { t: "clothing", rarity: "rare", effects: ae(["system.abilities.str.value", 21]) }),
-    entry("bf", `${belt.name} (Fixture Fire)`, { t: "clothing", rarity: "veryRare", effects: ae(["system.abilities.str.value", 23]) }),
-    entry("bc", `${belt.name} (Fixture Cloud)`, { t: "clothing", rarity: "legendary", effects: ae(["system.abilities.str.value", 27]) })
+    entry("g1", gauntlets.name, { t: "clothing", rarity: "uncommon", attune: true, effects: up(["system.abilities.str.value", 19]) }),
+    entry("bh", `${belt.name} (Fixture Hill)`, { t: "clothing", rarity: "rare", effects: up(["system.abilities.str.value", 21]) }),
+    entry("bf", `${belt.name} (Fixture Fire)`, { t: "clothing", rarity: "veryRare", effects: up(["system.abilities.str.value", 23]) }),
+    entry("bc", `${belt.name} (Fixture Cloud)`, { t: "clothing", rarity: "legendary", effects: up(["system.abilities.str.value", 27]) })
   ] }]);
+  const picked = { scoreItem: true };
   const gloves = q => item(srcItem({ name: "Test Grip", quality: q, lines: ["Hands", "Plate", "+15 Strength", "Item Level 50"] }));
-  assert.equal(M.tableBase(gloves("rare"), idx).entry.id, "g1");
-  assert.equal(M.tableBase(gloves("uncommon"), idx), null, "an Uncommon base needs a Rare item");
-  assert.equal(M.tableBase(gloves("rare"), idx, { scoreItems: false }), null);
+  assert.equal(M.tableBase(gloves("rare"), idx), null, "never automatic: a big main stat alone gets no score base");
+  assert.equal(M.tableBase(gloves("rare"), idx, picked).entry.id, "g1", "picked on the board");
+  assert.equal(M.tableBase(gloves("uncommon"), idx, picked), null, "an Uncommon base needs a Rare item");
+  assert.equal(M.tableBase(gloves("rare"), idx, { ...picked, scoreItems: false }), null, "setting off");
   const small = item(srcItem({ name: "Test Grip", quality: "rare", lines: ["Hands", "Plate", "+6 Strength", "Item Level 50"] }));
-  assert.equal(M.tableBase(small, idx), null, "below the score threshold");
+  assert.equal(M.tableBase(small, idx, picked).entry.id, "g1", "a picked item needs no size threshold (the GM decided)");
+  const agile = item(srcItem({ name: "Test Agile Grip", quality: "rare", lines: ["Hands", "Leather", "+15 Agility", "+5 Strength", "Item Level 50"] }));
+  assert.equal(M.tableBase(agile, idx, picked), null, "only for the item's own main stat");
   const girdle = q => item(srcItem({ name: "Test Girdle", quality: q, lines: ["Waist", "Plate", "+20 Strength", "Item Level 60"] }));
-  assert.equal(M.tableBase(girdle("epic"), idx).entry.id, "bf", "purple uses the 23 belt");
-  assert.equal(M.tableBase(girdle("legendary"), idx), null, "no 25 belt in this index");
-  assert.equal(M.tableBase(girdle("rare"), idx), null, "no belt tier for blue");
+  assert.equal(M.tableBase(girdle("epic"), idx, picked).entry.id, "bf", "purple uses the 23 belt");
+  assert.equal(M.tableBase(girdle("legendary"), idx, picked), null, "no 25 belt in this index");
+  assert.equal(M.tableBase(girdle("rare"), idx, picked), null, "no belt tier for blue");
   assert.deepEqual(OFFICIAL_BASES.beltScore, { 3: 23, 4: 25 });
+});
+
+test("baseSignals: only an upgrade / override change sets a score base; an add is a stat bonus (ioun stone, belt +2 shapes)", () => {
+  const ioun = M.baseSignals(entry("i", "Fixture Ioun Stone", { effects: ae(["system.abilities.con.value", 2, "add"]) }));
+  assert.ok(!ioun.tags.has("score:con") && ioun.tags.has("stat:con"), "add: stat:con");
+  assert.equal(ioun.scores.con, undefined);
+  const dwarf = M.baseSignals(entry("d", "Fixture Stout Belt", { effects: ae(["system.abilities.con.value", 2]) }));
+  assert.ok(dwarf.tags.has("stat:con") && !dwarf.tags.has("score:con"));
+  const set = M.baseSignals(entry("h", "Fixture Headband", { effects: ae(["system.abilities.int.value", 19, "upgrade"]) }));
+  assert.ok(set.tags.has("score:int")); assert.equal(set.scores.int, 19);
+  const over = M.baseSignals(entry("o", "Fixture Crown", { effects: ae(["system.abilities.wis.value", 19, "override"]) }));
+  assert.ok(over.tags.has("score:wis"));
+  // Old data (top-level changes, numeric mode): 4 upgrade / 5 override set the score, 2 add does not.
+  const old = mode => M.baseSignals(entry("x", "Fixture Old", { effects: [{ name: "fx", changes: [{ key: "system.abilities.str.value", mode, value: "19" }] }] }));
+  assert.ok(old(4).tags.has("score:str")); assert.ok(old(5).tags.has("score:str")); assert.ok(!old(2).tags.has("score:str"));
+  // dnd5e 6.x roll keys tag the stat like the old ones.
+  assert.ok(M.baseSignals(entry("k", "Fixture Cap", { effects: ae(["system.abilities.wis.save.roll.bonus", "+ 1"]) })).tags.has("stat:wis"));
 });
 
 test("baseline and pattern rules never re-base", () => {
@@ -207,7 +230,7 @@ test("convertItem: accepted base -> route base, base flag, ONE gap-fill effect; 
   assert.equal(plain.data.effects.length, 1);
   assert.equal(plain.data.effects[0].name, "Test Quick Charm (Loot Ledger)");
   assert.equal(plain.data.effects[0].flags["loot-ledger"].gapFill, undefined);
-  assert.ok(!plain.data.effects[0].changes.some(ch => ch.key === "system.attributes.ac.bonus"), "no AC rider effect");
+  assert.ok(!plain.data.effects[0].system.changes.some(ch => ch.key === "system.attributes.ac.bonus"), "no AC rider effect");
 });
 
 test("convertItem options: officialBases off, gapFills off, suggest keeps the tooltip conversion", () => {

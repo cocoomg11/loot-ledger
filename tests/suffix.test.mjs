@@ -84,7 +84,7 @@ test("effects scale: single stat full size, two-stat suffix two smaller effects,
   assert.match(fireLo.features[0].text, /Advantage on saving throws against effects that deal Fire damage/);
   assert.equal(fireLo.changes.length, 0);
   assert.match(fireHi.features[0].text, /Resistance to Fire damage/);
-  assert.deepEqual(fireHi.changes[0], { key: "system.traits.dr.value", mode: 2, value: "fire" });
+  assert.deepEqual(fireHi.changes[0], { key: "system.traits.dr.value", type: "add", value: "fire", phase: "initial", priority: null });
   assert.match(S.suffixEffects(ag("frostres"), 4).features[0].text, /Cold/, "school map");
   assert.match(S.suffixEffects(ag("power"), 1).features[0].text, /Critical Hit/);
   assert.match(S.suffixEffects(ag("power"), 4).features[0].text, /once per turn/);

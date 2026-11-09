@@ -27,7 +27,9 @@ test("overrideUpdate: every action, its guards, merge semantics", () => {
   assert.throws(() => R.overrideUpdate(flagsOf({ quality: "rare" }), "advantage"), /epic and legendary/);
   assert.deepEqual(R.overrideUpdate({}, "raise"), { overrides: { raise: true } });
   assert.throws(() => R.overrideUpdate({}, "explode"), /unknown override/);
-  assert.deepEqual(R.OVERRIDE_ACTIONS, ["acceptBase", "pickBase", "dropBase", "split", "advantage", "raise"]);
+  assert.deepEqual(R.overrideUpdate({}, "scoreItem"), { overrides: { scoreItem: true } }, "score item: the GM's pick");
+  assert.deepEqual(R.overrideUpdate({ overrides: { scoreItem: true, raise: true } }, "scoreItem"), { overrides: { scoreItem: false, raise: true } }, "toggle off is written");
+  assert.deepEqual(R.OVERRIDE_ACTIONS, ["acceptBase", "pickBase", "dropBase", "split", "advantage", "raise", "scoreItem"]);
 });
 
 const entry = (id, name, o = {}) => R.boardEntry(id, name, { quality: "epic", slot: "Finger", converted: { route: "base", review: [] }, ...o });
@@ -38,7 +40,8 @@ const entries = [
   entry("c", "Gamma Band", { collapse: grp("a", "c", { split: true }) }),
   entry("d", "Delta Band", { converted: { route: "convert-review", review: ["Equip: x — no rule"] }, base: { status: "suggest", name: "B", confidence: 0.5 } }),
   entry("e", "Echo Band", { converted: { route: "convert-review", review: ["Equip: y — no rule"], flags: [{ kind: "zeroPrice", why: "no vendor price" }] } }),
-  entry("f", "Foxtrot Band", { converted: { route: "convert-review", sourceText: true, review: [] } })
+  entry("f", "Foxtrot Band", { converted: { route: "convert-review", sourceText: true, review: [] } }),
+  entry("g", "Golf Band", { converted: { route: "base", sourceTextConflict: true, review: [], flags: [{ kind: "sourceTextConflict", why: "source rules text replaced by the rules" }] }, overrides: { scoreItem: true } })
 ];
 
 test("groupIds and foldGroups: a group is one entry with its members; split members stand alone", () => {
@@ -47,23 +50,38 @@ test("groupIds and foldGroups: a group is one entry with its members; split memb
   assert.deepEqual(R.groupIds(entries, entries[2]), ["c"]);
   assert.deepEqual(R.groupIds(entries, entries[3]), ["d"]);
   const folded = R.foldGroups(entries);
-  assert.deepEqual(folded.map(e => e.id), ["a", "c", "d", "e", "f"]);
+  assert.deepEqual(folded.map(e => e.id), ["a", "c", "d", "e", "f", "g"]);
   assert.deepEqual(folded[0].members.map(m => m.id), ["a", "b"]);
   assert.equal(folded[1].members, undefined);
 });
 
-test("kind filters: suggested base, no base, collapsed group, source-text item, flagged", () => {
+test("kind filters: suggested base, no base, collapsed group, source-text item, source text replaced, score item, flagged", () => {
   const ids = f => R.filterQueue(entries, { status: "all", ...f }).map(e => e.id);
   assert.deepEqual(ids({ kind: "suggested" }), ["d"]);
   assert.deepEqual(ids({ kind: "nobase" }), ["e", "f"]);
   assert.deepEqual(ids({ kind: "group" }), ["a", "b"]);
   assert.deepEqual(ids({ kind: "sourceText" }), ["f"]);
-  assert.deepEqual(ids({ kind: "flagged" }), ["e"]);
-  assert.deepEqual(ids({}), ["a", "b", "c", "d", "e", "f"]);
-  assert.deepEqual(Object.keys(R.KINDS), ["suggested", "nobase", "group", "sourceText", "flagged"]);
+  assert.deepEqual(ids({ kind: "flagged" }), ["e", "g"]);
+  assert.deepEqual(ids({ kind: "sourceTextConflict" }), ["g"]);
+  assert.deepEqual(ids({ kind: "scoreItem" }), ["g"]);
+  assert.deepEqual(ids({}), ["a", "b", "c", "d", "e", "f", "g"]);
+  assert.deepEqual(Object.keys(R.KINDS), ["suggested", "nobase", "group", "sourceText", "sourceTextConflict", "scoreItem", "flagged"]);
   const e = entries[3];
   assert.equal(e.base.status, "suggest");
   assert.deepEqual(entries[4].flags, [{ kind: "zeroPrice", why: "no vendor price" }]);
+});
+
+test("board order: pending first, then the biggest collapse groups (one decision covers most), then by name", () => {
+  const folded = R.foldGroups([
+    entry("s1", "Aardvark Ring"), entry("s2", "Zulu Ring"),
+    entry("g1", "Mike Ring", { collapse: { group: "G", canonical: true, canonicalId: "g1", size: 3 } }),
+    entry("g2", "Mike Two", { collapse: { group: "G", canonical: false, canonicalId: "g1", size: 3 } }),
+    entry("g3", "Mike Three", { collapse: { group: "G", canonical: false, canonicalId: "g1", size: 3 } }),
+    entry("h1", "Kilo Ring", { collapse: { group: "H", canonical: true, canonicalId: "h1", size: 2 } }),
+    entry("h2", "Kilo Two", { collapse: { group: "H", canonical: false, canonicalId: "h1", size: 2 } }),
+    entry("d1", "Bravo Ring", { review: { status: "accepted" }, collapse: { group: "D", canonical: true, canonicalId: "d1", size: 9 } })
+  ]);
+  assert.deepEqual(R.sortQueue(folded).map(e => e.id), ["g1", "h1", "s1", "s2", "d1"]);
 });
 
 /* ---------- converter: review flags and overrides ---------- */
@@ -126,8 +144,8 @@ test("converter overrides: a pinned base is accepted, 'none' drops the base, can
   // Advantage swap (epic / legendary only) and the endgame raise
   const charm = srcItem({ name: "Test Keen Cloak", quality: "epic", lines: ["Back", "+20 Agility", "Item Level 60"] });
   const flat = conv(charm), adv = conv(charm, { overrides: { advantage: true } });
-  const keys = r => r.data.effects.flatMap(e => e.changes.map(c => c.key));
-  assert.ok(keys(flat).includes("system.skills.ste.bonuses.check"));
+  const keys = r => r.data.effects.flatMap(e => (e.system?.changes ?? e.changes).map(c => c.key));
+  assert.ok(keys(flat).includes("system.skills.ste.roll.bonus"));
   assert.ok(keys(adv).includes("system.skills.ste.roll.mode"), "Advantage swap on");
   const green = srcItem({ name: "Test Keen Cape", quality: "uncommon", lines: ["Back", "+10 Agility", "Item Level 30"] });
   assert.ok(!keys(conv(green, { overrides: { advantage: true } })).includes("system.skills.ste.roll.mode"), "never below epic");

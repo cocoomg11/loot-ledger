@@ -31,12 +31,13 @@
  */
 import { MODULE_ID, SOURCE_MODULE, QUALITY_BY_KEY, analyse, tooltipLines, priceFor, formatCoins } from "./data.mjs";
 import { suffixGroup } from "./suffix.mjs";
-import { matchBase, variantStep, uncoveredRiders, MATCHER_VERSION, PROC_DAMAGE } from "./base-match.mjs";
+import { matchBase, variantStep, uncoveredRiders, MATCHER_VERSION, PROC_DAMAGE, STAT_FAMILY } from "./base-match.mjs";
+import { KEYS, aeChange, effectData } from "./effects.mjs";
 import { slotFacts, slotRule, mainStat, statThreshold, variantFeature, variantKeys, overBudget, lineWeight, isFree, STAT_ORDER } from "./variants.mjs";
 // Every tunable number lives in rules.mjs (book-day calibration edits values there, not logic here).
 import {
   WEAPON_RULES, CHEST_RULES, CLOTH_CHEST, SLOT_EQUIPMENT, TIER, GEAR_BONUS, ARMOR_BONUS, GREEN_RULE, ATTUNE_TIER, ATTUNE_RIDERS, STAT_RULE, STAT_PASSIVE, STAT_PASSIVE_NOTE, TRINKET_RULE, HIT_RULE, DEFENSE_RULE, SPELL_RULE, RESIST_RULE, SCHOOL_MAP, PROC_RULE, WEAPON_EXTRA_DICE, DAILY_USES, BLAST_USES, EXTRA_ATTACK_RULE, POTION_HEALING, MANA_POTION_SLOT, FOOD_HEALING, GEAR_HEALING, POTION_REFLAVOUR, EMPTY_REVIEW_TIER,
-  WEAPON_BONUS, CRIT_RULE, PARRY_RULE, MANA_REGEN, HEALTH_REGEN, RESIST_RING, THORNS_DICE, FLAVOUR_RULE, SPELL_SURGE, LINE_BUDGET
+  BLEED_RULE, STAT_DEBUFF_RULE, WEAPON_BONUS, CRIT_RULE, PARRY_RULE, MANA_REGEN, HEALTH_REGEN, RESIST_RING, THORNS_DICE, FLAVOUR_RULE, SPELL_SURGE, LINE_BUDGET
 } from "./rules.mjs";
 export {
   WEAPON_RULES, CHEST_RULES, CLOTH_CHEST, SLOT_EQUIPMENT, TIER, GEAR_BONUS, ARMOR_BONUS, GREEN_RULE, ATTUNE_TIER, ATTUNE_RIDERS, STAT_RULE, STAT_PASSIVE, STAT_PASSIVE_NOTE, TRINKET_RULE, HIT_RULE, DEFENSE_RULE, SPELL_RULE, RESIST_RULE, SCHOOL_MAP, PROC_RULE, WEAPON_EXTRA_DICE, DAILY_USES, BLAST_USES, EXTRA_ATTACK_RULE, POTION_HEALING, MANA_POTION_SLOT, FOOD_HEALING, GEAR_HEALING, POTION_REFLAVOUR, EMPTY_REVIEW_TIER
@@ -44,7 +45,7 @@ export {
 
 /** Bump when the rules (rules.mjs) or the conversion logic change: it is part of every item's source hash, so
  * Build re-converts items converted under an older version. */
-export const CONVERTER_VERSION = 8;
+export const CONVERTER_VERSION = 9;
 
 /* -------------------------------------------- */
 /*  SRD 5.2 reference data                      */
@@ -114,11 +115,11 @@ const TIER_NAME = { 0: "Common", 1: "Uncommon", 2: "Rare", 3: "Very Rare", 4: "L
 const QUALITY_NAME = { poor: "Poor", common: "Common", uncommon: "Uncommon", rare: "Rare", epic: "Epic", legendary: "Legendary", artifact: "Artifact" };
 
 /** Rider types that count as an "effect" for GEAR_BONUS. */
-export const EFFECT_RIDERS = new Set(["extraDamage", "burstDamage", "extraAttack", "heal", "attackBonus", "spellBonus", "healBonus", "resistance", "acBonus", "cantrip",
+export const EFFECT_RIDERS = new Set(["extraDamage", "burstDamage", "bleed", "debuff", "extraAttack", "heal", "attackBonus", "spellBonus", "healBonus", "resistance", "acBonus", "cantrip",
   "variant", "critDice", "parry", "slotRecovery", "concentration", "regeneration", "thorns", "ward", "flavour", "spellSurge"]);
 
 /** Rule-family settings read by the converter (all default on; blastThreshold default PROC_RULE.burstFrom). */
-export const RULE_OPTIONS = { critDice: true, flavourBonuses: true, manaRegen: true, parryReaction: true, blastThreshold: PROC_RULE.burstFrom };
+export const RULE_OPTIONS = { critDice: true, flavourBonuses: true, manaRegen: true, parryReaction: true, statDebuff: true, blastThreshold: PROC_RULE.burstFrom };
 
 /** Classic stat -> 5e ability. Charisma has no classic counterpart. */
 export const STAT_MAP = { Strength: "str", Agility: "dex", Stamina: "con", Intellect: "int", Spirit: "wis" };
@@ -436,7 +437,7 @@ export function convertItem(src, options = {}) {
   if (officialBases && !hand?.kept && ctx.tier >= 1 && !["loot", "container"].includes(shape)) {
     const armorKey = system.type?.baseItem || null;
     match = variantStep(matchBase({ p, shape, tier: ctx.tier, bonus: ctx.bonus, riders: ctx.riders, extras: ctx.extras, armorKey, variant: ctx.extras.variant ?? null,
-      weaponDamageType: WEAPON_BASES[ctx.extras.base]?.dmg?.[2] ?? null },
+      weaponDamageType: WEAPON_BASES[ctx.extras.base]?.dmg?.[2] ?? null, scoreItem: !!ctx.overrides.scoreItem },
       bases, { thresholds: baseConfidence, scoreItems }), { p, shape }, ctx);
   }
   if (match) match = applyBaseOverride(match, ctx, bases);
@@ -539,13 +540,14 @@ function baseFlag(match) {
     status: match.status, covered: b.covered ?? [], excess: b.excess ?? 0, plus: b.plus ?? 0,
     matcherVersion: MATCHER_VERSION,
     ...(match.pinned ? { pinned: true } : {}),
+    ...(b.scoreAbility ? { scoreItem: b.scoreAbility } : {}),
     candidates: candidateList(match)
   };
 }
 
 /** The top candidates of a match: [{uuid, name, pack, confidence}]. */
 function candidateList(match) {
-  return (match.candidates ?? []).map(c => ({ uuid: c.uuid ?? null, name: c.name, pack: c.pack ?? null, confidence: c.confidence }));
+  return (match.candidates ?? []).map(c => ({ uuid: c.uuid ?? null, name: c.name, pack: c.pack ?? null, confidence: c.confidence, ...(c.related ? { related: true } : {}) }));
 }
 
 /**
@@ -561,7 +563,12 @@ function applyBaseOverride(match, ctx, bases) {
   if (!uuid) return match;
   const entry = (bases?.entries ?? []).find(e => e.uuid === uuid) ?? null;
   if (!entry) { review(ctx, "Base override", `the chosen base (${uuid}) is not in the indexed compendiums; the matcher's choice is kept`); return match; }
-  const base = { uuid: entry.uuid, name: entry.name, pack: entry.pack, source: "compendium", attune: !!entry.attune, plus: 0, confidence: 1, covered: [...entry.tags], excess: 0 };
+  // The GM's pick stands in for the main stat when it shares that stat's family (e.g. stealth boots on Agility boots):
+  // no variant gap-fill on top of it.
+  const v = ctx.riders.find(r => r.type === "variant");
+  const coversVariant = !!v && (STAT_FAMILY[v.ability] ?? []).some(t => entry.tags.has(t));
+  const base = { uuid: entry.uuid, name: entry.name, pack: entry.pack, source: "compendium", attune: !!entry.attune, plus: 0, confidence: 1,
+    covered: [...entry.tags], tags: new Set(entry.tags), excess: 0, slot: entry.slot ?? null, ...(coversVariant ? { coversVariant: true } : {}) };
   return { ...match, status: "accept", base, pinned: true };
 }
 
@@ -720,38 +727,35 @@ function itemNoun(ctx) {
 /**
  * Flat riders become one transferred Active Effect so equipping/attuning the item changes the
  * sheet. Riders with no flat dnd5e key (per-use DC bump, Hit Dice healing, procs) stay text + uses.
+ * Keys and change shape: effects.mjs (dnd5e 6.x roll fields, Foundry 14 system.changes).
  */
-const AE = { ADD: 2, MULTIPLY: 1 };
-const ch = (key, value, mode = AE.ADD) => ({ key, mode, value: String(value) });
 export function riderChanges(r) {
-  if (r.type === "resistance") return [ch("system.traits.dr.value", r.damageType)];
+  if (r.type === "resistance") return [aeChange(KEYS.resistance, r.damageType)];
   // AC from riders: only the trinket "+Defense" line (+1 AC with attunement); otherwise AC comes from an official
   // base or the chest / shield curve.
-  if (r.type === "acBonus") return [ch("system.attributes.ac.bonus", `+ ${r.value}`)];
-  if (r.type === "saveBonus") return [ch(`system.abilities.${r.ability}.bonuses.save`, `+ ${r.value}`)];
-  if (r.type === "checkBonus") return [ch(`system.abilities.${r.ability}.bonuses.check`, `+ ${r.value}`)];
+  if (r.type === "acBonus") return [aeChange(KEYS.ac, `+ ${r.value}`)];
+  if (r.type === "saveBonus") return [aeChange(KEYS.abilitySave(r.ability), `+ ${r.value}`)];
+  if (r.type === "checkBonus") return [aeChange(KEYS.abilityCheck(r.ability), `+ ${r.value}`)];
   if (r.type === "spellBonus" && !r.damageType) return [
-    ch("system.bonuses.msak.attack", `+ ${r.value}`), ch("system.bonuses.rsak.attack", `+ ${r.value}`),
-    ...(r.scope === "attackAndDC" ? [ch("system.bonuses.spell.dc", r.value)] : [])];
-  if (r.type === "attackBonus" && r.value) return r.scope === "spell"
-    ? [ch("system.bonuses.msak.attack", `+ ${r.value}`), ch("system.bonuses.rsak.attack", `+ ${r.value}`)]
-    : [ch("system.bonuses.mwak.attack", `+ ${r.value}`), ch("system.bonuses.rwak.attack", `+ ${r.value}`)];
-  if (r.type === "concentration") return [ch("system.attributes.concentration.bonuses.save", `+ ${r.value}`)];
+    ...KEYS.spellAttack.map(k => aeChange(k, `+ ${r.value}`)),
+    ...(r.scope === "attackAndDC" ? [aeChange(KEYS.spellDC, r.value)] : [])];
+  if (r.type === "attackBonus" && r.value) return (r.scope === "spell" ? KEYS.spellAttack : KEYS.weaponAttack).map(k => aeChange(k, `+ ${r.value}`));
+  if (r.type === "concentration") return [aeChange(KEYS.concentration, `+ ${r.value}`)];
   if (r.type === "variant") {
     const k = variantKeys(r.variant);
     if (!k) return []; // grapple DC, Hit Point Dice healing: text only
-    if (r.advantage && k.adv) return [ch(k.adv, 1)];
-    if (r.variant === "hpMax") return [ch(k.flat, `+ ${r.formula}`)];
-    if (r.variant === "spellDC") return [ch(k.flat, r.value)];
-    return [ch(k.flat, `+ ${r.value}`)];
+    if (r.advantage && k.adv) return [aeChange(k.adv, 1)];
+    if (r.variant === "hpMax") return [aeChange(k.flat, `+ ${r.formula}`)];
+    if (r.variant === "spellDC") return [aeChange(k.flat, r.value)];
+    return [aeChange(k.flat, `+ ${r.value}`)];
   }
   return [];
 }
-/** Unmatched items: one transferred effect "<item> (Loot Ledger)" from their flat riders. */
+/** Unmatched items: one transferred effect "<item> (Loot Ledger)" from their flat riders (Foundry 14 system.changes). */
 function riderEffects(riders, base, extra = {}) {
-  const changes = riders.flatMap(riderChanges);
-  return changes.length ? [{ name: `${base.name} (Loot Ledger)`, img: base.img ?? "icons/svg/aura.svg", transfer: true, disabled: false, changes,
-    flags: { [MODULE_ID]: { converted: true, ...extra } } }] : [];
+  const fx = effectData({ name: `${base.name} (Loot Ledger)`, img: base.img ?? "icons/svg/aura.svg", changes: riders.flatMap(riderChanges),
+    flags: { [MODULE_ID]: { converted: true, ...extra } } });
+  return fx ? [fx] : [];
 }
 /** Re-based items: the single gap-fill effect (flags.loot-ledger.gapFill) for the lines the base does not cover. */
 function gapFillEffects(riders, base) { return riderEffects(riders, base, { gapFill: true }); }
@@ -839,7 +843,7 @@ function applyVariant(ctx) {
 function applyBudget(ctx) {
   const { tier } = ctx;
   const feats = benefitFeatures(ctx);
-  const benefits = feats.map((f, i) => ({ key: i, weight: lineWeight(f.rider.type), variant: f.rider.type === "variant", free: isFree(f.rider.type) }));
+  const benefits = feats.map((f, i) => ({ key: i, weight: lineWeight(f.rider), variant: f.rider.type === "variant", free: isFree(f.rider.type) }));
   for (const i of overBudget(benefits, tier, { weapon: !!ctx.extras.weapon })) dropFeature(ctx, feats[i], `over the line budget for its rarity (${LINE_BUDGET[tier]} benefit${LINE_BUDGET[tier] === 1 ? "" : "s"}); the weakest line is dropped`, "over budget");
   const left = benefitFeatures(ctx).filter(f => !isFree(f.rider.type));
   const v = left.find(f => f.rider.type === "variant");
@@ -916,35 +920,82 @@ function weaponDamageType(ctx) {
   return t ? cap(t) : "Bludgeoning";
 }
 
-/** A damage proc on a weapon (school null: untyped damage, dealt as the weapon's own damage type). */
-function procFeature(ctx, school, lo, hi, line, kindLabel) {
+/** Bleed dice per turn: the band's dice x BLEED_RULE.share, rounded to whole dice, at least BLEED_RULE.minDice. */
+export function bleedDice(bandDice) {
+  const [n, d] = String(bandDice).split("d").map(Number);
+  const k = Math.round(n * BLEED_RULE.share);
+  const [mn, md] = BLEED_RULE.minDice.split("d").map(Number);
+  return k < 1 || k * (d + 1) < mn * (md + 1) ? BLEED_RULE.minDice : `${k}d${d}`;
+}
+
+/** The Bane-shaped debuff sentence and rider data (STAT_DEBUFF_RULE). */
+const debuffText = () => `The target also subtracts ${STAT_DEBUFF_RULE.die} from its attack rolls and saving throws until the end of your next turn.`;
+const debuffData = () => ({ die: STAT_DEBUFF_RULE.die, rolls: ["attack", "save"], until: STAT_DEBUFF_RULE.until });
+const DEBUFF_REVIEW = "lowering all stats: a Bane-shaped debuff (decided rule STAT_DEBUFF_RULE; check the size against the source)";
+
+/**
+ * A damage proc on a weapon (school null: untyped damage, dealt as the weapon's own damage type). The ratio picks the
+ * band (critical / on-hit / blast); `o.bleed` turns the band into a bleed (BLEED_RULE), `o.debuff` adds the
+ * stat-lowering debuff, `o.overText` is the source's over-time text (kept as a review line for bleeds), `o.tail` a
+ * folded over-time tail (named in the source note).
+ */
+function procFeature(ctx, school, lo, hi, line, kindLabel, o = {}) {
   const { p, tier } = ctx;
   const type = school ? damageType(school, line) : weaponDamageType(ctx);
   const ratio = ((lo + (hi ?? lo)) / 2) / Math.max(1, avg(p.damage ?? { min: 1, max: 1 }));
-  const src = `${kindLabel} — ${lo}${hi ? `–${hi}` : ""} ${school ?? "untyped (the weapon's type)"} damage (${ratio.toFixed(1)}× a normal hit)`;
-  if (ratio < PROC_RULE.critBelow) {
+  const band = ratio < PROC_RULE.critBelow ? "crit" : ratio < (ctx.opts.blastThreshold ?? PROC_RULE.burstFrom) ? "hit" : "blast";
+  const amount = `${lo}${hi ? `–${hi}` : ""}`;
+  const src = `${kindLabel} — ${amount} ${school ?? "untyped (the weapon's type)"} damage${o.bleed ? " over time" : ""}${o.tail ? ` (including a ${o.tail}-damage over-time tail)` : ""} (${ratio.toFixed(1)}× a normal hit)`;
+  const debuff = o.debuff ? ` ${debuffText()}` : "";
+  const extra = o.debuff ? { debuff: debuffData() } : {};
+  if (o.debuff) review(ctx, line, DEBUFF_REVIEW);
+  if (o.bleed) {
+    const bandDice = { crit: PROC_RULE.critDice, hit: PROC_RULE.onHitDice, blast: PROC_RULE.burstDice }[band][tier];
+    const d = bleedDice(bandDice), uses = BLAST_USES[tier], dc = BLEED_RULE.dc[p.quality] ?? BLEED_RULE.dc.common;
+    if (band === "blast") ctx.attune = true; // as the blast it replaces
+    review(ctx, line, `damage over time (${o.overText}): converted as a bleed (decided rule BLEED_RULE, ${band} band, ${bandDice} -> ${d} per turn); not automated yet`);
+    addFeature(ctx, {
+      name: `${type} Wound`, sourceLine: line, source: src,
+      text: `When you hit a creature with an attack using this weapon, you can inflict a lingering wound: at the start of each of its turns, for up to ${BLEED_RULE.minutes} minute, the target takes ${d} ${type} damage. At the end of each of its turns, it makes a DC ${dc} Constitution saving throw, ending the wound on a success. A new wound from this weapon restarts the duration instead of stacking.${debuff} ${usesText(uses)}`,
+      rider: { type: "bleed", band, formula: d, bandFormula: bandDice, damageType: type.toLowerCase(), trigger: "hit", uses, recovery: "lr",
+        save: { ability: BLEED_RULE.save, dc, timing: "endOfTurn", ends: true }, damageTiming: "startOfTurn", duration: { minutes: BLEED_RULE.minutes },
+        stacking: "refresh", overTime: o.overText, ...extra }
+    });
+    return;
+  }
+  if (band === "crit") {
     const d = PROC_RULE.critDice[tier];
     addFeature(ctx, {
       name: `${type} Strike`, sourceLine: line, source: src,
-      text: `When you score a Critical Hit with this weapon, the target takes an extra ${d} ${type} damage. This extra damage isn't doubled by the Critical Hit.`,
-      rider: { type: "extraDamage", formula: d, damageType: type.toLowerCase(), trigger: "critical" }
+      text: `When you score a Critical Hit with this weapon, the target takes an extra ${d} ${type} damage. This extra damage isn't doubled by the Critical Hit.${debuff}`,
+      rider: { type: "extraDamage", formula: d, damageType: type.toLowerCase(), trigger: "critical", ...extra }
     });
-  } else if (ratio < (ctx.opts.blastThreshold ?? PROC_RULE.burstFrom)) {
+  } else if (band === "hit") {
     const d = PROC_RULE.onHitDice[tier];
     addFeature(ctx, {
       name: `${type} Strike`, sourceLine: line, source: src,
-      text: `When you hit a creature with an attack using this weapon, it takes an extra ${d} ${type} damage. You can deal this extra damage only once per turn.`,
-      rider: { type: "extraDamage", formula: d, damageType: type.toLowerCase(), trigger: "hit", limit: "oncePerTurn" }
+      text: `When you hit a creature with an attack using this weapon, it takes an extra ${d} ${type} damage. You can deal this extra damage only once per turn.${debuff}`,
+      rider: { type: "extraDamage", formula: d, damageType: type.toLowerCase(), trigger: "hit", limit: "oncePerTurn", ...extra }
     });
   } else {
     const d = PROC_RULE.burstDice[tier];
     addFeature(ctx, {
       name: `${type} Blast`, sourceLine: line, source: src,
-      text: `When you hit a creature with an attack using this weapon, you can release a blast: the target takes an extra ${d} ${type} damage. ${usesText(BLAST_USES[tier])}`,
-      rider: { type: "burstDamage", formula: d, damageType: type.toLowerCase(), trigger: "hit", uses: BLAST_USES[tier], recovery: "lr" }
+      text: `When you hit a creature with an attack using this weapon, you can release a blast: the target takes an extra ${d} ${type} damage.${debuff} ${usesText(BLAST_USES[tier])}`,
+      rider: { type: "burstDamage", formula: d, damageType: type.toLowerCase(), trigger: "hit", uses: BLAST_USES[tier], recovery: "lr", ...extra }
     });
   }
 }
+
+/** Over-time damage: "N (to M) [School] damage over T sec" (or "bleed for N damage"), and a trailing "and an additional N damage over T sec". */
+const OVER_TIME = /(\d+)(?: to (\d+))? (?:(Fire|Frost|Nature|Shadow|Arcane|Holy) )?damage over (\d+) (?:sec|min)/i;
+const OVER_TAIL = /,?\s*(?:and|with) an additional (\d+) damage over (\d+) (?:sec|min)\.?/i;
+/** A stat-lowering clause (with its "of target", "by N" and "for T" parts), for removal from the proc text. */
+const LOWER_ALL = /,?\s*(?:and\s+)?lower(?:s|ing)? all (?:stats|attributes)(?: of (?:the )?target)? by \d+(?: for \d+ (?:sec|min)\.?)?/i;
+/** Non-damage parts of a damage proc that are not converted (flag procParts). */
+const OTHER_PART = /\b(slow(?:s|ing)?|stun(?:s|ning)?|snares?|roots?|reduc(?:es|ing)|increas(?:es|ing)|decreas(?:es|ing)|lowers? (?!all)\w+)\b/i;
+/** A proc that hits several targets (converted as one target; flagged). */
+const MANY_TARGETS = /\b(all (?:nearby )?enemies|nearby enemies|up to \d+ targets|affects \d+ targets|within an? \d+ yard|jumping to)\b/i;
 
 /** Review line for a green / blue health-regen line (removed again by base-match variantStep when a base is found). */
 export const HEALTH_REGEN_REVIEW = "health regeneration at this rarity uses an official base (wound-closure item); none was found in your compendiums";
@@ -962,16 +1013,50 @@ function applyEffects(ctx) {
     // Untyped damage ("Wounds the target for N to M damage") takes the weapon's own damage type.
     const dmg = t.match(PROC_DAMAGE);
     const isProc = fx.kind === "hit" || (fx.kind === "equip" && /\bchance\b/i.test(t));
+    const lowers = isProc && STAT_DEBUFF_RULE.clause.test(t) && o.statDebuff !== false;
+    // A healing proc ("Heals wielder of N damage over T sec") is not damage: GM review.
+    if (dmg && isProc && /\bheals?\b/i.test(t)) { review(ctx, line, "a healing proc is not damage; write this one by hand"); continue; }
     if (dmg && isProc) {
-      const extra = t.replace(/\(.*?\)/g, "").split(/\.\s+/).filter(x => x.trim()).length > 1;
+      if (!isWeapon) { review(ctx, line, "damage proc on an item that is not a weapon; no weapon to attach it to"); continue; }
+      // Over-time tail ("... and an additional 9 damage over 6 sec") and stat-lowering clause are parts of the damage
+      // line, not extra effects: take them out before checking for other clauses.
+      const tail = t.match(OVER_TAIL);
+      let rest = tail ? t.replace(OVER_TAIL, "") : t;
+      if (lowers) rest = rest.replace(LOWER_ALL, "");
+      const extra = rest.replace(/\(.*?\)/g, "").split(/\.\s+/).filter(x => x.trim()).length > 1;
       // "... damage and <does something else>": the damage converts, the rest is flagged (procParts). An untyped
       // proc with such a clause is mostly its other effect: it stays a review line.
-      const clause = /damage\b[^.]*\band\s+\w+/i.test(t);
-      if (!isWeapon) { review(ctx, line, "damage proc on an item that is not a weapon; no weapon to attach it to"); continue; }
-      if (extra || (clause && !dmg[3])) { review(ctx, line, "the proc does more than deal damage (extra targets or effects); write this one by hand"); flag(ctx, "procParts"); continue; }
-      if (clause) flag(ctx, "procParts");
-      const school = dmg[3] ? cap(dmg[3].toLowerCase()) : null;
-      procFeature(ctx, school, +dmg[1], dmg[2] ? +dmg[2] : null, line, label);
+      const core = rest.match(PROC_DAMAGE) ?? dmg;
+      const clause = /damage\b[^.]*\band\s+\w+/i.test(rest);
+      if (extra || (clause && !core[3])) { review(ctx, line, "the proc does more than deal damage (extra targets or effects); write this one by hand"); flag(ctx, "procParts"); continue; }
+      if (clause || (STAT_DEBUFF_RULE.clause.test(t) && !lowers)) flag(ctx, "procParts");
+      // Other parts the conversion leaves out (slows, stuns, armour or speed changes): flagged, never silently dropped.
+      if (OTHER_PART.test(rest)) flag(ctx, "procParts");
+      if (MANY_TARGETS.test(rest)) flag(ctx, "procParts", `${REVIEW_FLAGS.procParts} (hits several targets; converted as one)`);
+      const over = !tail && rest.match(OVER_TIME);
+      const school = core[3] ? cap(core[3].toLowerCase()) : null;
+      let lo = +core[1], hi = core[2] ? +core[2] : null, bleed = !!over, overText = over ? over[0] : null, folded = null;
+      if (tail) {
+        const add = +tail[1], inst = (lo + (hi ?? lo)) / 2;
+        overText = tail[0].replace(/^,?\s*(?:and|with) /i, "");
+        bleed = add / (inst + add) >= BLEED_RULE.mixedFrom;
+        // A big tail makes the proc a bleed (the total picks the band); a small tail is part of the instant damage
+        // line: it is named in the source note and the band stays as the instant damage gives it.
+        if (bleed) { lo += add; if (hi) hi += add; } else folded = add;
+      }
+      procFeature(ctx, school, lo, hi, line, label, { bleed, overText, debuff: lowers, tail: folded });
+      continue;
+    }
+    // "Lowers all attributes of target by N": the Bane-shaped debuff on a hit, with uses (STAT_DEBUFF_RULE).
+    if (lowers && isWeapon && !/\d+ (?:\w+ )?damage/i.test(t.replace(LOWER_ALL, ""))) {
+      const uses = DAILY_USES[tier];
+      flag(ctx, "nonDamageProc");
+      review(ctx, line, DEBUFF_REVIEW);
+      addFeature(ctx, {
+        name: "Weakening Strike", sourceLine: line, source: `${label} — ${short(t, 60)}; ${uses}/Long Rest by quality`,
+        text: `When you hit a creature with an attack using this weapon, you can weaken it: until the end of your next turn, it subtracts ${STAT_DEBUFF_RULE.die} from its attack rolls and saving throws. ${usesText(uses)}`,
+        rider: { type: "debuff", ...debuffData(), trigger: "hit", uses, recovery: "lr" }
+      });
       continue;
     }
     if ((m = t.match(/(\d+|an?) extra attacks?/i)) && isProc) {

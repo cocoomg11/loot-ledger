@@ -127,7 +127,7 @@ test("build: same-rule items share a group and one rule; each keeps its own iden
   const A = conv(env).docs.get(ember()._id), B = conv(env).docs.get(cinder()._id);
   assert.notEqual(A.name, B.name);
   assert.notEqual(A.flags["loot-ledger"].itemLevel, B.flags["loot-ledger"].itemLevel);
-  assert.deepEqual(A.effects.map(e => e.changes), B.effects.map(e => e.changes), "same mechanics");
+  assert.deepEqual(A.effects.map(e => e.system?.changes ?? e.changes), B.effects.map(e => e.system?.changes ?? e.changes), "same mechanics");
   assert.equal(A.type, B.type);
   const g1 = ll(env, greyA()._id), g2 = ll(env, greyB()._id);
   assert.equal(g1.collapse.group, g2.collapse.group, "baseline gear groups by shape, slot, type and band");

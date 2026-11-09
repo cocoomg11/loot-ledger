@@ -208,9 +208,12 @@ proc parts not converted, a protection or health-regeneration base not found, a 
 A **collapse group** (items that follow the same rule) shows as one entry with its member list; a decision on it
 applies to every member. The **Official base** section offers **Accept base**, **Use this base** (one of the top
 candidates recorded at build), **Drop base** (tooltip conversion instead), **Split this item** (review it on its
-own), **Advantage** (epic / legendary only: Advantage instead of the flat stat bonus) and **Raise** (an endgame +1
-step on the +N of a weapon, chest armour or shield). These write `flags["loot-ledger"].overrides` and take effect on the next Build, which
-rewrites the item from them.
+own), **Advantage** (epic / legendary only: Advantage instead of the flat stat bonus), **Raise** (an endgame +1
+step on the +N of a weapon, chest armour or shield) and **Score item** (this one item gets the ability-score base for
+its main stat, one rarity above the base, instead of its stat variant; for a few story items only, never set
+automatically, never applied to the whole group). These write `flags["loot-ledger"].overrides` and take effect on the
+next Build, which rewrites the item from them. The queue shows the biggest groups first, and the kind filter has
+**Source text replaced** and **Score item (picked)**.
 
 
 ### Quality colours
@@ -359,11 +362,11 @@ Open **Game Settings › Configure Settings › Loot Ledger**.
 | **Base compendiums** | Compendium ids to search for bases, highest priority first. Empty: the installed core rulebooks and the 2024 SRD. |
 | **Book compendium** | A compendium whose items match source items by exact name; a match is used as is (only price, quality and focus tag added). Empty: off. |
 | **Base confidence** | Accept and suggest thresholds (`0.6, 0.4`): at or above accept the base is used; between the two it is recorded as a suggestion for the Review board. |
-| **Ability-score bases** | On by default. Allows bases that set an ability score for items with a big main stat. |
+| **Ability-score bases** | On by default. Allows bases that set an ability score, only for the items you mark as **Score item** on the Review board. Main stats otherwise become their stat variant. |
 | **Gap-fills on bases** | On by default. A re-based item gets one extra effect for the lines its base does not cover. |
 | **Hand-made items** | Names or UUIDs of source items Build leaves alone (never copied, converted or overwritten); items flagged `loot-ledger.handmade` are always left alone. |
 | **Collapse same-rule items** | *Shared* (default) or *Off*. Converted items that follow the same rule (shape, slot, type, quality, tier band, base, bonus, gap-fills) are grouped so you review the rule once on the Review board; every item keeps its own name, icon, price and tooltip. |
-| **Critical-hit dice**, **Profession bonuses**, **Mana regeneration**, **Parry reaction** | On by default. Each conversion rule family can be turned off; its lines are then listed as not converted. |
+| **Critical-hit dice**, **Profession bonuses**, **Mana regeneration**, **Parry reaction**, **Stat-lowering procs** | On by default. Each conversion rule family can be turned off; its lines are then listed as not converted. |
 | **Blast threshold** | `2` by default. A weapon proc at least this many times a normal hit becomes a limited-use blast; smaller procs deal extra damage once per turn (or on a Critical Hit). |
 | **Build loot pools** (button) | Runs the build. |
 
@@ -425,7 +428,7 @@ Do not import the module's scripts or read its settings directly. **Stable** = k
 | `api.sellPrice(item)`, `api.bandForLevel(level)`, `api.formatCoins(copper)` | stable | Price and band helpers. |
 | `api.BANDS`, `api.QUALITIES`, `api.TYPES`, `api.CREATURES` | stable | Lookup lists. |
 | `api.setQuality(items, quality)`, `api.qualityOf(item)` | stable | Quality colours (undefined `setQuality` while the setting is off). |
-| `api.convert(item, options)`, `api.convertToPack`, `api.rules()`, `api.replaceList()`, `api.auditHandWritten()`, `api.auditHandAuthored()` | experimental | 5e conversion and calibration tools. `convert` options include `bases`, `baseConfidence`, `scoreItems`, `gapFills`, `rules` (the rule-family toggles) and `overrides`. |
+| `api.convert(item, options)`, `api.convertToPack`, `api.rules()`, `api.replaceList()`, `api.auditHandWritten()`, `api.auditHandAuthored()` | experimental | 5e conversion and calibration tools. `convert` options include `bases`, `baseConfidence`, `scoreItems`, `gapFills`, `rules` (the rule-family toggles) and `overrides`. `convertToPack({ names })` takes one document per name (the first source entry with that exact name). |
 | `api.build({ dryRun: true })` | experimental | Everything up to the writes: the per-item conversion plan (`plan.items`), the "Official bases" summary (`bases`) and the collapse counts (`collapse`), writing nothing. |
 | `api.reviewBoard()`, `api.rollSuffix(item, options)`, `api.suffixes()` | experimental | Review board and random suffixes. |
 | `api.removeData({ dryRun, confirm, itemFlags })` | experimental | GM: remove Loot Ledger's data (see below). |

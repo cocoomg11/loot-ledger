@@ -235,7 +235,7 @@ export function ruleSettings(get) {
   const t = Number(String(get("blastThreshold", "") ?? "").trim());
   return {
     critDice: get("critDice", true) !== false, flavourBonuses: get("flavourBonuses", true) !== false,
-    manaRegen: get("manaRegen", true) !== false, parryReaction: get("parryReaction", true) !== false,
+    manaRegen: get("manaRegen", true) !== false, parryReaction: get("parryReaction", true) !== false, statDebuff: get("statDebuff", true) !== false,
     blastThreshold: Number.isFinite(t) && t > 1 ? t : RULE_OPTIONS.blastThreshold
   };
 }

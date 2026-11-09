@@ -68,6 +68,11 @@ test("line rules", () => {
   assert.equal(R.PROC_RULE.critBelow, 1);
   assert.equal(R.PROC_RULE.burstFrom, 2, "blast threshold default (setting blastThreshold)");
   assert.deepEqual(R.PROC_RULE.burstDice, { 0: "2d6", 1: "3d6", 2: "4d6", 3: "6d6", 4: "8d6" });
+  assert.deepEqual(R.BLEED_RULE.dc, { poor: 11, common: 11, uncommon: 13, rare: 15, epic: 17, legendary: 19, artifact: 21 }, "bleed save DC by quality (user decision)");
+  assert.deepEqual([R.BLEED_RULE.share, R.BLEED_RULE.minDice, R.BLEED_RULE.minutes, R.BLEED_RULE.save, R.BLEED_RULE.mixedFrom], [1 / 3, "1d6", 1, "con", 0.5]);
+  assert.deepEqual([R.STAT_DEBUFF_RULE.die, R.STAT_DEBUFF_RULE.until], ["1d4", "endOfNextTurn"]);
+  assert.ok(R.STAT_DEBUFF_RULE.clause.test("lowering all stats by 25") && R.STAT_DEBUFF_RULE.clause.test("Lowers all attributes of target by 2"));
+  assert.ok(!R.STAT_DEBUFF_RULE.clause.test("Lowers target's strength by 15"), "a single-stat clause is not this rule");
 });
 
 test("limited uses: Flurry follows DAILY_USES, blasts are capped lower", () => {

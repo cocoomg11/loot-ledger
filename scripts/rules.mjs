@@ -177,7 +177,8 @@ export const TIER = { poor: 0, common: 0, uncommon: 1, rare: 2, epic: 3, legenda
  * lines, or the main-stat passive (STAT_PASSIVE; on trinkets the check / save bonus) (see EFFECT_RIDERS).
  * Effects are never invented to fill a tier: an item with no convertible line just gets its plain bonus.
  * Ability SCORE increases are never given by the converter's own rules (only check / save bonuses); an official
- * base item that raises a score (section 10, OFFICIAL_BASES.scoreItems) keeps its own rules.
+ * base item that raises a score keeps its own rules, and is used only for items the GM picked as score items
+ * (section 10, OFFICIAL_BASES.scoreRule).
  */
 export const GEAR_BONUS = {
   0: { plain: 0, withEffect: 0 }, 1: { plain: 1, withEffect: 0 }, 2: { plain: 1, withEffect: 1 },
@@ -333,6 +334,42 @@ export const PROC_RULE = {
   onHitDice: { 0: "1d4", 1: "1d4", 2: "1d6", 3: "2d6", 4: "3d6" },
   burstDice: { 0: "2d6", 1: "3d6", 2: "4d6", 3: "6d6", 4: "8d6" }
 };
+/**
+ * Damage-over-time procs ("... damage over N sec", "... bleed for N damage"; decided by the user 2026-11-08): an actual
+ * bleed, not an instant blast. The proc ratio (total over-time damage / one normal hit) still picks only the band
+ * (critical, on-hit or blast, as PROC_RULE); the tier picks the dice and the uses.
+ *   trigger      on a hit; uses per Long Rest by tier as the blast had (BLAST_USES); a blast-band bleed requires
+ *                attunement, as the blast did.
+ *   effect       at the start of each of the target's turns, for up to `minutes` minute, it takes the bleed dice; a
+ *                Constitution saving throw at the end of each of its turns ends it. A new bleed restarts the duration
+ *                and does not stack.
+ *   share        dice per turn = the band's dice x share, rounded to whole dice, at least 1d6 (6d6 blast -> 2d6).
+ *   dc           save DC by quality: common 11 and poor 11 (two below uncommon; baseline gear never converts lines, so
+ *                only hand-picked uses would see it), uncommon 13, rare 15, epic 17, legendary 19, artifact 21 (two
+ *                above legendary, the same step).
+ *   mixedFrom    a proc with an instant part and an over-time tail ("... 40 Fire damage and an additional 9 damage over
+ *                6 sec") is a bleed only when the tail is at least this share of the total; otherwise the tail folds
+ *                into the instant damage line (the instant damage still picks the band; the tail is named in the
+ *                feature's source note) and is not flagged as a separate part.
+ * No automation yet (parked with the other damage riders): the feature text runs by hand; rider type "bleed" carries
+ * the structured data (formula, save, duration, timing, stacking) for a later automation pass. A heal-over-time line
+ * ("Heals wielder of N damage over T sec") is not damage and is never a bleed (GM review).
+ */
+export const BLEED_RULE = {
+  share: 1 / 3, minDice: "1d6", minutes: 1, save: "con", mixedFrom: 0.5,
+  dc: { poor: 11, common: 11, uncommon: 13, rare: 15, epic: 17, legendary: 19, artifact: 21 }
+};
+
+/**
+ * "Lowering all stats" / "lowers all attributes" clauses on a proc (decided by the user 2026-11-08): a Bane-shaped
+ * debuff built into the proc feature. The target subtracts `die` from its attack rolls and saving throws until the
+ * end of the wielder's next turn. A proc with damage keeps its damage half as is and adds the debuff; a debuff-only
+ * proc becomes an on-hit feature with DAILY_USES uses (flag nonDamageProc). Setting statDebuff (on by default); off:
+ * the clause is flagged (procParts) or, alone, sent to review as before. A single-stat clause ("lowers strength by
+ * N") is not this rule and stays in review.
+ */
+export const STAT_DEBUFF_RULE = { die: "1d4", until: "endOfNextTurn", clause: /\blower(?:s|ing)? all (?:stats|attributes)\b/i };
+
 /** A weapon's own "+ X - Y <School> Damage" line (every hit in the classic game): once-per-turn extra dice. */
 export const WEAPON_EXTRA_DICE = { 0: "1d4", 1: "1d4", 2: "1d6", 3: "1d8", 4: "1d10" };
 
@@ -567,8 +604,10 @@ export const SUFFIX_WEIGHTS = {
  *   tableConfidence  confidence of a hit in VARIANT_BASES (a decided rule, not a guess).
  *   weights          how much each kind of line counts (main stat, secondary stat, resistance, small resistance,
  *                    effect line, minor line, the +N backbone).
- *   scoreRule        ability-score bases only for a main stat of at least max(minValue, item level / perItemLevel),
- *                    and only on items stepsUp rarities above the base's own rarity.
+ *   scoreRule        ability-score bases only for items the GM picked on the review board (flags.loot-ledger.overrides
+ *                    .scoreItem; decided by the user 2026-11-08: main stats default to the stat variant), and only on
+ *                    items stepsUp rarities above the base's own rarity. minValue / perItemLevel: the main-stat size
+ *                    the review board shows as "big" when it suggests picking an item (no automatic effect).
  *   beltScore        belts that set Strength: the score the item's tier uses (purple 23, orange 25; see VARIANT_BASES).
  *   guard            specific-base strength guard: a base whose extra damage rides far more often (rank) or is far
  *                    bigger (average dice ratio) than the item's own line is never picked; the +N template is used.
@@ -607,7 +646,8 @@ export const OFFICIAL_BASES = {
  *   kind "protection"  minSchools or more small resistances to different schools, on the listed slot.
  *   kind "wand"        a wand whose only line is its damage line, by damage school.
  *   kind "armorName"   chest armour by name: armorBase (SRD armour key) with the normal +N (no compendium item).
- *   kind "score"       ability-score base for a big main stat (setting scoreItems); belt: chosen by beltScore.
+ *   kind "score"       ability-score base, only for an item the GM picked as a score item (overrides.scoreItem; setting
+ *                      scoreItems) whose main stat is this ability; belt: chosen by beltScore. Never automatic.
  *   kind "potion"      healing potions by item level (POTION_REFLAVOUR names).
  */
 export const VARIANT_BASES = [
@@ -710,7 +750,8 @@ export const LINE_BUDGET = { 1: 1, 2: 2, 3: 3, 4: 3 };
 export const FREE_RIDERS = new Set(["flavour", "cantrip", "thorns", "ward"]);
 export const LINE_WEIGHT = {
   resistance: 6, burstDamage: 5, extraAttack: 5, spellBonus: 5, spellSurge: 5, slotRecovery: 4, regeneration: 4,
-  extraDamage: 3, attackBonus: 3, acBonus: 3, heal: 3, healBonus: 3, parry: 2, critDice: 2, concentration: 2
+  extraDamage: 3, attackBonus: 3, acBonus: 3, heal: 3, healBonus: 3, parry: 2, critDice: 2, concentration: 2, debuff: 2
+  // bleed: weighs as the damage it replaced (variants.mjs lineWeight: blast band as burstDamage, else extraDamage)
 };
 
 /* -------------------------------------------- */

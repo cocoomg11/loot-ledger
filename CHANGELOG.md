@@ -1,9 +1,62 @@
 # Changelog
 
-## 0.4.0 (unreleased): former v0.3.0 development work
+## 0.4.0 (unreleased)
 
-Conversion rework in three parts (official bases, stat variants and line rules, collapse and review board). Conversion
-stays off by default; every new option is a setting that can be turned off. How it works: [docs/conversion.md](docs/conversion.md).
+The former v0.3.0 development work (5e conversion on build, review board, quality colours, random suffixes, official
+bases, stat variants, collapse) on top of 0.3.0's merchant tables, with wanderers-core 0.6.0 and the 2026-11-08
+conversion decisions. Conversion stays off by default; every new option is a setting that can be turned off. How it
+works: [docs/conversion.md](docs/conversion.md).
+
+### 0.4.0 release round (conversion only)
+- **Main stats default to the stat variant.** Ability-score bases are no longer chosen automatically. A new
+  per-item **Score item** toggle on the Review board (`flags.loot-ledger.overrides.scoreItem`) gives one picked
+  item the ability-score base for its main stat, one rarity above the base; such an item never also gets its own
+  ability's variant. The **Ability-score bases** setting now only allows picked score items.
+- **Coverage.** A base covers lines only through its own tags (matches carry them): no gap-fill variant for what a
+  base already does (a stealth cloak gets no extra Stealth bonus). A main stat is covered only by its stat tag, the
+  chosen variant's tag or a picked score tag, so Agility boots whose variant is Acrobatics keep Nimble (+1) with no
+  base; the stealth boots stay on the board as a candidate, and choosing them replaces the variant.
+- **Score tags.** Only a change that sets a score (upgrade / override) makes a score base; one that adds to it is a
+  stat bonus.
+- **Bleeds.** Damage-over-time procs are a lingering wound (start-of-turn damage for up to 1 minute, Constitution
+  save ends it, DC 13 / 15 / 17 / 19 by quality, a new wound restarts the duration) instead of an instant blast;
+  dice a third of the band's dice (at least 1d6), uses as the blast had. Not automated; the `bleed` rider stores the
+  data. A small over-time tail folds into the instant damage line.
+- **Stat-lowering clauses** become a Bane-shaped debuff (the target subtracts 1d4 from attack rolls and saving
+  throws until the end of the wielder's next turn), kept with the proc's damage. New world setting
+  **Stat-lowering procs** (on by default).
+- Healing procs are no longer read as damage (review); slows and multi-target procs are flagged.
+- **Active Effects**: dnd5e 6.x keys (`skills.X.roll.bonus`, `abilities.X.save.roll.bonus`,
+  `abilities.X.check.roll.bonus`, `attributes.init.roll.bonus`, `attributes.concentration.roll.bonus`,
+  `rolls.attack.*.bonus`) in the Foundry 14 shape (`system.changes`, `type: "add"`, `phase: "initial"`), for
+  converted items, variants and random suffixes. The old shimmed keys go away in dnd5e 7.0; a test fails on them.
+- **Review board**: biggest collapse groups first within a status; kind filters **Source text replaced** and
+  **Score item (picked)**.
+- Converter version 9, matcher version 3 (unreviewed converted items are rewritten on the next Build; accepted and
+  tweaked ones are kept unless `force`).
+
+### 0.4.0 release round (module)
+- Merged with 0.3.0 (merchant tables) and 0.2.5 (GM-only API, cached table indexes): one API gate
+  (`GM_ONLY_MEMBERS` / `OPEN_MEMBERS`; `auditHandAuthored` and `healthReport` stay GM only), the merchant settings in
+  the cleanup list, base sources read once per run.
+- wanderers-core 0.6.0. CI uses core's reusable `module-checks.yml@v0.6.0` with a committed `package-lock.json`
+  (eslint only), plus the module.json version check. Release workflow: tag format check before the hardened build.
+
+### Live checklist (test world; only a live world can confirm)
+- [ ] Module loads on Foundry 14 / dnd5e 6.0.6 with no console errors; the Merchants window and the Review board both
+  open (settings on).
+- [ ] A dry run (`api.build({ dryRun: true, convert: true })`) writes nothing and lists the items the 0.4.0 round
+  changed (score-base items now variants, bleeds, debuffs).
+- [ ] A converted item's transferred effect applies on an actor: a Constitution-save variant shows on the save, an
+  Acrobatics variant on the skill, an Initiative variant on Initiative; no dnd5e deprecation warning in the console.
+- [ ] Mark one item **Score item** on the Review board, build: it gets the ability-score base, no variant for that
+  ability, and its other lines as gap-fills. Toggle it off and build: back to the variant.
+- [ ] **Use this base** offers a related base (stealth boots on Agility boots); after a build the item has that base
+  and no Acrobatics gap-fill.
+- [ ] A bleed weapon's feature text reads clearly at the table and its uses (Long Rest) count down on the sheet.
+- [ ] The queue lists the biggest groups first; the Source text replaced and Score item filters work.
+- [ ] Accepted / tweaked items survive the converter version bump without `force`.
+- [ ] Merchant tables unchanged from 0.3.0 (plan, apply, restock on one merchant).
 
 ### Unreleased: official bases (phase 1, conversion only)
 - **Official bases.** When converting, an item can be re-based on a matching official item from your installed

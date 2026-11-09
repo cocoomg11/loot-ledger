@@ -9,12 +9,12 @@
  * Every number comes from rules.mjs section 9 (SUFFIX_RULE, SUFFIXES, SUFFIX_WEIGHTS) and the stat passive
  * sizes from STAT_PASSIVE. All wording is Loot Ledger's own; ability scores are never raised.
  */
+import { KEYS, aeChange, effectData } from "./effects.mjs";
 import { SUFFIX_RULE, SUFFIXES, SUFFIX_WEIGHTS, STAT_PASSIVE, SCHOOL_MAP, TIER, ATTUNE_RIDERS } from "./rules.mjs";
 
 const MODULE_ID = "loot-ledger";
 export const SUFFIX_GROUPS = Object.keys(SUFFIX_WEIGHTS);
 export const RANDOM_LINE = /(?:<|&lt;)Random enchantment(?:>|&gt;)/;
-const AE_ADD = 2; // CONST.ACTIVE_EFFECT_MODES.ADD
 const RANGED_TYPES = new Set(["Bow", "Gun", "Crossbow", "Thrown"]);
 
 /** Does this source tooltip HTML carry the random enchantment line? */
@@ -83,7 +83,7 @@ export function suffixPrice(price, power) {
 
 const wear = group => ["melee", "ranged", "caster", "shield"].includes(group) ? "holding" : "wearing";
 const usesText = n => `You can use this property ${n === 1 ? "once" : `${n} times`}, regaining all uses when you finish a Long Rest.`;
-const change = (key, value) => ({ key, mode: AE_ADD, value: String(value) });
+const change = (key, value) => aeChange(key, value);
 
 /** One stat's small effect at a size (STAT_PASSIVE values). {name, text, rider, changes} */
 export function statEffect(ability, size, hold) {
@@ -92,20 +92,20 @@ export function statEffect(ability, size, hold) {
   if (ability === "str") {
     const adv = size >= P.athleticsFrom;
     return {
-      name: P.name, changes: adv ? [change("system.skills.ath.roll.mode", 1)] : [],
+      name: P.name, changes: adv ? [change(KEYS.skillMode("ath"), 1)] : [],
       rider: { ...rider, effect: "carryingCapacity", multiplier: P.carryMultiplier, ...(adv ? { advantage: "skill:ath" } : {}) },
       text: `${hold}, your carrying capacity is ${P.carryMultiplier === 2 ? "doubled" : `multiplied by ${P.carryMultiplier}`}${adv ? ", and you have Advantage on Strength (Athletics) checks" : ""}.`
     };
   }
   if (ability === "dex") {
     const n = P.initiative[size];
-    return { name: P.name, changes: [change("system.attributes.init.bonus", `+ ${n}`)], rider: { ...rider, effect: "initiative", value: n },
+    return { name: P.name, changes: [change(KEYS.init, `+ ${n}`)], rider: { ...rider, effect: "initiative", value: n },
       text: `${hold}, you have a +${n} bonus to Initiative rolls.` };
   }
   if (ability === "con") {
     const half = P.hpPerLevel[size] < 1;
     const formula = half ? "floor(@details.level / 2)" : "@details.level";
-    return { name: P.name, changes: [change("system.attributes.hp.bonuses.overall", `+ ${formula}`)], rider: { ...rider, effect: "hpMax", formula },
+    return { name: P.name, changes: [change(KEYS.hpMax, `+ ${formula}`)], rider: { ...rider, effect: "hpMax", formula },
       text: `${hold}, your Hit Point maximum increases by ${half ? "1 for every two levels you have (rounded down)" : "an amount equal to your level"}.` };
   }
   if (ability === "int") {
@@ -144,7 +144,7 @@ export function suffixEffects(suffix, power, { group = "jewelry" } = {}) {
     const type = SCHOOL_MAP[suffix.school];
     const key = type.toLowerCase();
     if (power >= R.resistFrom) add(`${type} Ward`, `${hold}, you have Resistance to ${type} damage.`,
-      { type: "resistance", damageType: key, trigger: "equipped" }, [change("system.traits.dr.value", key)]);
+      { type: "resistance", damageType: key, trigger: "equipped" }, [change(KEYS.resistance, key)]);
     else add(`${type} Ward`, `${hold}, you have Advantage on saving throws against effects that deal ${type} damage.`,
       { type: "saveAdvantage", damageType: key, trigger: "equipped" });
     return out;
@@ -166,7 +166,7 @@ export function suffixEffects(suffix, power, { group = "jewelry" } = {}) {
   }
   if (suffix.kind === "defense") {
     if (power >= suffix.acFrom) add("Guarded", `${hold}, you have a +${suffix.ac} bonus to Armor Class.`,
-      { type: "acBonus", value: suffix.ac, trigger: "equipped" }, [change("system.attributes.ac.bonus", `+ ${suffix.ac}`)]);
+      { type: "acBonus", value: suffix.ac, trigger: "equipped" }, [change(KEYS.ac, `+ ${suffix.ac}`)]);
     else {
       const uses = suffix.uses[power];
       add("Guarded", `${hold}, when a creature you can see hits you with an attack roll, you can take a Reaction to gain a +${suffix.reactionAc} bonus to Armor Class against that attack, possibly turning the hit into a miss. ${usesText(uses)}`,
@@ -245,11 +245,11 @@ export function suffixUpdate(data, { suffixId = null, reroll = false, rng = Math
   const attune = effects.riders.some(r => ATTUNE_RIDERS.has(r.type));
   if (!("attunement" in base)) base.attunement = data.system?.attunement ?? "";
   update["system.attunement"] = attune ? "required" : base.attunement;
-  const aes = effects.changes.length ? [{
+  const fx = effectData({
     name: `${suffix.label.replace(/^of (the )?/, "")} (suffix)`.replace(/^\w/, c => c.toUpperCase()),
-    img: data.img ?? "icons/svg/aura.svg", transfer: true, disabled: false, changes: effects.changes,
-    flags: { [MODULE_ID]: { suffix: suffix.id } }
-  }] : [];
+    img: data.img ?? "icons/svg/aura.svg", changes: effects.changes, flags: { [MODULE_ID]: { suffix: suffix.id } }
+  });
+  const aes = fx ? [fx] : [];
   const removeEffects = (data.effects ?? []).filter(e => e.flags?.[MODULE_ID]?.suffix).map(e => e._id);
   return { update, effects: aes, removeEffects, suffix, power, features: effects.features };
 }
